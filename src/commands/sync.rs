@@ -72,6 +72,7 @@ pub fn run() -> io::Result<()> {
     if added == 0 {
         println!("{}", "Manifest is already in sync.".green());
     } else {
+        crate::core::log::append("sync", &format!("{added} file(s) synced"))?;
         println!(
             "\nSynced {} new file(s) into manifest.",
             added.to_string().green()

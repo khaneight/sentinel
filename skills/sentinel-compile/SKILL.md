@@ -68,7 +68,11 @@ Run: `sentinel lint`
 
 Report any issues found and fix them if straightforward (missing frontmatter fields, etc.). Don't fix broken links to articles that simply haven't been written yet — those are natural TODOs.
 
-## Step 7: Summary
+## Step 7: Log
+
+Run: `sentinel log compile "{N} articles created/updated from {M} raw docs: {list of filenames}"`
+
+## Step 8: Summary
 
 Report what was compiled:
 - How many raw docs processed

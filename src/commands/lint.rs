@@ -115,6 +115,8 @@ pub fn run() -> io::Result<()> {
         ));
     }
 
+    crate::core::log::append("lint", &format!("{} issues found", issues.len()))?;
+
     // Report
     if issues.is_empty() {
         println!("{}", "No issues found.".green());

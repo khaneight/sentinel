@@ -1,10 +1,11 @@
-pub mod init;
+pub mod graph;
+pub mod index;
 pub mod ingest;
 pub mod ingest_repo;
-pub mod status;
-pub mod uncompiled;
-pub mod sync;
-pub mod index;
+pub mod init;
 pub mod lint;
+pub mod log;
 pub mod search;
-pub mod graph;
+pub mod status;
+pub mod sync;
+pub mod uncompiled;

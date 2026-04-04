@@ -65,6 +65,8 @@ pub fn run(path: &str, domain: &str, origin: &str, title: Option<&str>) -> io::R
     });
     manifest.save()?;
 
+    crate::core::log::append("ingest", &format!("{display_title} → {rel_path}"))?;
+
     println!("Ingested: {rel_path}");
     println!("  title:  {display_title}");
     println!("  domain: {domain}");

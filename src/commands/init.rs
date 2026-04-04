@@ -37,6 +37,15 @@ pub fn run() -> io::Result<()> {
         fs::write(&link_graph_path, r#"{"forward":{},"backlinks":{}}"#)?;
     }
 
+    // Create activity log if it doesn't exist
+    let log_path = paths::log_path();
+    if !log_path.exists() {
+        fs::write(
+            &log_path,
+            "# Activity Log\n\n*Append-only record of sentinel operations. Parseable: `grep \"^## \\[\" meta/log.md`*\n\n",
+        )?;
+    }
+
     // Create wiki article template
     let wiki_template = paths::templates_dir().join("wiki-article.md");
     if !wiki_template.exists() {
@@ -98,11 +107,13 @@ ingested:
         )?;
     }
 
+    crate::core::log::append("init", "Archive initialized")?;
+
     println!("Archive initialized at {}", root.display());
     println!("  raw/       — source documents");
     println!("  wiki/      — compiled knowledge");
     println!("  index/     — auto-generated indexes");
-    println!("  meta/      — manifest and link graph");
+    println!("  meta/      — manifest, link graph, activity log");
     println!("  templates/ — article templates");
 
     Ok(())

@@ -53,7 +53,11 @@ For each key concept from the research, create or update wiki articles in `wiki/
 Run: `sentinel index`
 Run: `sentinel lint`
 
-## Step 6: Report
+## Step 6: Log
+
+Run: `sentinel log research "{topic}: {N} articles created/updated: {list of filenames}"`
+
+## Step 7: Report
 
 Summarize:
 - What was researched

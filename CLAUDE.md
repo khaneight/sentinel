@@ -36,4 +36,5 @@ The archive's `.claude/skills` is a symlink to this repo's `skills/` directory, 
 
 - Archive path is hardcoded in `src/core/paths.rs` — must become configurable before distribution
 - `ingest-repo` command is a stub (not yet implemented)
-- No README.md, no CI/CD pipeline
+- `meta/log.md` is append-only — commands that mutate state (init, ingest, sync, index, lint) auto-append entries
+- No CI/CD pipeline

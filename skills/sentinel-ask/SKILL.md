@@ -35,3 +35,7 @@ Provide a thorough answer that:
 ## Step 4: Optionally file the answer
 
 If the answer reveals interesting connections or synthesis worth preserving, offer to create a new wiki article capturing the insight. Use `origin: hybrid` if it combines the user's ideas with your synthesis.
+
+## Step 5: Log
+
+Run: `sentinel log ask "{question} — answered from {N} articles{, filed as new-article.md if applicable}"`

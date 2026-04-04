@@ -153,6 +153,8 @@ pub fn run() -> io::Result<()> {
     }
     std::fs::write(paths::index_dir().join("_orphans.md"), orphans_md)?;
 
+    crate::core::log::append("index", &format!("{} articles indexed", sorted.len()))?;
+
     println!("{}", "Index rebuilt.".green());
     println!("  Articles indexed: {}", sorted.len());
     println!("  Domains:          {}", by_domain.len());

@@ -73,6 +73,14 @@ enum Commands {
     /// Print the backlink graph
     Graph,
 
+    /// Append an entry to the activity log
+    Log {
+        /// Operation name (e.g. compile, research, improve, ask)
+        operation: String,
+
+        /// Description of what happened
+        detail: String,
+    },
 }
 
 fn main() {
@@ -93,7 +101,7 @@ fn main() {
         Commands::Lint => commands::lint::run(),
         Commands::Search { query } => commands::search::run(&query),
         Commands::Graph => commands::graph::run(),
-
+        Commands::Log { operation, detail } => commands::log::run(&operation, &detail),
     };
 
     if let Err(e) = result {

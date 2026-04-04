@@ -57,7 +57,11 @@ For issues that require judgment or new content:
 Run: `sentinel index`
 Run: `sentinel lint`
 
-## Step 6: Report
+## Step 6: Log
+
+Run: `sentinel log improve "{N} issues fixed, {M} suggestions: {brief summary}"`
+
+## Step 7: Report
 
 Summarize:
 - Issues found and fixed

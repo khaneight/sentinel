@@ -35,6 +35,10 @@ pub fn link_graph_path() -> PathBuf {
     meta_dir().join("link-graph.json")
 }
 
+pub fn log_path() -> PathBuf {
+    meta_dir().join("log.md")
+}
+
 /// Default domains that get created on init.
 pub const DEFAULT_DOMAINS: &[&str] = &["philosophy", "coding", "research"];
 
