@@ -1,0 +1,15 @@
+[package]
+name = "sentinel"
+version = "0.1.0"
+edition = "2024"
+description = "CLI tooling for the /archive knowledge base"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+walkdir = "2"
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
+colored = "2"
