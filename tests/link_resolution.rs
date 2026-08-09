@@ -416,3 +416,45 @@ fn a_greek_link_resolves_across_normalisation_forms() {
 
     assert_eq!(a.code(&["lint"]), 0);
 }
+
+#[test]
+fn an_invisible_character_does_not_break_a_link() {
+    // A soft hyphen or zero-width space pasted into a link renders as nothing,
+    // so the link and the filename look identical on screen. Treating it as a
+    // separator made the link resolve to `fi-le` and report broken.
+    let a = archive_with_source();
+    a.write(
+        "wiki/philosophy/free-will.md",
+        &with_body("Free Will", "Leaf."),
+    );
+    a.write(
+        "wiki/philosophy/refers.md",
+        &with_body(
+            "Refers",
+            "See [[free\u{00ad}-will]] and [[free-\u{200b}will]].",
+        ),
+    );
+
+    let v = a.json(&["lint", "--rule", "broken-link"]);
+    assert_eq!(
+        v["findings"].as_array().unwrap().len(),
+        0,
+        "invisible characters split a link that looked correct:\n{v}"
+    );
+}
+
+#[test]
+fn a_ligature_from_extracted_text_resolves() {
+    // Text lifted out of a PDF is full of these, and this tool ingests PDFs.
+    let a = archive_with_source();
+    a.write(
+        "wiki/philosophy/first-principles.md",
+        &with_body("First", "Leaf."),
+    );
+    a.write(
+        "wiki/philosophy/refers.md",
+        &with_body("Refers", "See [[\u{fb01}rst-principles]]."),
+    );
+
+    assert_eq!(a.code(&["lint"]), 0);
+}

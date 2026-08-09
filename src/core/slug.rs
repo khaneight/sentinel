@@ -15,12 +15,24 @@
 /// Obsidian resolves links case-insensitively, so this also matches what the
 /// user's editor already does.
 ///
-/// Also folds Unicode normalisation forms: `é` written as one codepoint and as
-/// `e` plus a combining acute canonicalise the same. macOS has historically
-/// returned decomposed filenames while Linux preserves whatever was written,
-/// and this archive's subject matter is full of Greek and accented terms.
+/// Folding is by **NFKC**, which handles three further ways the same word
+/// arrives looking different:
 ///
-/// Deliberately *not* handled: plurals and stemming. `derived-state` and
+/// - decomposed vs precomposed accents (`é` as one codepoint or two) — macOS
+///   has historically returned decomposed filenames, Linux preserves what was
+///   written, and this archive's subject matter is full of Greek and accents
+/// - ligatures (`ﬁle` vs `file`) — pervasive in text extracted from PDFs,
+///   which this tool ingests
+/// - full-width Latin (`ｆｉｌｅ`) — produced by CJK input methods
+///
+/// Format characters are **dropped rather than treated as separators**. A
+/// zero-width space or a soft hyphen inside a word is invisible, and turning
+/// it into a `-` produced `fi-le` from something that looked exactly like
+/// `file`. Soft hyphens in particular survive copy-paste out of PDFs in bulk.
+///
+/// Deliberately *not* handled: plurals and stemming, and the Turkish dotted
+/// capital `İ`, whose lowercase is `i` plus a combining dot above. Folding that
+/// correctly is locale-dependent, and guessing wrong merges two real words. `derived-state` and
 /// `derived-states` stay distinct. Merging them needs a stemmer, and a wrong
 /// merge silently collapses two real concepts — worse than a missed one.
 pub fn canonical(target: &str) -> String {
@@ -29,12 +41,14 @@ pub fn canonical(target: &str) -> String {
     let mut out = String::with_capacity(target.len());
     let mut pending_separator = false;
 
-    // Normalise before folding. The same accented character can be one
-    // codepoint or a base plus a combining mark, and the two render
-    // identically everywhere a human would look — so a link written one way
-    // against a filename stored the other way reported as broken against an
-    // article sitting right there, with nothing on screen to show why.
-    for ch in target.trim().nfc() {
+    // Normalise before folding, so that text which renders identically
+    // canonicalises identically regardless of how it was encoded.
+    for ch in target.trim().nfkc() {
+        if is_format_character(ch) {
+            // Invisible: contributes nothing to identity, and must not become
+            // a separator.
+            continue;
+        }
         if ch.is_alphanumeric() {
             if pending_separator && !out.is_empty() {
                 out.push('-');
@@ -48,6 +62,23 @@ pub fn canonical(target: &str) -> String {
         }
     }
     out
+}
+
+/// Characters that carry no identity: invisible formatting that survives
+/// copy-paste and renders as nothing.
+///
+/// Rust's standard library does not expose `Default_Ignorable_Code_Point`, so
+/// this is the practical subset — the ones that actually turn up in pasted
+/// prose and in text extracted from PDFs.
+fn is_format_character(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{00ad}'            // soft hyphen
+        | '\u{200b}'..='\u{200f}' // zero-width space/joiner/non-joiner, LRM, RLM
+        | '\u{2028}'..='\u{202e}' // line/paragraph separator, bidi embedding
+        | '\u{2060}'..='\u{2064}' // word joiner, invisible operators
+        | '\u{feff}'            // byte-order mark
+    )
 }
 
 #[cfg(test)]
@@ -103,6 +134,42 @@ mod tests {
         let decomposed = "\u{397}\u{313}\u{3b8}\u{3b9}\u{3ba}\u{3b1}\u{301}";
         assert_ne!(precomposed, decomposed);
         assert_eq!(canonical(precomposed), canonical(decomposed));
+    }
+
+    #[test]
+    fn invisible_characters_do_not_split_a_word() {
+        // These render as nothing, so `fi<ZWSP>le` looks exactly like `file`.
+        // Treating them as separators produced `fi-le` and a broken link
+        // against an article whose name looked identical on screen.
+        for invisible in ['\u{200b}', '\u{200c}', '\u{200d}', '\u{00ad}', '\u{feff}'] {
+            let spelled = format!("fi{invisible}le");
+            assert_ne!(spelled, "file", "the test is meaningless otherwise");
+            assert_eq!(canonical(&spelled), "file", "U+{:04X}", invisible as u32);
+        }
+    }
+
+    #[test]
+    fn ligatures_fold_to_their_letters() {
+        // Text extracted from a PDF is full of these.
+        assert_eq!(canonical("\u{fb01}le"), "file");
+        assert_eq!(canonical("\u{fb02}ow"), "flow");
+    }
+
+    #[test]
+    fn full_width_latin_folds_to_ascii() {
+        assert_eq!(canonical("\u{ff26}\u{ff49}\u{ff4c}\u{ff45}"), "file");
+    }
+
+    #[test]
+    fn a_bidi_mark_does_not_change_identity() {
+        assert_eq!(canonical("\u{200e}free will"), canonical("free will"));
+    }
+
+    #[test]
+    fn visible_punctuation_is_still_a_separator() {
+        // Dropping format characters must not turn into dropping punctuation.
+        assert_eq!(canonical("free will"), "free-will");
+        assert_eq!(canonical("free/will"), "free-will");
     }
 
     #[test]

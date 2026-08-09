@@ -116,7 +116,11 @@ Every match between a wikilink and an article goes through `core::slug::canonica
 
 This is not cosmetic. Before it, the same concept referenced three ways produced three separate entries in `links::wanted`, each with one referrer — so `sentinel next` could rank a rarely-mentioned gap above a popular one, and could recommend writing an article that already existed under a different capitalisation. `/sentinel-grow` acting on that would have created a duplicate.
 
-It also folds Unicode normalisation forms, via NFC. The same accented character can be one codepoint or a base plus a combining mark, and the two render identically everywhere a human would look — so a link written one way against a filename stored the other way reported as broken against an article sitting right there, with nothing on screen to explain it. macOS has historically returned decomposed filenames while Linux preserves whatever was written, and this archive's subject matter is full of Greek and accented terms.
+It also folds Unicode compatibility forms, via **NFKC**, and drops invisible format characters instead of treating them as separators. That covers four ways the same word arrives looking different: decomposed vs precomposed accents, ligatures (`ﬁle`, pervasive in text extracted from PDFs — which this tool ingests), full-width Latin from CJK input methods, and zero-width/soft-hyphen characters that survive copy-paste. The last is the nastiest: `fi<ZWSP>le` renders exactly like `file`, and turning the invisible character into a `-` produced a broken link against an article whose name looked identical on screen.
+
+Not folded, and documented as such at the call site: the Turkish dotted capital `İ`, whose lowercase is `i` plus a combining dot. Correct folding there is locale-dependent and a wrong guess merges two real words.
+
+The earlier note on NFC: The same accented character can be one codepoint or a base plus a combining mark, and the two render identically everywhere a human would look — so a link written one way against a filename stored the other way reported as broken against an article sitting right there, with nothing on screen to explain it. macOS has historically returned decomposed filenames while Linux preserves whatever was written, and this archive's subject matter is full of Greek and accented terms.
 
 Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-states` stay distinct — merging needs a stemmer, and a wrong merge silently collapses two real concepts, which is worse than a missed one.
 
