@@ -57,7 +57,10 @@ When you do:
 - `origin: hybrid` if it joins the user's ideas to your synthesis; `origin: researched` if it is entirely yours.
 - `sources:` must cite the raw documents behind the articles you drew on, so the new article is reachable from the provenance trail.
 - Add `[[wikilinks]]` from the articles it connects, so it is not born an orphan.
-- Follow `sentinel schema`, then run `sentinel index` and `sentinel lint`.
+- Follow `sentinel schema`, then run `sentinel index` and `sentinel lint`. If
+  `sentinel index` refuses because a wiki file could not be read, do not retry
+  or work around it — report the named files and stop; rebuilding from a partial
+  view would delete whatever they account for.
 
 Offer this to the user rather than doing it unprompted, and say what the connection is so they can judge whether it is real.
 

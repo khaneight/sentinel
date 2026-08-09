@@ -61,6 +61,10 @@ Not all warnings should be "fixed":
 - **Orphans.** `sentinel next --json` reports the count; `index/_orphans.md` lists them. An orphan is real knowledge that cannot be reached by following the graph. Find articles that should link to it and add the link where it reads naturally. Do not add a link just to clear the warning — a forced connection is worse than an orphan, because it corrupts the graph everything else reasons over.
 - **Thin articles.** A stub that only restates its title is not knowledge. Either expand it from its `sources:`, or merge it into a fuller article and redirect the links.
 - **Stale drafts.** `status: draft` untouched for months. Read it: if it is finished, promote to `review`. If it is abandoned, say so and ask.
+- **Sources that should not be there.** If a raw document is genuinely obsolete,
+  `sentinel rm` deletes it — and refuses if any article cites it, naming them,
+  because that would sever the provenance trail permanently. Do not pass
+  `--force` on your own judgement; deleting cited provenance is the user's call.
 - **Contradictions.** Two articles asserting incompatible things is the most valuable finding in this whole skill and the only one no tooling can detect. Report it; do not silently resolve it — especially not between `authored` articles, where the disagreement may be the user's own thinking having changed and is theirs to reconcile.
 
 ## Step 5: Rebuild and verify
@@ -69,6 +73,14 @@ Not all warnings should be "fixed":
 sentinel index
 sentinel lint
 ```
+
+**If `sentinel index` refuses**, it will say some wiki file could not be read.
+It is not being cautious for its own sake: rebuilding from a partial view
+deletes everything the unreadable files account for. Do not retry it, and do not
+work around it. Report the named files to the user — a permissions problem, a
+lock, or a sync client mid-write — and stop. The same refusal applies to
+`sentinel mv` and `sentinel rm`.
+
 
 Confirm the error count reached 0 and that the warning count moved in the direction you intended. If a fix *increased* findings, say so rather than burying it.
 

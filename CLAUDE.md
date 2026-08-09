@@ -40,6 +40,8 @@ Skills are prefixed `sentinel-` to avoid namespace collisions:
 - `sentinel-research` — research a topic and add findings
 - `sentinel-improve` — health check and quality improvement
 
+**A new failure mode in the CLI is a change to the skills.** The refusal behaviour added by `index`, `mv`, and `rm` shipped sixteen PRs after the skills were written, and the skills went on describing a tool that always succeeded — so an agent hitting a locked file got an error it had no instruction for, mid-loop. `tests/skills.rs` now asserts that any skill invoking a command which can refuse also says what to do about it, and that every mutating command is reachable from some skill.
+
 `tests/skills.rs` enforces what can be enforced about a prompt: required frontmatter keys, `name:` matching the directory, that every `sentinel <cmd>` appearing in code actually exists, that none instruct reading `index/_master.md`, that each defines empty-`$ARGUMENTS` behaviour and defers to `sentinel schema`, and that `sentinel-grow` states its budget and stop conditions. Adding a skill means satisfying those.
 
 The archive's `.claude/skills` is a symlink to this repo's `skills/` directory, so changes here are immediately available in the archive context.

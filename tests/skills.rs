@@ -240,3 +240,43 @@ fn readme_documents_every_shipped_skill() {
         );
     }
 }
+
+#[test]
+fn skills_that_rebuild_say_what_to_do_when_the_rebuild_refuses() {
+    // `index`, `mv`, and `rm` refuse on a partial view (#17, #18, #20). That
+    // refusal only protects the archive if the agent driving it knows not to
+    // retry or route around it — and those behaviours were added sixteen PRs
+    // after the skills were written, without the skills being told.
+    for (dir, path, text) in skill_files() {
+        let rebuilds = command_invocations(&text).iter().any(|(_, cmd)| {
+            cmd.starts_with("index") || cmd.starts_with("mv") || cmd.starts_with("rm")
+        });
+        if !rebuilds {
+            continue;
+        }
+        assert!(
+            text.contains("could not be read"),
+            "{} runs a command that can refuse on a partial view but never says \
+             what to do about it ({dir})",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn every_mutating_command_is_reachable_from_some_skill() {
+    // A command no skill mentions is one an agent will never choose. `rm`
+    // shipped in #20 and no skill knew it existed.
+    let all: String = skill_files().iter().map(|(_, _, t)| t.clone()).collect();
+    for command in [
+        "sentinel index",
+        "sentinel sync",
+        "sentinel mv",
+        "sentinel rm",
+    ] {
+        assert!(
+            all.contains(command),
+            "no skill mentions `{command}`, so an agent will never reach for it"
+        );
+    }
+}

@@ -38,7 +38,11 @@ Stop and report when **any** of these holds. Do not push past one.
    generative article would have pushed it back up and halted the loop right
    after its best work.
 4. **Same target twice** — the top target is one you already worked on this run. You did not actually complete it; investigate rather than retry.
-5. **Judgement required** — the recommended action needs a decision that is the user's to make (see *Escalate* below).
+5. **Judgement required** — the recommended action needs a decision that is the
+   user's to make (see *Escalate* below).
+6. **A command refuses because something could not be read** — see *After
+   acting* below. This is not a stall to work around; the archive is not
+   fully legible and the loop cannot safely continue.
 
 Record `progress` and the targets you have worked on after every iteration.
 Conditions 3 and 4 depend on it. `progress` comes back on the same
@@ -109,7 +113,9 @@ this archive*, which is usually narrower and more specific than the general
 topic. An article on `[[virtue]]` written for a Stoicism-heavy wiki should not
 be a general encyclopedia entry.
 
-`refs` is a sample; `ref_count` is the true total. If `variants` is present, the
+`targets` is itself a sample, capped at five: `target_count` is how many gaps
+there actually are, and human output ends with "... and N more". Within a
+target, `refs` is a sample and `ref_count` is the true total. If `variants` is present, the
 concept has been spelled inconsistently across articles — name the new file
 after the canonical `id`, and consider tidying the outliers.
 
@@ -131,6 +137,14 @@ sentinel lint --summary
 ```
 
 `lint` must exit 0. If your work introduced an **error**, fix it before the next iteration — never carry one forward.
+
+**If `sentinel index` refuses**, it will say some wiki file could not be read.
+It is not being cautious for its own sake: rebuilding from a partial view
+deletes everything the unreadable files account for. Do not retry it, and do not
+work around it. Report the named files to the user — a permissions problem, a
+lock, or a sync client mid-write — and stop. The same refusal applies to
+`sentinel mv` and `sentinel rm`.
+
 
 ```
 sentinel log grow "iteration {n}: {action} — {what you did}"

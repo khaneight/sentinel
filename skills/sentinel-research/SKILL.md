@@ -67,6 +67,14 @@ sentinel index
 sentinel lint
 ```
 
+**If `sentinel index` refuses**, it will say some wiki file could not be read.
+It is not being cautious for its own sake: rebuilding from a partial view
+deletes everything the unreadable files account for. Do not retry it, and do not
+work around it. Report the named files to the user — a permissions problem, a
+lock, or a sync client mid-write — and stop. The same refusal applies to
+`sentinel mv` and `sentinel rm`.
+
+
 Fix every **error**. Leave `broken-link` warnings alone — they are the gaps your research just identified, and `sentinel next` will rank them.
 
 ## Step 6: Log
