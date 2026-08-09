@@ -86,6 +86,20 @@ enum Commands {
         name: Option<String>,
     },
 
+    /// Move or rename a raw document, repointing every citation to it
+    Mv {
+        /// Existing raw document: archive-relative path, or a unique filename
+        from: String,
+
+        /// New location: archive-relative path under raw/, or a bare filename
+        /// to rename it within its current domain
+        to: String,
+
+        /// Report what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Reconcile the manifest with raw/ (register new files, drop deleted ones)
     Sync {
         /// Report what would change without writing the manifest
@@ -233,6 +247,7 @@ fn run(cli: Cli) -> io::Result<i32> {
         Commands::IngestRepo { path, domain, name } => {
             commands::ingest_repo::run(&path, &domain, name.as_deref()).map(|()| 0)
         }
+        Commands::Mv { from, to, dry_run } => commands::mv::run(&from, &to, dry_run).map(|()| 0),
         Commands::Sync { dry_run } => commands::sync::run(dry_run).map(|()| 0),
         Commands::Status => commands::status::run().map(|()| 0),
         Commands::Next { action } => {

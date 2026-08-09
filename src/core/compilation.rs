@@ -88,14 +88,14 @@ impl Compilation {
 }
 
 /// Resolves a `sources:` citation to a manifest key.
-struct SourceIndex<'m> {
+pub struct SourceIndex<'m> {
     by_rel_path: BTreeSet<&'m str>,
     /// Basename → manifest keys. Only unambiguous basenames are usable.
     by_basename: HashMap<&'m str, Vec<&'m str>>,
 }
 
 impl<'m> SourceIndex<'m> {
-    fn new(manifest: &'m Manifest) -> Self {
+    pub fn new(manifest: &'m Manifest) -> Self {
         let mut by_rel_path = BTreeSet::new();
         let mut by_basename: HashMap<&str, Vec<&str>> = HashMap::new();
 
@@ -119,7 +119,7 @@ impl<'m> SourceIndex<'m> {
     /// `/raw/philosophy/x.md`, `[[x]]`. Exact paths are matched first; a bare
     /// filename is accepted only when exactly one raw document has that name,
     /// because guessing between two is worse than reporting the ambiguity.
-    fn resolve(&self, source: &str) -> Option<String> {
+    pub fn resolve(&self, source: &str) -> Option<String> {
         let cleaned = normalize(source);
         if cleaned.is_empty() {
             return None;

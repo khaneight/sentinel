@@ -123,6 +123,7 @@ sentinel lint            # validate frontmatter, links, structure
 sentinel search "query"  # ranked search (top 20; --limit to widen)
 sentinel graph --node X  # what surrounds one article (--depth N)
 sentinel lint --summary  # counts per rule instead of every finding
+sentinel mv old.md new.md  # move a source, repointing every citation
 sentinel log op "detail" # append to activity log (meta/log.md)
 ```
 

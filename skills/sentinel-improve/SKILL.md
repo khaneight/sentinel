@@ -43,7 +43,7 @@ Every `severity: "error"` finding, in this order — earlier ones can mask later
 | `duplicate-slug` | Rename one file so its stem is unique wiki-wide, then update every `[[wikilink]]` that pointed at it. Search for the old slug before renaming. |
 | `missing-field` | Add `title`, `domain`, or `origin`. Infer from the article's content and location; do not guess `origin` — check whether the source is the user's writing or research. |
 | `invalid-origin` / `invalid-status` | Correct to a value `sentinel schema` lists. |
-| `unresolved-source` | The article cites a raw document that does not exist or is ambiguous. Find the real path with `sentinel uncompiled --json` or by looking in `raw/`. If the source is genuinely gone, remove the citation and say so in the report — do not invent one. |
+| `unresolved-source` | The article cites a raw document that does not exist or is ambiguous. Find the real path with `sentinel uncompiled --json` or by looking in `raw/`. If the source was renamed or moved, use `sentinel mv` from now on — it repoints every citation in one step. If it is genuinely gone, remove the citation and say so in the report; do not invent one. |
 
 Re-run `sentinel lint` after this pass. It should exit 0.
 

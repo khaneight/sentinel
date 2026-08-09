@@ -109,6 +109,24 @@ pub fn parse_content(content: &str) -> ParsedMarkdown {
     }
 }
 
+/// Byte offset just past the closing `---` line, if there is a frontmatter block.
+///
+/// Lets a caller edit inside the block without touching the body — and without
+/// round-tripping through serde, which would reorder keys and strip comments
+/// from a file the user may also edit by hand.
+pub fn block_end(content: &str) -> Option<usize> {
+    let rest = strip_opening_fence(content)?;
+    let prefix = content.len() - rest.len();
+    let mut offset = 0usize;
+    for line in rest.split_inclusive('\n') {
+        if is_fence(line) {
+            return Some(prefix + offset + line.len());
+        }
+        offset += line.len();
+    }
+    None
+}
+
 /// Consume a leading `---` line, returning everything after it.
 fn strip_opening_fence(content: &str) -> Option<&str> {
     let rest = content.strip_prefix("---")?;

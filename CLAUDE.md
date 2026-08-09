@@ -26,7 +26,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. The tre
 - `src/core/lint.rs` — lint rules (`analyze`), finding type, severity model, stable ordering
 - `src/core/output.rs` — output format switch, JSON envelope, exit-code constants
 - `src/core/text.rs` — display helpers (character-safe truncation)
-- `src/commands/` — one module per CLI subcommand: init, config, schema, ingest, ingest-repo, sync, status, next, uncompiled, index, lint, search, graph
+- `src/commands/` — one module per CLI subcommand: init, config, schema, ingest, ingest-repo, mv, sync, status, next, uncompiled, index, lint, search, graph
 - `tests/` — integration tests that drive the compiled binary against temporary archives
 
 ## Skills
@@ -112,6 +112,18 @@ This is not cosmetic. Before it, the same concept referenced three ways produced
 Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-states` stay distinct — merging needs a stemmer, and a wrong merge silently collapses two real concepts, which is worse than a missed one.
 
 Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
+
+## Moving raw documents
+
+`sentinel mv <from> <to>` moves a raw document and rewrites every `sources:` citation that pointed at it. Reorganising `raw/` is inevitable; doing it by hand turns each citation into an `unresolved-source` error, and the repair was manual and easy to do incompletely.
+
+Three properties it has to hold:
+
+- **Citations are matched the same way the compile loop matches them** — via `compilation::SourceIndex` — so `./raw/d/x.md`, `d/x.md`, and a bare `x.md` are all repointed, not just the exact spelling.
+- **The edit is textual and scoped to the frontmatter block.** Round-tripping through serde would reorder keys and strip comments from a file the user may also edit by hand. `frontmatter::block_end` gives the boundary; the body is never rewritten, so a path mentioned in prose stays as written.
+- **Destinations must stay under `raw/`.** It is the provenance floor — moving a source out of it would orphan every article compiled from it with no way to repair the link.
+
+`--dry-run` reports the move and every article that would be rewritten.
 
 ## Bounded output
 
