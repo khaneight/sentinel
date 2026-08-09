@@ -129,6 +129,8 @@ This covers directories as well as files. `markdown_files` returns walk errors r
 
 `mv` calls `require_complete()` for the same reason `index` does: it rewrites the articles it can see and moves the file regardless, so an article it could not read keeps a citation to a path that no longer exists.
 
+The same distinction applies to `meta/link-graph.json`. `LinkGraph::load()` returns an empty graph when the file is **absent** — no `index` has run yet, which is legitimately empty — and an error when it exists but cannot be parsed. Collapsing the two reported a confident "Orphan pages: 0" derived from an unparseable file, and dropped `connect` from `next`'s backlog as though there were nothing to do. Both now disclose it via `link_graph_error`.
+
 `status` and `lint` carry an `unreadable` list in their JSON and print it. A count of zero articles, or a clean lint, computed over files that could not be opened is not a fact about the archive — it is a fact about what was legible, and the difference has to be visible.
 
 ## What `sync` may and may not throw away

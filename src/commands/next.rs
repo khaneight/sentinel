@@ -137,6 +137,11 @@ struct Progress {
     raw_documents: usize,
     uncompiled: usize,
     errors: usize,
+    /// Set when the link graph exists but could not be parsed. Orphans could
+    /// not be counted, so `connect` is absent from the backlog for that reason
+    /// rather than because there is nothing to do.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_graph_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -171,7 +176,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
     let wanted = links::wanted(&articles);
-    let orphans = orphan_articles(&articles);
+    let (orphans, graph_error) = orphan_articles(&articles);
     let stale = stale_drafts(&articles);
 
     let progress = Progress {
@@ -179,6 +184,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
         raw_documents: manifest.count(),
         uncompiled: uncompiled.len(),
         errors: errors.len(),
+        link_graph_error: graph_error,
     };
 
     let backlog: Vec<BacklogEntry> = [
@@ -415,6 +421,10 @@ fn review(
 }
 
 fn report_human(rec: &Recommendation) {
+    if let Some(note) = &rec.progress.link_graph_error {
+        println!("  {} {note}", "!".red());
+        println!("     orphans could not be counted.\n");
+    }
     if rec.action == Action::None {
         println!("{} {}", "✓".green(), rec.reason);
         return;
@@ -463,14 +473,17 @@ fn report_human(rec: &Recommendation) {
 /// Read from the saved graph rather than recomputed, because `orphans` is
 /// defined over the graph `index` publishes — recomputing it here could
 /// disagree with `_orphans.md` and leave the agent chasing a phantom.
-fn orphan_articles(articles: &[LoadedArticle]) -> Vec<&LoadedArticle> {
-    let Ok(graph) = LinkGraph::load() else {
-        return Vec::new();
+fn orphan_articles(articles: &[LoadedArticle]) -> (Vec<&LoadedArticle>, Option<String>) {
+    let graph = match LinkGraph::load() {
+        Ok(graph) => graph,
+        // A corrupt graph is not an empty one. Returning no orphans would drop
+        // `connect` from the backlog entirely, so the caller is told instead.
+        Err(e) => return (Vec::new(), Some(links::corrupt_graph_note(&e))),
     };
     if graph.forward.is_empty() {
-        return Vec::new();
+        return (Vec::new(), None);
     }
-    articles
+    let orphans = articles
         .iter()
         .filter(|a| {
             graph
@@ -478,7 +491,8 @@ fn orphan_articles(articles: &[LoadedArticle]) -> Vec<&LoadedArticle> {
                 .get(&a.canonical_slug())
                 .is_none_or(|refs| refs.is_empty())
         })
-        .collect()
+        .collect();
+    (orphans, None)
 }
 
 /// Drafts whose `updated` date is older than the staleness threshold.

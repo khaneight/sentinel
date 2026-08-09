@@ -90,6 +90,15 @@ pub struct LinkGraph {
     pub backlinks: HashMap<String, Vec<String>>,
 }
 
+/// Message for a link graph that exists but cannot be parsed.
+///
+/// A missing graph is legitimately empty — no `index` has run yet. A corrupt
+/// one is not, and treating the two alike reports a confident zero derived from
+/// an unparseable file.
+pub fn corrupt_graph_note(error: &io::Error) -> String {
+    format!("meta/link-graph.json could not be read ({error}); run `sentinel index` to rebuild it")
+}
+
 impl LinkGraph {
     pub fn load() -> io::Result<Self> {
         let path = paths::link_graph_path();

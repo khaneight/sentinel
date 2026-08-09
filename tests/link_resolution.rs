@@ -261,3 +261,44 @@ fn ingest_without_a_title_still_uses_the_source_filename() {
     a.run(&["ingest", &src.display().to_string(), "-d", "philosophy"]);
     assert!(a.path("raw/philosophy/meditations.md").is_file());
 }
+
+#[test]
+fn one_gap_spelled_two_ways_is_one_finding_per_article() {
+    // After canonicalisation the demand folds correctly, but lint still listed
+    // each spelling — so an agent working the list would research the same
+    // missing article twice.
+    let a = archive_with_source();
+    for slug in ["a", "b"] {
+        a.write(
+            &format!("wiki/philosophy/{slug}.md"),
+            &with_body(slug, "Refers to [[Missing-Thing]] and [[missing thing]]."),
+        );
+    }
+
+    let v = a.json(&["lint", "--rule", "broken-link"]);
+    let findings = v["findings"].as_array().unwrap();
+
+    assert_eq!(
+        findings.len(),
+        2,
+        "one per article, not one per spelling:\n{v}"
+    );
+    let message = findings[0]["message"].as_str().unwrap();
+    assert!(message.contains("[[missing-thing]]"), "{message}");
+    assert!(
+        message.contains("[[Missing-Thing]]") && message.contains("[[missing thing]]"),
+        "the spellings used are still worth reporting:\n{message}"
+    );
+}
+
+#[test]
+fn distinct_gaps_remain_distinct_findings() {
+    let a = archive_with_source();
+    a.write(
+        "wiki/philosophy/a.md",
+        &with_body("A", "See [[alpha]] and [[beta]]."),
+    );
+
+    let v = a.json(&["lint", "--rule", "broken-link"]);
+    assert_eq!(v["findings"].as_array().unwrap().len(), 2, "{v}");
+}

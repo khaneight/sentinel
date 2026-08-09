@@ -471,3 +471,68 @@ fn a_readable_archive_reports_nothing_unreadable() {
     assert!(v["unreadable"].is_null(), "{v}");
     assert_eq!(a.code(&["index"]), 0);
 }
+
+// ---------------------------------------------------------------------------
+// A corrupt link graph is not an empty one
+//
+// `LinkGraph::load()` returns Ok(default) when the file is absent — no index
+// has run yet — and Err when it exists but cannot be parsed. Treating both as
+// "empty" made `status` report a confident "Orphan pages: 0" from an
+// unparseable file, and silently dropped `connect` from `next`'s backlog.
+// ---------------------------------------------------------------------------
+
+fn archive_with_orphans() -> Archive {
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "src");
+    a.run(&["sync"]);
+    for slug in ["a", "b"] {
+        a.write(
+            &format!("wiki/philosophy/{slug}.md"),
+            &common::article(slug, "philosophy", &["raw/philosophy/s.md"]),
+        );
+    }
+    a.run(&["index"]);
+    a
+}
+
+#[test]
+fn status_does_not_report_zero_orphans_from_an_unparseable_graph() {
+    let a = archive_with_orphans();
+    assert_eq!(a.json(&["status"])["orphan_pages"], 2, "precondition");
+
+    a.write("meta/link-graph.json", "not json at all");
+    let v = a.json(&["status"]);
+
+    assert!(
+        v["link_graph_error"].is_string(),
+        "a zero derived from an unreadable file must say so:\n{v}"
+    );
+    assert!(a.run(&["status"]).contains("could not be read"));
+}
+
+#[test]
+fn next_does_not_silently_drop_connect_when_the_graph_is_corrupt() {
+    let a = archive_with_orphans();
+    a.write("meta/link-graph.json", "not json at all");
+
+    let v = a.json(&["next"]);
+    assert!(
+        v["progress"]["link_graph_error"].is_string(),
+        "`connect` is absent because nothing could be counted, not because \
+         there is nothing to do:\n{v}"
+    );
+}
+
+#[test]
+fn an_absent_graph_is_legitimately_empty_and_reports_nothing() {
+    // Distinguishing the two cases is the whole point; a fresh archive that has
+    // never been indexed must not warn.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "src");
+    a.run(&["sync"]);
+    std::fs::remove_file(a.path("meta/link-graph.json")).unwrap();
+
+    let v = a.json(&["status"]);
+    assert!(v["link_graph_error"].is_null(), "{v}");
+    assert!(a.json(&["next"])["progress"]["link_graph_error"].is_null());
+}

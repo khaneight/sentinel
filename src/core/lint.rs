@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::Serialize;
 
@@ -186,16 +186,32 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
 
         // Broken wikilinks are checked first because the body is readable even
         // when the frontmatter is not.
+        //
+        // Grouped per concept, not per occurrence: `[[Free Will]]` and
+        // `[[free-will]]` in one article are one missing article, and listing
+        // them separately makes an agent work the same gap twice.
+        let mut missing: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for link in links::extract_wikilinks(&loaded.content) {
-            if !all_slugs.contains(super::slug::canonical(&link).as_str()) {
-                // A warning, not an error: the compile workflow deliberately
-                // links concepts before their articles exist.
-                findings.push(Finding::warning(
-                    "broken-link",
-                    path,
-                    format!("broken link [[{link}]] — no matching article found"),
-                ));
+            let canonical = super::slug::canonical(&link);
+            if canonical.is_empty() || all_slugs.contains(canonical.as_str()) {
+                continue;
             }
+            missing.entry(canonical).or_default().insert(link);
+        }
+        for (canonical, spellings) in missing {
+            // A warning, not an error: the compile workflow deliberately links
+            // concepts before their articles exist.
+            let as_written: Vec<String> = spellings.iter().map(|s| format!("[[{s}]]")).collect();
+            let detail = if spellings.len() > 1 {
+                format!(
+                    "broken link [[{canonical}]] — no matching article found \
+                     (written {} in this file)",
+                    as_written.join(", ")
+                )
+            } else {
+                format!("broken link {} — no matching article found", as_written[0])
+            };
+            findings.push(Finding::warning("broken-link", path, detail));
         }
 
         // Malformed YAML yields default frontmatter, so every field check below

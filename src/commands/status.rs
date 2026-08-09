@@ -4,7 +4,7 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::core::compilation::Compilation;
-use crate::core::links::LinkGraph;
+use crate::core::links::{self, LinkGraph};
 use crate::core::manifest::Manifest;
 use crate::core::output;
 use crate::core::paths;
@@ -23,6 +23,10 @@ struct Status {
     /// without them, so a non-zero value means the whole report is partial.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     unreadable: Vec<wiki::Unreadable>,
+    /// Set when the link graph exists but could not be parsed, in which case
+    /// `orphan_pages` above is 0 because nothing could be counted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_graph_error: Option<String>,
 }
 
 pub fn run() -> io::Result<()> {
@@ -44,7 +48,10 @@ pub fn run() -> io::Result<()> {
     let compilation = Compilation::derive(&articles, &manifest);
 
     // Load link graph for orphan count
-    let graph = LinkGraph::load().unwrap_or_default();
+    let (graph, graph_error) = match LinkGraph::load() {
+        Ok(graph) => (graph, None),
+        Err(e) => (LinkGraph::default(), Some(links::corrupt_graph_note(&e))),
+    };
     let orphan_pages = if graph.forward.is_empty() {
         0
     } else {
@@ -61,6 +68,7 @@ pub fn run() -> io::Result<()> {
         raw_domains: count_nonempty_subdirs(&paths::raw_dir()),
         wiki_domains: count_nonempty_subdirs(&paths::wiki_dir()),
         unreadable: loaded.unreadable,
+        link_graph_error: graph_error,
     };
 
     if output::is_json() {
@@ -81,6 +89,10 @@ pub fn run() -> io::Result<()> {
     println!("  Orphan pages:    {}", format_count(status.orphan_pages));
     println!("  Raw domains:     {}", status.raw_domains);
     println!("  Wiki domains:    {}", status.wiki_domains);
+    if let Some(note) = &status.link_graph_error {
+        println!("\n  {} {note}", "!".red());
+        println!("      orphan count above is 0 because none could be counted.");
+    }
     if !status.unreadable.is_empty() {
         println!(
             "\n  {} {} wiki file(s) could not be read; every count above excludes them:",
