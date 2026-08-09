@@ -126,6 +126,16 @@ the self-generating behaviour the whole design exists for, was never reached in
 the ordinary case. Every synthetic test had one or two sources, so the ladder
 always fell through within an iteration.
 
+The progress counters then had the same shape of bug one level down. The
+original three — `wiki_articles`, `uncompiled`, `errors` — covered exactly the
+three actions in front of me when I wrote them. `connect` adds a link to an
+existing article and `review` promotes a draft; neither changes an article
+count, an uncompiled count, or an error count, so **two of the five actions the
+ladder can recommend registered as no progress**, halting the loop immediately
+after a correct iteration. Every action now maps to a counter, and a test
+derives that mapping from the published ladder so a new action cannot be added
+without one.
+
 Progress is measured by `progress`, not by backlog size, for a related reason:
 an article that fills one gap and legitimately opens three grows the backlog
 while making the archive richer. A loop halting on "backlog did not shrink"
