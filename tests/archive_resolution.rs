@@ -247,3 +247,54 @@ fn the_full_bookkeeping_loop_runs_against_a_fresh_archive() {
         "{manifest}"
     );
 }
+
+#[test]
+fn the_readme_first_run_works_verbatim() {
+    // The Usage section used to open with a bare `sentinel init`, which refuses
+    // in any non-empty directory — contradicting the README's own "Where your
+    // archive lives" section and failing for anyone who runs it in their home
+    // directory or a project. This pins the corrected sequence.
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = tmp.path().join("archive");
+    let config = tmp.path().join("config.toml");
+    std::fs::write(tmp.path().join("essay.md"), "# Essay\n\nOn virtue.\n").unwrap();
+
+    // 1. sentinel init <PATH> --set-default
+    let init = sentinel()
+        .args(["init", &archive.display().to_string(), "--set-default"])
+        .env("SENTINEL_CONFIG", &config)
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    assert!(init.status.success(), "{}", stderr(&init));
+
+    // 2. Every later command finds it from an unrelated directory, with no
+    //    --archive and no SENTINEL_ARCHIVE — which is what --set-default buys.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        let out = sentinel()
+            .args(args)
+            .env("SENTINEL_CONFIG", &config)
+            .current_dir(elsewhere.path())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "`sentinel {}` failed: {}",
+            args.join(" "),
+            stderr(&out)
+        );
+        stdout(&out)
+    };
+
+    run(&[
+        "ingest",
+        &tmp.path().join("essay.md").display().to_string(),
+        "-d",
+        "philosophy",
+    ]);
+    run(&["sync"]);
+    run(&["status"]);
+    let next = run(&["next"]);
+    assert!(next.contains("compile"), "{next}");
+}

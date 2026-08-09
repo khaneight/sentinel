@@ -81,7 +81,9 @@ ln -s /path/to/sentinel/skills /path/to/archive/.claude/skills
 
 ```bash
 # 1. Initialize the archive directory structure
-sentinel init
+#    Give it a path. Bare `sentinel init` only works in an empty directory —
+#    it refuses to scatter an archive across a populated one.
+sentinel init ~/Documents/archive --set-default
 
 # 2. Add your raw documents
 sentinel ingest path/to/essay.md -d philosophy -o authored
