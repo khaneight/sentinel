@@ -19,6 +19,10 @@ struct GraphReport {
     /// describes the archive as it was at the last `sentinel index`.
     #[serde(skip_serializing_if = "Option::is_none")]
     stale: Option<String>,
+    /// Files under wiki/ that could not be read. The topology below was built
+    /// without them, so an edge they would have contributed is simply absent.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
 }
 
 #[derive(Serialize)]
@@ -41,6 +45,10 @@ struct Neighbourhood {
     in_graph: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     stale: Option<String>,
+    /// Files under wiki/ that could not be read. The topology below was built
+    /// without them, so an edge they would have contributed is simply absent.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
 }
 
 #[derive(Serialize)]
@@ -68,8 +76,9 @@ pub fn run(node: Option<&str>, depth: usize) -> io::Result<()> {
             &crate::core::slug::canonical(node),
             depth,
             &stale,
+            &loaded.unreadable,
         ),
-        None => whole_graph(&graph, &stale),
+        None => whole_graph(&graph, &stale, &loaded.unreadable),
     }
 }
 
@@ -84,6 +93,7 @@ fn neighbourhood(
     node: &str,
     depth: usize,
     stale: &Staleness,
+    unreadable: &[wiki::Unreadable],
 ) -> io::Result<()> {
     let known = graph.forward.contains_key(node) || graph.backlinks.contains_key(node);
     let on_disk = articles.iter().any(|a| a.canonical_slug() == node);
@@ -159,10 +169,12 @@ fn neighbourhood(
                 unknown: !known && !on_disk,
                 in_graph: known,
                 stale: stale.note(),
+                unreadable: unreadable.to_vec(),
             },
         );
     }
 
+    wiki::warn_partial(unreadable, "the topology below was built without them");
     if !known {
         let reason = if on_disk {
             "it exists on disk but postdates the last `sentinel index`"
@@ -204,7 +216,11 @@ fn neighbourhood(
     Ok(())
 }
 
-fn whole_graph(graph: &LinkGraph, stale: &Staleness) -> io::Result<()> {
+fn whole_graph(
+    graph: &LinkGraph,
+    stale: &Staleness,
+    unreadable: &[wiki::Unreadable],
+) -> io::Result<()> {
     if output::is_json() {
         let forward = sorted(&graph.forward);
         let backlinks = sorted(&graph.backlinks);
@@ -221,10 +237,12 @@ fn whole_graph(graph: &LinkGraph, stale: &Staleness) -> io::Result<()> {
                 backlinks,
                 orphans,
                 stale: stale.note(),
+                unreadable: unreadable.to_vec(),
             },
         );
     }
 
+    wiki::warn_partial(unreadable, "the topology below was built without them");
     if let Some(note) = stale.note() {
         println!("{} {note}\n", "note:".yellow());
     }

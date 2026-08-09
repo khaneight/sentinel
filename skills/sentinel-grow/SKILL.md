@@ -51,9 +51,14 @@ Stop and report when **any** of these holds. Do not push past one.
 4. **Same target twice** — the top target is one you already worked on this run. You did not actually complete it; investigate rather than retry.
 5. **Judgement required** — the recommended action needs a decision that is the
    user's to make (see *Escalate* below).
-6. **A command refuses because something could not be read** — see *After
-   acting* below. This is not a stall to work around; the archive is not
-   fully legible and the loop cannot safely continue.
+6. **Something could not be read** — either a command refuses (see *After
+   acting* below) **or `sentinel next` returns a non-empty `progress.unreadable`**.
+   Read commands do not refuse; they rank what they could load and disclose the
+   rest. That disclosure is the same stop condition: every count in `progress`
+   excludes those files, a raw document cited only by an unreadable article is
+   reported as uncompiled, and acting on that means writing an article that
+   already exists. Report the named files and stop — the archive is not fully
+   legible and the loop cannot safely continue.
 
 Record `progress` and the targets you have worked on after every iteration.
 Conditions 3 and 4 depend on it. `progress` comes back on the same

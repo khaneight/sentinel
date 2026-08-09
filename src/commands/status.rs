@@ -49,7 +49,7 @@ pub fn run() -> io::Result<()> {
     }
 
     let manifest = Manifest::load()?;
-    let loaded = wiki::load_all().unwrap_or_default();
+    let loaded = wiki::load_all()?;
     let articles = loaded.articles;
 
     // Compilation status is derived from what the wiki cites, so it stays
@@ -132,16 +132,7 @@ pub fn run() -> io::Result<()> {
     if let Some(note) = &status.link_graph_stale {
         println!("\n  {} {note}", "!".yellow());
     }
-    if !status.unreadable.is_empty() {
-        println!(
-            "\n  {} {} wiki file(s) could not be read; every count above excludes them:",
-            "!".red(),
-            status.unreadable.len()
-        );
-        for u in &status.unreadable {
-            println!("      {} — {}", u.path, u.error.dimmed());
-        }
-    }
+    wiki::warn_partial(&status.unreadable, "every count above excludes them");
     if status.unresolved_sources > 0 {
         println!(
             "\n  {} {} source citation(s) match no raw document — run `sentinel lint`",
