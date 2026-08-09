@@ -67,6 +67,7 @@ pub struct ParsedMarkdown {
 pub fn parse_content(content: &str) -> ParsedMarkdown {
     let Some(rest) = strip_opening_fence(content) else {
         return ParsedMarkdown {
+            error: opening_fence_problem(content),
             body: content.to_string(),
             ..Default::default()
         };
@@ -103,9 +104,23 @@ pub fn parse_content(content: &str) -> ParsedMarkdown {
     }
 
     // Opened but never closed: the whole file is body, and that is worth saying.
+    // If a line was clearly *meant* as the closing fence, name it — "never
+    // closed" sends someone looking for a missing line rather than at the one
+    // that is already there.
+    let near = rest
+        .lines()
+        .enumerate()
+        .find_map(|(i, l)| near_fence(l).map(|why| (i + 2, why)));
+    let message = match near {
+        Some((line, why)) => format!(
+            "frontmatter block opened with `---` but never closed; line {line} \
+             looks like the intended delimiter: {why}"
+        ),
+        None => "frontmatter block opened with `---` but never closed".to_string(),
+    };
     ParsedMarkdown {
         body: content.to_string(),
-        error: Some("frontmatter block opened with `---` but never closed".to_string()),
+        error: Some(message),
         ..Default::default()
     }
 }
@@ -128,6 +143,111 @@ pub fn block_end(content: &str) -> Option<usize> {
     None
 }
 
+/// Why a file with no frontmatter block looks like it was meant to have one.
+///
+/// The strictness above is deliberate — a `---` used as a horizontal rule is not
+/// frontmatter — but it produced a diagnosis that named the wrong problem. A
+/// file opening `--- ` with a trailing space, or with a blank line above the
+/// fence, parsed as "no frontmatter", and `lint` then reported `missing 'title'`
+/// three times over for a file whose second line reads `title: …`. An agent
+/// told a title is missing adds one; the file is then still broken and now has
+/// two.
+///
+/// Returns `None` for a document that genuinely has no frontmatter, so the
+/// ordinary missing-field diagnosis still applies to those.
+fn opening_fence_problem(content: &str) -> Option<String> {
+    let mut blanks = 0usize;
+    let mut first: Option<(usize, &str)> = None;
+    for (i, line) in content.lines().enumerate() {
+        // A byte-order mark is invisible in every editor that writes one, so
+        // "`---` must be the first line" reads as already true.
+        let line = if i == 0 {
+            line.trim_start_matches('\u{feff}')
+        } else {
+            line
+        };
+        if line.trim().is_empty() {
+            blanks += 1;
+            continue;
+        }
+        first = Some((i, line));
+        break;
+    }
+    let (index, first) = first?;
+    let has_bom = content.starts_with('\u{feff}');
+
+    let problem = if first == "---" {
+        // A well-formed fence that `strip_opening_fence` still rejected, so
+        // something precedes it.
+        if has_bom {
+            "the file begins with a UTF-8 byte-order mark, so `---` is not the \
+             first thing in it"
+                .to_string()
+        } else if blanks > 0 {
+            format!(
+                "{blanks} blank line(s) precede the opening `---`, which must be \
+                 the very first line"
+            )
+        } else {
+            return None;
+        }
+    } else {
+        let mut detail = near_fence(first)?;
+        if has_bom {
+            detail.push_str(" (and the file begins with a byte-order mark)");
+        }
+        detail
+    };
+
+    // Only speak up when this really was an attempt at frontmatter. A page that
+    // opens with a horizontal rule is not a broken article, and a wrong
+    // diagnosis is what this function exists to stop producing.
+    if !looks_like_frontmatter(content, index) {
+        return None;
+    }
+    Some(problem)
+}
+
+/// A line probably meant as a `---` delimiter that is not one.
+fn near_fence(line: &str) -> Option<String> {
+    let line = line.trim_end_matches(['\n', '\r']);
+    if line == "---" {
+        return None;
+    }
+    let squeezed = line.trim();
+    if squeezed.len() < 3 || !squeezed.chars().all(|c| c == '-') {
+        return None;
+    }
+    Some(if squeezed.len() == 3 {
+        format!("`{line}` is padded with whitespace; the delimiter must be `---` alone")
+    } else {
+        format!(
+            "`{squeezed}` has {} dashes; the delimiter is exactly three",
+            squeezed.len()
+        )
+    })
+}
+
+/// Whether the lines after `index` read as a YAML mapping rather than prose.
+fn looks_like_frontmatter(content: &str, index: usize) -> bool {
+    content
+        .lines()
+        .skip(index + 1)
+        // Long enough for a real block, short enough that a `key: value` line
+        // deep in an essay does not retroactively make the page look broken.
+        .take(40)
+        .take_while(|l| near_fence(l).is_none() && l.trim_end() != "---")
+        .any(|l| {
+            let Some((key, _)) = l.split_once(':') else {
+                return false;
+            };
+            !key.is_empty()
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+}
+
 /// Consume a leading `---` line, returning everything after it.
 fn strip_opening_fence(content: &str) -> Option<&str> {
     let rest = content.strip_prefix("---")?;
@@ -144,6 +264,105 @@ fn is_fence(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The frontmatter every case below is trying to express.
+    const FIELDS: &str = "title: T\ndomain: philosophy\norigin: authored\n";
+
+    /// Ways of getting the opening delimiter wrong, and what each must say.
+    ///
+    /// Enumerated together because they share one cause and produced one
+    /// identical, wrong diagnosis: `missing 'title'`, three times over, for a
+    /// file whose second line is `title: T`. Fixing the case in front of me
+    /// would have left the other three saying it.
+    const MALFORMED_OPENINGS: &[(&str, &str, &str)] = &[
+        ("trailing space", "--- \n", "padded with whitespace"),
+        ("leading tab", "\t---\n", "padded with whitespace"),
+        ("four dashes", "----\n", "4 dashes"),
+        ("blank line first", "\n---\n", "blank line(s) precede"),
+        ("byte-order mark", "\u{feff}---\n", "byte-order mark"),
+    ];
+
+    #[test]
+    fn a_malformed_opening_delimiter_says_what_is_wrong_with_it() {
+        for (name, opening, expected) in MALFORMED_OPENINGS {
+            let parsed = parse_content(&format!("{opening}{FIELDS}---\nBody\n"));
+            let error = parsed.error.unwrap_or_else(|| {
+                panic!(
+                    "{name}: parsed as a plain document, so `lint` will report the title as missing"
+                )
+            });
+            assert!(
+                error.contains(expected),
+                "{name}: message does not name the problem\n  got: {error}\n  want substring: {expected}"
+            );
+            assert!(
+                parsed.frontmatter.title.is_none(),
+                "{name}: the block is still not parsed — only the diagnosis changes"
+            );
+        }
+    }
+
+    #[test]
+    fn a_document_with_no_frontmatter_is_not_accused_of_having_broken_some() {
+        // The whole point of the diagnosis is that it is accurate. A page that
+        // opens with prose, or with a horizontal rule, has not failed at
+        // anything and must fall through to the ordinary missing-field path.
+        for (name, text) in [
+            ("plain prose", "Just a note.\n"),
+            ("rule after prose", "Intro.\n\n---\n\nNote: a colon.\n"),
+            ("empty file", ""),
+            ("heading first", "# Title\n\nSome text.\n"),
+            // Not included: a file opening with exactly `---` and never
+            // closing. That is an unclosed block by long-standing contract,
+            // asserted by `an_unclosed_block_is_reported`, and unrelated to
+            // the opening-delimiter diagnosis added here.
+        ] {
+            let parsed = parse_content(text);
+            assert!(
+                parsed.error.is_none(),
+                "{name}: reported a frontmatter problem in a file that has none: {:?}",
+                parsed.error
+            );
+        }
+    }
+
+    #[test]
+    fn a_valid_block_is_untouched_by_any_of_this() {
+        let parsed = parse_content(&format!("---\n{FIELDS}---\nBody\n"));
+        assert!(parsed.error.is_none(), "{:?}", parsed.error);
+        assert_eq!(parsed.frontmatter.title.as_deref(), Some("T"));
+        assert_eq!(parsed.body, "Body");
+    }
+
+    #[test]
+    fn crlf_line_endings_are_still_a_valid_block() {
+        // Windows editors write these and they are not an error.
+        let text = format!("---\n{FIELDS}---\nBody\n").replace('\n', "\r\n");
+        let parsed = parse_content(&text);
+        assert!(parsed.error.is_none(), "{:?}", parsed.error);
+        assert_eq!(parsed.frontmatter.title.as_deref(), Some("T"));
+    }
+
+    #[test]
+    fn an_unclosed_block_names_the_line_that_was_meant_to_close_it() {
+        // "never closed" sends a reader looking for a line to add, when the
+        // line is already there and merely padded.
+        let parsed = parse_content(&format!("---\n{FIELDS}--- \nBody\n"));
+        let error = parsed.error.expect("still an error");
+        assert!(error.contains("line 5"), "must name the line: {error}");
+        assert!(error.contains("padded with whitespace"), "{error}");
+    }
+
+    #[test]
+    fn a_genuinely_unclosed_block_still_says_so_plainly() {
+        let parsed = parse_content(&format!("---\n{FIELDS}Body with no delimiter\n"));
+        let error = parsed.error.expect("still an error");
+        assert!(error.contains("never closed"), "{error}");
+        assert!(
+            !error.contains("looks like"),
+            "nothing to point at: {error}"
+        );
+    }
 
     #[test]
     fn parses_a_well_formed_block() {
