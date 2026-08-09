@@ -108,7 +108,11 @@ A `broken-link` is a **warning**: the compile workflow forward-declares links
 deliberately, so an archive full of them is healthy.
 
 **`sentinel next`** — priority `fix-errors` → `compile` → `write` → `connect` →
-`review`. It ranks; it does not schedule. `--action <name>` reaches any
+`review`. It ranks; it does not schedule.
+**Every action in the ladder must move a progress counter** — `fix-errors`→`errors`,
+`compile`→`uncompiled`, `write`→`wiki_articles`, `connect`→`orphans`,
+`review`→`drafts` — or a correct iteration of it reads as no progress and halts
+the loop. A new action needs a counter. `--action <name>` reaches any
 category, `backlog` counts them all, and `progress` reports what the archive
 *contains*. Measure loop progress by `progress`, never by backlog size.
 

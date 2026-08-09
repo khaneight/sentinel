@@ -26,9 +26,14 @@ Stop and report when **any** of these holds. Do not push past one.
 1. **Budget exhausted** — the iteration count is used up.
 2. **Backlog empty** — `sentinel next` returns `action: "none"`.
 3. **No progress** — an iteration finishes and **nothing in `progress` moved in
-   the right direction**: `wiki_articles` did not increase, `uncompiled` did not
-   decrease, and `errors` did not decrease. That means the iteration produced
-   nothing durable. Report what you attempted and why you think it did not land.
+   the right direction**: `wiki_articles` did not increase, and none of
+   `uncompiled`, `errors`, `orphans`, or `drafts` decreased. That means the
+   iteration produced nothing durable.
+
+   Each action moves a different counter — `compile` moves `uncompiled`, `write`
+   moves `wiki_articles`, `connect` moves `orphans`, `review` moves `drafts`,
+   `fix-errors` moves `errors` — so check all of them, not just the obvious one
+   for the action you ran. Report what you attempted and why you think it did not land.
 
    **Do not measure progress by the size of `backlog`.** Filling a gap that
    legitimately opens new ones grows the backlog while making the archive

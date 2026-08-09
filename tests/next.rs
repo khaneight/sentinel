@@ -607,3 +607,126 @@ fn status_reports_the_maturity_breakdown() {
         a.run(&["status"])
     );
 }
+
+// ---------------------------------------------------------------------------
+// Every recommendable action must be able to register as progress
+//
+// `/sentinel-grow` stops when nothing in `progress` moved. The counters chosen
+// covered fix-errors, compile, and write — the three actions in front of me
+// when I wrote them. `connect` adds a link to an existing article and `review`
+// promotes a draft; neither changes an article count, an uncompiled count, or
+// an error count, so a correct iteration of either registered as no progress
+// and halted the loop claiming non-convergence.
+// ---------------------------------------------------------------------------
+
+fn counters(a: &Archive) -> serde_json::Value {
+    a.json(&["next"])["progress"].clone()
+}
+
+/// Any counter that moved in the direction that means "work happened".
+fn advanced(before: &serde_json::Value, after: &serde_json::Value) -> bool {
+    let up = |k: &str| after[k].as_u64() > before[k].as_u64();
+    let down = |k: &str| after[k].as_u64() < before[k].as_u64();
+    up("wiki_articles") || down("uncompiled") || down("errors") || down("orphans") || down("drafts")
+}
+
+#[test]
+fn connecting_an_orphan_registers_as_progress() {
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "x");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/alpha.md",
+        &article_with("Alpha", &["raw/philosophy/s.md"], "See [[beta]]."),
+    );
+    a.write(
+        "wiki/philosophy/beta.md",
+        &article_with("Beta", &["raw/philosophy/s.md"], "Leaf."),
+    );
+    a.write(
+        "wiki/philosophy/gamma.md",
+        &article_with("Gamma", &["raw/philosophy/s.md"], "Nothing links here."),
+    );
+    a.run(&["index"]);
+
+    let before = counters(&a);
+    assert_eq!(a.json(&["next"])["action"], "connect", "precondition");
+
+    // The recommended work: link the orphan from somewhere real.
+    a.write(
+        "wiki/philosophy/beta.md",
+        &article_with(
+            "Beta",
+            &["raw/philosophy/s.md"],
+            "Leaf. Related: [[gamma]].",
+        ),
+    );
+    a.run(&["index"]);
+
+    let after = counters(&a);
+    assert!(
+        advanced(&before, &after),
+        "a correct `connect` iteration must not read as no progress:\n{before}\n{after}"
+    );
+}
+
+#[test]
+fn promoting_a_draft_registers_as_progress() {
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "x");
+    a.run(&["sync"]);
+    for (slug, other) in [("alpha", "beta"), ("beta", "alpha")] {
+        a.write(
+            &format!("wiki/philosophy/{slug}.md"),
+            &article_with(slug, &["raw/philosophy/s.md"], &format!("See [[{other}]].")),
+        );
+    }
+    a.run(&["index"]);
+
+    let before = counters(&a);
+    assert!(before["drafts"].as_u64().unwrap() >= 2, "{before}");
+
+    a.write(
+        "wiki/philosophy/alpha.md",
+        &article_with("alpha", &["raw/philosophy/s.md"], "See [[beta]].")
+            .replace("status: draft", "status: stable"),
+    );
+    a.run(&["index"]);
+
+    assert!(advanced(&before, &counters(&a)), "review must register");
+}
+
+#[test]
+fn progress_reports_a_counter_for_every_action_in_the_ladder() {
+    // Derived from the published ladder rather than a list maintained here, so
+    // a new action fails until someone says which counter it moves.
+    let a = Archive::new();
+    let actions: Vec<String> = a.json(&["schema"])["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["action"].as_str().unwrap().to_string())
+        .collect();
+
+    let progress = counters(&a);
+    let covered_by = |action: &str| -> &'static str {
+        match action {
+            "fix-errors" => "errors",
+            "compile" => "uncompiled",
+            "write" => "wiki_articles",
+            "connect" => "orphans",
+            "review" => "drafts",
+            other => panic!(
+                "action `{other}` is in the ladder but no progress counter is \
+                 declared for it — `/sentinel-grow` would halt after doing it"
+            ),
+        }
+    };
+    for action in &actions {
+        let counter = covered_by(action);
+        assert!(
+            progress[counter].is_number(),
+            "`{action}` maps to progress counter `{counter}`, which is absent:\n{progress}"
+        );
+    }
+}

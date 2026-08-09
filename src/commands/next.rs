@@ -137,6 +137,13 @@ struct Progress {
     raw_documents: usize,
     uncompiled: usize,
     errors: usize,
+    /// Articles nothing links to. Moves when `connect` does its work — which
+    /// changes no other counter, so without this a correct `connect` iteration
+    /// registers as no progress at all.
+    orphans: usize,
+    /// Articles still `draft`. Moves when `review` promotes one, for the same
+    /// reason.
+    drafts: usize,
     /// Set when the link graph exists but could not be parsed. Orphans could
     /// not be counted, so `connect` is absent from the backlog for that reason
     /// rather than because there is nothing to do.
@@ -188,6 +195,11 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
         raw_documents: manifest.count(),
         uncompiled: uncompiled.len(),
         errors: errors.len(),
+        orphans: orphans.len(),
+        drafts: articles
+            .iter()
+            .filter(|a| a.article.frontmatter.status.as_deref() == Some("draft"))
+            .count(),
         link_graph_error: graph_error,
     };
 
