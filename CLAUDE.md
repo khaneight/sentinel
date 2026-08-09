@@ -80,6 +80,8 @@ Reads the whole archive and recommends one action. The priority ladder encodes e
 
 Priority 3 is the self-generating part: an unresolved wikilink is existing knowledge naming what it wants next, and `links::wanted` ranks those by demand. `/sentinel-research <slug>` on the top entry is a loop that grows the wiki from its own gaps.
 
+A `write` target carries `refs` (a sample of the articles that want it, capped at 5), `ref_count` (the exact total), and `variants` (the spellings actually used). Those are what make the recommendation actionable in one call: the referring articles define what the concept means *in this archive*, and a bare count cannot be read. Any capped list must publish its true total alongside — a truncated list that does not say so reads as complete.
+
 `next` ranks; it does not budget. The ladder is strict priority, which is right for a single question ("what is most valuable now?") and wrong for a loop: a real ingest of eight sources makes `compile` win eight times running, so a three-iteration budget never reaches `write` — the step the archive actually grows by. That was found by ingesting a real corpus, not by inspection.
 
 Scheduling therefore belongs to the caller. `sentinel next --action <name>` returns any category's targets regardless of priority, marked `requested: true` so a consumer can tell a scheduling choice from sentinel's advice. `backlog` is always present, so one call is enough to plan the next step too. `/sentinel-grow` uses this: never the same action more than twice in a row while another category has work — except `fix-errors`, which is never deferred, because every later judgement is made on data the errors call into question.

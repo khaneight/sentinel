@@ -292,3 +292,109 @@ fn the_recommendation_is_not_marked_as_requested() {
         "the field is omitted unless the caller asked: {v}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// write targets must be actionable without a second call
+// ---------------------------------------------------------------------------
+
+/// One gap wanted by several articles, spelled two ways.
+fn archive_with_a_popular_gap() -> Archive {
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    for (i, spelling) in ["prohairesis", "Prohairesis", "prohairesis"]
+        .iter()
+        .enumerate()
+    {
+        a.write(
+            &format!("wiki/philosophy/ref-{i}.md"),
+            &article_with(
+                &format!("Ref {i}"),
+                &["raw/philosophy/src.md"],
+                &format!("See [[{spelling}]]."),
+            ),
+        );
+    }
+    a
+}
+
+#[test]
+fn a_write_target_names_the_articles_that_want_it() {
+    // `/sentinel-grow` tells the agent to read a gap's referrers before writing
+    // it — they define what the concept means in this archive rather than in
+    // general. A bare count cannot be read.
+    let a = archive_with_a_popular_gap();
+    let v = a.json(&["next", "--action", "write"]);
+    let target = &v["targets"][0];
+
+    assert_eq!(target["id"], "prohairesis");
+    assert_eq!(target["ref_count"], 3);
+    let refs: Vec<&str> = target["refs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap())
+        .collect();
+    assert_eq!(refs.len(), 3, "{target}");
+    assert!(refs.contains(&"wiki/philosophy/ref-0.md"), "{target}");
+}
+
+#[test]
+fn the_spellings_used_are_surfaced() {
+    // Tells the writer what the file will be called, and flags naming drift.
+    let a = archive_with_a_popular_gap();
+    let v = a.json(&["next", "--action", "write"]);
+    let variants: Vec<&str> = v["targets"][0]["variants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(variants, ["Prohairesis"], "{v}");
+}
+
+#[test]
+fn a_truncated_referrer_list_says_it_is_truncated() {
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    for i in 0..9 {
+        a.write(
+            &format!("wiki/philosophy/ref-{i}.md"),
+            &article_with(
+                &format!("Ref {i}"),
+                &["raw/philosophy/src.md"],
+                "See [[popular]].",
+            ),
+        );
+    }
+
+    let v = a.json(&["next", "--action", "write"]);
+    let target = &v["targets"][0];
+    assert_eq!(target["ref_count"], 9, "the true total must be exact");
+    assert_eq!(
+        target["refs"].as_array().unwrap().len(),
+        5,
+        "the sample is capped"
+    );
+
+    let out = a.run(&["next", "--action", "write"]);
+    assert!(
+        out.contains("and 4 more"),
+        "silent truncation reads as complete:\n{out}"
+    );
+}
+
+#[test]
+fn targets_that_have_no_referrers_omit_the_fields_entirely() {
+    let a = Archive::new();
+    a.write("raw/philosophy/meditations.md", "notes");
+    a.run(&["sync"]);
+
+    let v = a.json(&["next"]);
+    assert_eq!(v["action"], "compile");
+    let target = &v["targets"][0];
+    assert!(target["refs"].is_null(), "{target}");
+    assert!(target["ref_count"].is_null(), "{target}");
+    assert!(target["variants"].is_null(), "{target}");
+}

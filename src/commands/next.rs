@@ -70,12 +70,51 @@ impl Action {
     }
 }
 
+/// Referrer paths listed per target. The count is always exact; this is the
+/// sample an agent reads to learn what the concept means in this archive.
+const MAX_REFS: usize = 5;
+
 #[derive(Serialize)]
 struct Target {
     id: String,
     label: String,
     /// Why this target in particular — link demand, source title, age.
     detail: String,
+    /// Total referrers, when `refs` is a sample of them. A truncated list that
+    /// did not say so would read as complete.
+    #[serde(skip_serializing_if = "is_zero")]
+    ref_count: usize,
+    /// Articles that reference this target, for `write`.
+    ///
+    /// Without these the recommendation is not actionable on its own:
+    /// `/sentinel-grow` is told to read a gap's referrers before writing it,
+    /// because they define what the concept means *here* rather than in
+    /// general — and a bare count cannot be read.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    refs: Vec<String>,
+    /// Spellings actually used for this target, when they differ from the
+    /// canonical slug. Tells the writer what the article will be called and
+    /// flags inconsistent naming worth tidying.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    variants: Vec<String>,
+}
+
+impl Target {
+    /// A target with nothing to say beyond its own description.
+    fn plain(id: String, label: String, detail: String) -> Self {
+        Self {
+            id,
+            label,
+            detail,
+            ref_count: 0,
+            refs: Vec::new(),
+            variants: Vec::new(),
+        }
+    }
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 #[derive(Serialize, Clone)]
@@ -196,10 +235,12 @@ fn fix_errors(errors: &[&lint::Finding], backlog: &[BacklogEntry]) -> Recommenda
         targets: errors
             .iter()
             .take(MAX_TARGETS)
-            .map(|f| Target {
-                id: f.path.clone().unwrap_or_else(|| f.rule.to_string()),
-                label: f.rule.to_string(),
-                detail: f.message.clone(),
+            .map(|f| {
+                Target::plain(
+                    f.path.clone().unwrap_or_else(|| f.rule.to_string()),
+                    f.rule.to_string(),
+                    f.message.clone(),
+                )
             })
             .collect(),
         suggested_command: Some("sentinel lint".to_string()),
@@ -221,10 +262,12 @@ fn compile(
         targets: uncompiled
             .iter()
             .take(MAX_TARGETS)
-            .map(|e| Target {
-                id: e.raw_path.clone(),
-                label: e.title.clone(),
-                detail: format!("{} · {}", e.domain, e.origin),
+            .map(|e| {
+                Target::plain(
+                    e.raw_path.clone(),
+                    e.title.clone(),
+                    format!("{} · {}", e.domain, e.origin),
+                )
             })
             .collect(),
         suggested_command: uncompiled
@@ -254,13 +297,13 @@ fn write_gap(wanted: &[links::WantedArticle], backlog: &[BacklogEntry]) -> Recom
                 id: w.slug.clone(),
                 label: w.slug.clone(),
                 detail: format!(
-                    "referenced by {}",
-                    if w.referrers.len() == 1 {
-                        w.referrers[0].clone()
-                    } else {
-                        format!("{} articles", w.referrers.len())
-                    }
+                    "referenced by {} article{}",
+                    w.referrers.len(),
+                    if w.referrers.len() == 1 { "" } else { "s" }
                 ),
+                ref_count: w.referrers.len(),
+                refs: w.referrers.iter().take(MAX_REFS).cloned().collect(),
+                variants: w.variants.clone(),
             })
             .collect(),
         suggested_command: Some(format!("/sentinel-research {}", top.slug)),
@@ -279,10 +322,12 @@ fn connect(orphans: &[&LoadedArticle], backlog: &[BacklogEntry]) -> Recommendati
         targets: orphans
             .iter()
             .take(MAX_TARGETS)
-            .map(|a| Target {
-                id: a.rel_path().to_string(),
-                label: a.title().to_string(),
-                detail: "no incoming links".to_string(),
+            .map(|a| {
+                Target::plain(
+                    a.rel_path().to_string(),
+                    a.title().to_string(),
+                    "no incoming links".to_string(),
+                )
             })
             .collect(),
         suggested_command: Some("/sentinel-improve connect orphan pages".to_string()),
@@ -301,10 +346,12 @@ fn review(stale: &[(&LoadedArticle, String)], backlog: &[BacklogEntry]) -> Recom
         targets: stale
             .iter()
             .take(MAX_TARGETS)
-            .map(|(a, updated)| Target {
-                id: a.rel_path().to_string(),
-                label: a.title().to_string(),
-                detail: format!("last updated {updated}"),
+            .map(|(a, updated)| {
+                Target::plain(
+                    a.rel_path().to_string(),
+                    a.title().to_string(),
+                    format!("last updated {updated}"),
+                )
             })
             .collect(),
         suggested_command: Some("/sentinel-improve promote stale drafts".to_string()),
@@ -327,6 +374,18 @@ fn report_human(rec: &Recommendation) {
         for target in &rec.targets {
             println!("  {} {}", "•".dimmed(), target.label.bold());
             println!("    {} — {}", target.id.cyan(), target.detail.dimmed());
+            if !target.refs.is_empty() {
+                let hidden = target.ref_count.saturating_sub(target.refs.len());
+                let more = if hidden > 0 {
+                    format!(", and {hidden} more")
+                } else {
+                    String::new()
+                };
+                println!("    {} {}{more}", "from:".dimmed(), target.refs.join(", "));
+            }
+            if !target.variants.is_empty() {
+                println!("    {} {}", "spelled:".dimmed(), target.variants.join(", "));
+            }
         }
     }
 

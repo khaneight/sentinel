@@ -90,7 +90,15 @@ Raw documents nobody has cited. Follow `/sentinel-compile` for the named targets
 
 The wiki has linked a concept it has not written. This is the growth step: the archive is naming what it wants, ranked by how many articles ask for each.
 
-Follow `/sentinel-research` on the top target's slug. Before researching, read the articles listed in that target's referrers — they define what the concept means *in this archive*, which is usually narrower and more specific than the general topic. An article on `[[virtue]]` written for a Stoicism-heavy wiki should not be a general encyclopedia entry.
+Follow `/sentinel-research` on the top target's slug. **Before researching, read
+the articles in that target's `refs`** — they define what the concept means *in
+this archive*, which is usually narrower and more specific than the general
+topic. An article on `[[virtue]]` written for a Stoicism-heavy wiki should not
+be a general encyclopedia entry.
+
+`refs` is a sample; `ref_count` is the true total. If `variants` is present, the
+concept has been spelled inconsistently across articles — name the new file
+after the canonical `id`, and consider tidying the outliers.
 
 Write exactly one article, then re-run `next`. Writing it will usually create new forward-declared links, and those change what is most wanted.
 

@@ -12,7 +12,7 @@ Research **$ARGUMENTS** and file the findings, clearly marked as researched rath
 ## Scope
 
 - `$ARGUMENTS` names a topic → research that.
-- `$ARGUMENTS` is empty → run `sentinel next --json`. If it recommends `write`, the top target is the concept the wiki most wants filled in; research that and say so. If it recommends anything else, report what it recommends and ask the user whether to proceed with research anyway rather than picking a topic yourself.
+- `$ARGUMENTS` is empty → run `sentinel next --action write --json`. Its top target is the concept the wiki most wants filled in; research that and say so. Read the articles in that target's `refs` first — they tell you what the concept means here. If nothing is wanted, report that and ask rather than picking a topic yourself.
 
 ## Step 1: Learn the contract and what is already known
 
