@@ -1,68 +1,33 @@
 //! Regression coverage for defects that corrupted state or crashed outright.
 
-use std::path::Path;
-use std::process::{Command, Output};
+mod common;
 
-fn sentinel(root: &Path) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_sentinel"));
-    cmd.env("SENTINEL_ARCHIVE", root);
-    cmd.env("SENTINEL_CONFIG", "/nonexistent/sentinel/config.toml");
-    cmd
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn archive() -> (tempfile::TempDir, std::path::PathBuf) {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().join("archive");
-    let output = Command::new(env!("CARGO_BIN_EXE_sentinel"))
-        .args(["init", &root.display().to_string()])
-        .env_remove("SENTINEL_ARCHIVE")
-        .env("SENTINEL_CONFIG", "/nonexistent/sentinel/config.toml")
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    (tmp, root)
-}
-
-fn write(path: &Path, contents: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, contents).unwrap();
-}
+use common::{Archive, stdout};
 
 #[test]
 fn search_survives_long_multibyte_lines() {
-    let (_tmp, root) = archive();
+    let a = Archive::new();
     // Byte 100 of this line lands inside a multibyte character. The previous
     // implementation sliced `&line[..100]` and panicked.
     let line = "—".repeat(200);
-    write(
-        &root.join("wiki/philosophy/dashes.md"),
+    a.write(
+        "wiki/philosophy/dashes.md",
         &format!("---\ntitle: Dashes\n---\n\nvirtue {line}\n"),
     );
 
-    let output = sentinel(&root).args(["search", "virtue"]).output().unwrap();
-
-    assert!(
-        output.status.success(),
-        "search panicked: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(stdout(&output).contains("dashes.md"));
+    let out = a.run(&["search", "virtue"]);
+    assert!(out.contains("dashes.md"), "{out}");
 }
 
 #[test]
 fn lint_names_invalid_yaml_instead_of_inventing_missing_fields() {
-    let (_tmp, root) = archive();
-    write(
-        &root.join("wiki/philosophy/broken.md"),
+    let a = Archive::new();
+    a.write(
+        "wiki/philosophy/broken.md",
         "---\ntitle: [unterminated\n---\n\nBody\n",
     );
 
-    let output = sentinel(&root).arg("lint").output().unwrap();
-    let out = stdout(&output);
+    let out = stdout(&a.output(&["lint"]));
 
     assert!(out.contains("invalid frontmatter"), "{out}");
     assert!(
@@ -73,17 +38,12 @@ fn lint_names_invalid_yaml_instead_of_inventing_missing_fields() {
 
 #[test]
 fn lint_flags_slugs_that_collide_across_domains() {
-    let (_tmp, root) = archive();
-    let body = |domain| {
-        format!(
-            "---\ntitle: Ethics\ndomain: {domain}\norigin: authored\ntags: [x]\nsources: [raw/x.md]\n---\n\nBody\n"
-        )
-    };
-    write(&root.join("wiki/philosophy/ethics.md"), &body("philosophy"));
-    write(&root.join("wiki/coding/ethics.md"), &body("coding"));
+    let a = Archive::new();
+    let body = |domain| common::article("Ethics", domain, &["raw/x.md"]);
+    a.write("wiki/philosophy/ethics.md", &body("philosophy"));
+    a.write("wiki/coding/ethics.md", &body("coding"));
 
-    let output = sentinel(&root).arg("lint").output().unwrap();
-    let out = stdout(&output);
+    let out = stdout(&a.output(&["lint"]));
 
     assert!(out.contains("duplicate slug 'ethics'"), "{out}");
     assert!(out.contains("wiki/philosophy/ethics.md"), "{out}");
@@ -92,26 +52,16 @@ fn lint_flags_slugs_that_collide_across_domains() {
 
 #[test]
 fn sync_drops_entries_whose_source_file_is_gone() {
-    let (_tmp, root) = archive();
-    let doc = root.join("raw/philosophy/meditations.md");
-    write(&doc, "notes");
+    let a = Archive::new();
+    let doc = a.write("raw/philosophy/meditations.md", "notes");
 
-    assert!(
-        sentinel(&root)
-            .arg("sync")
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
-    let manifest = std::fs::read_to_string(root.join("meta/manifest.json")).unwrap();
-    assert!(manifest.contains("meditations.md"));
+    a.run(&["sync"]);
+    assert!(a.read("meta/manifest.json").contains("meditations.md"));
 
     std::fs::remove_file(&doc).unwrap();
-    let output = sentinel(&root).arg("sync").output().unwrap();
-    assert!(output.status.success());
+    a.run(&["sync"]);
 
-    let manifest = std::fs::read_to_string(root.join("meta/manifest.json")).unwrap();
+    let manifest = a.read("meta/manifest.json");
     assert!(
         !manifest.contains("meditations.md"),
         "a deleted source must not stay 'uncompiled' forever:\n{manifest}"
@@ -120,56 +70,39 @@ fn sync_drops_entries_whose_source_file_is_gone() {
 
 #[test]
 fn sync_ignores_hidden_files() {
-    let (_tmp, root) = archive();
-    write(&root.join("raw/philosophy/.DS_Store"), "junk");
-    write(&root.join("raw/philosophy/real.md"), "notes");
+    let a = Archive::new();
+    a.write("raw/philosophy/.DS_Store", "junk");
+    a.write("raw/philosophy/real.md", "notes");
 
-    assert!(
-        sentinel(&root)
-            .arg("sync")
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
+    a.run(&["sync"]);
 
-    let manifest = std::fs::read_to_string(root.join("meta/manifest.json")).unwrap();
+    let manifest = a.read("meta/manifest.json");
     assert!(manifest.contains("real.md"), "{manifest}");
     assert!(!manifest.contains("DS_Store"), "{manifest}");
 }
 
 #[test]
 fn sync_dry_run_writes_nothing() {
-    let (_tmp, root) = archive();
-    write(&root.join("raw/philosophy/new.md"), "notes");
-    let before = std::fs::read_to_string(root.join("meta/manifest.json")).unwrap();
+    let a = Archive::new();
+    a.write("raw/philosophy/new.md", "notes");
+    let before = a.read("meta/manifest.json");
 
-    let output = sentinel(&root)
-        .args(["sync", "--dry-run"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    assert!(stdout(&output).contains("Dry run"), "{}", stdout(&output));
+    let out = a.run(&["sync", "--dry-run"]);
+    assert!(out.contains("Dry run"), "{out}");
 
-    let after = std::fs::read_to_string(root.join("meta/manifest.json")).unwrap();
-    assert_eq!(before, after);
+    assert_eq!(before, a.read("meta/manifest.json"));
 }
 
 #[test]
 fn index_handles_articles_with_unicode_titles() {
-    let (_tmp, root) = archive();
-    write(
-        &root.join("wiki/philosophy/ethika.md"),
+    let a = Archive::new();
+    a.write(
+        "wiki/philosophy/ethika.md",
         "---\ntitle: Ἠθικά — “virtue”\ndomain: philosophy\n---\n\nSee [[stoicism]].\n",
     );
 
-    let output = sentinel(&root).arg("index").output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    a.run(&["index"]);
 
-    let master = std::fs::read_to_string(root.join("index/_master.md")).unwrap();
+    let master = a.read("index/_master.md");
     assert!(master.contains("Ἠθικά — “virtue”"), "{master}");
 }

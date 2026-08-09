@@ -50,6 +50,30 @@ impl Archive {
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
+    /// Run a command without requiring success — for exit-code assertions.
+    pub fn output(&self, args: &[&str]) -> Output {
+        self.cmd(args).output().unwrap()
+    }
+
+    /// The exit code of a command.
+    pub fn code(&self, args: &[&str]) -> i32 {
+        self.output(args).status.code().unwrap_or(-1)
+    }
+
+    /// Run a command and parse its `--json` output.
+    pub fn json(&self, args: &[&str]) -> serde_json::Value {
+        let mut with_json = args.to_vec();
+        with_json.push("--json");
+        let output = self.output(&with_json);
+        let text = stdout(&output);
+        serde_json::from_str(&text).unwrap_or_else(|e| {
+            panic!(
+                "`sentinel {}` did not emit JSON ({e}):\n{text}",
+                with_json.join(" ")
+            )
+        })
+    }
+
     /// Write a file inside the archive, creating parent directories.
     pub fn write(&self, rel_path: &str, contents: &str) -> PathBuf {
         let path = self.root.join(rel_path);

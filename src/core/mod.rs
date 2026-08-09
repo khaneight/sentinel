@@ -1,8 +1,10 @@
 pub mod compilation;
 pub mod frontmatter;
 pub mod links;
+pub mod lint;
 pub mod log;
 pub mod manifest;
+pub mod output;
 pub mod paths;
 pub mod text;
 pub mod wiki;

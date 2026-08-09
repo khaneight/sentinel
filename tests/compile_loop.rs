@@ -8,7 +8,7 @@
 
 mod common;
 
-use common::{Archive, article};
+use common::{Archive, article, stdout};
 
 #[test]
 fn a_raw_document_starts_uncompiled() {
@@ -131,7 +131,7 @@ fn lint_reports_a_citation_that_matches_no_raw_document() {
         ),
     );
 
-    let out = a.run(&["lint"]);
+    let out = stdout(&a.output(&["lint"]));
     assert!(
         out.contains("matches no raw document"),
         "a dangling source citation is a silent hole in provenance:\n{out}"
@@ -149,7 +149,7 @@ fn an_ambiguous_bare_filename_is_reported_not_guessed() {
         &article("Stoicism", "philosophy", &["notes.md"]),
     );
 
-    let out = a.run(&["lint"]);
+    let out = stdout(&a.output(&["lint"]));
     assert!(out.contains("matches no raw document"), "{out}");
 
     let uncompiled = a.run(&["uncompiled"]);

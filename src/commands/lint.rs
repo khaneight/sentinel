@@ -2,16 +2,26 @@ use std::collections::{BTreeMap, HashSet};
 use std::io;
 
 use colored::Colorize;
+use serde::Serialize;
 
 use crate::core::compilation::Compilation;
 use crate::core::links;
+use crate::core::lint::{self, Finding, Severity};
 use crate::core::manifest::Manifest;
+use crate::core::output;
 use crate::core::wiki;
 
-pub fn run() -> io::Result<()> {
-    let articles = wiki::load_all()?;
+#[derive(Serialize)]
+struct Report {
+    errors: usize,
+    warnings: usize,
+    findings: Vec<Finding>,
+}
 
-    let mut issues: Vec<String> = Vec::new();
+/// Validate the archive. Returns the process exit code.
+pub fn run(strict: bool) -> io::Result<i32> {
+    let articles = wiki::load_all()?;
+    let mut findings: Vec<Finding> = Vec::new();
 
     let all_slugs: HashSet<String> = articles.iter().map(|a| a.slug()).collect();
 
@@ -28,23 +38,31 @@ pub fn run() -> io::Result<()> {
     }
     for (slug, owners) in &slug_owners {
         if owners.len() > 1 {
-            issues.push(format!(
-                "duplicate slug '{slug}': {} — [[{slug}]] is ambiguous and the link graph merges them",
-                owners.join(", ")
+            findings.push(Finding::global(
+                Severity::Error,
+                "duplicate-slug",
+                format!(
+                    "duplicate slug '{slug}': {} — [[{slug}]] is ambiguous and the link graph merges them",
+                    owners.join(", ")
+                ),
             ));
         }
     }
 
     for loaded in &articles {
-        let display = loaded.rel_path();
+        let path = loaded.rel_path();
         let frontmatter = &loaded.article.frontmatter;
 
-        // Check for broken wikilinks. Done first because the body is readable
-        // even when the frontmatter is not.
+        // Broken wikilinks are checked first because the body is readable even
+        // when the frontmatter is not.
         for link in links::extract_wikilinks(&loaded.content) {
             if !all_slugs.contains(link.as_str()) {
-                issues.push(format!(
-                    "{display}: broken link [[{link}]] — no matching article found"
+                // A warning, not an error: the compile workflow deliberately
+                // links concepts before their articles exist.
+                findings.push(Finding::warning(
+                    "broken-link",
+                    path,
+                    format!("broken link [[{link}]] — no matching article found"),
                 ));
             }
         }
@@ -53,46 +71,58 @@ pub fn run() -> io::Result<()> {
         // would fire at once and point the reader at five imaginary problems
         // instead of the one real one.
         if let Some(error) = &loaded.article.frontmatter_error {
-            issues.push(format!("{display}: invalid frontmatter — {error}"));
+            findings.push(Finding::error(
+                "invalid-frontmatter",
+                path,
+                format!("invalid frontmatter — {error}"),
+            ));
             continue;
         }
 
-        // Check required frontmatter fields
-        if frontmatter.title.is_none() {
-            issues.push(format!("{display}: missing 'title' in frontmatter"));
+        // title/domain/origin drive the generated indexes; without them an
+        // article is effectively missing from the knowledge base.
+        for (field, missing) in [
+            ("title", frontmatter.title.is_none()),
+            ("domain", frontmatter.domain.is_none()),
+            ("origin", frontmatter.origin.is_none()),
+        ] {
+            if missing {
+                findings.push(Finding::error(
+                    "missing-field",
+                    path,
+                    format!("missing '{field}' in frontmatter"),
+                ));
+            }
         }
-        if frontmatter.domain.is_none() {
-            issues.push(format!("{display}: missing 'domain' in frontmatter"));
-        }
-        if frontmatter.origin.is_none() {
-            issues.push(format!("{display}: missing 'origin' in frontmatter"));
-        }
+
         if frontmatter.tags.is_empty() {
-            issues.push(format!("{display}: no tags defined"));
+            findings.push(Finding::warning("missing-tags", path, "no tags defined"));
         }
         if frontmatter.sources.is_empty() {
-            // Without a source citation an article can never be linked back to
-            // the raw document it came from, so its source stays "uncompiled".
-            issues.push(format!(
-                "{display}: no sources listed — its raw document will stay uncompiled"
+            findings.push(Finding::warning(
+                "missing-sources",
+                path,
+                "no sources listed — its raw document will stay uncompiled",
             ));
         }
 
-        // Check origin value
         if let Some(origin) = &frontmatter.origin
             && !["authored", "researched", "hybrid"].contains(&origin.as_str())
         {
-            issues.push(format!(
-                "{display}: invalid origin '{origin}' (expected authored/researched/hybrid)"
+            findings.push(Finding::error(
+                "invalid-origin",
+                path,
+                format!("invalid origin '{origin}' (expected authored/researched/hybrid)"),
             ));
         }
 
-        // Check status value
         if let Some(status) = &frontmatter.status
             && !["draft", "review", "stable"].contains(&status.as_str())
         {
-            issues.push(format!(
-                "{display}: invalid status '{status}' (expected draft/review/stable)"
+            findings.push(Finding::error(
+                "invalid-status",
+                path,
+                format!("invalid status '{status}' (expected draft/review/stable)"),
             ));
         }
     }
@@ -102,28 +132,77 @@ pub fn run() -> io::Result<()> {
     let compilation = Compilation::derive(&articles, &manifest);
 
     for (article, source) in &compilation.unresolved {
-        issues.push(format!(
-            "{article}: source '{source}' matches no raw document in the manifest"
+        findings.push(Finding::error(
+            "unresolved-source",
+            article.clone(),
+            format!("source '{source}' matches no raw document in the manifest"),
         ));
     }
     for entry in compilation.uncompiled(&manifest) {
-        issues.push(format!(
-            "Uncompiled raw doc: {} ({})",
-            entry.raw_path, entry.title
+        findings.push(Finding::warning(
+            "uncompiled-source",
+            entry.raw_path.clone(),
+            format!("not yet compiled into any wiki article ({})", entry.title),
         ));
     }
 
-    crate::core::log::append("lint", &format!("{} issues found", issues.len()))?;
+    lint::sort(&mut findings);
+    let errors = lint::count(&findings, Severity::Error);
+    let warnings = lint::count(&findings, Severity::Warning);
 
-    // Report
-    if issues.is_empty() {
-        println!("{}", "No issues found.".green());
+    crate::core::log::append("lint", &format!("{errors} error(s), {warnings} warning(s)"))?;
+
+    if output::is_json() {
+        output::emit(
+            "lint",
+            Report {
+                errors,
+                warnings,
+                findings,
+            },
+        )?;
     } else {
-        println!("{} issue(s) found:\n", issues.len().to_string().yellow());
-        for issue in &issues {
-            println!("  {} {issue}", "•".red());
-        }
+        report_human(&findings, errors, warnings);
     }
 
-    Ok(())
+    // Exit non-zero only for things that are actually wrong. An archive with
+    // uncompiled sources and forward-declared wikilinks is healthy, and a lint
+    // that fails on it would be one nobody could gate on.
+    let failing = if strict { errors + warnings } else { errors };
+    Ok(if failing > 0 {
+        output::EXIT_FINDINGS
+    } else {
+        0
+    })
+}
+
+fn report_human(findings: &[Finding], errors: usize, warnings: usize) {
+    if findings.is_empty() {
+        println!("{}", "No issues found.".green());
+        return;
+    }
+
+    println!(
+        "{} error(s), {} warning(s):\n",
+        errors.to_string().red(),
+        warnings.to_string().yellow()
+    );
+
+    for finding in findings {
+        let tag = match finding.severity {
+            Severity::Error => finding.severity.label().red(),
+            Severity::Warning => finding.severity.label().yellow(),
+        };
+        let location = finding
+            .path
+            .as_deref()
+            .map(|p| format!("{}: ", p.cyan()))
+            .unwrap_or_default();
+        println!(
+            "  {tag} {}{}  {}",
+            location,
+            finding.message,
+            format!("[{}]", finding.rule).dimmed()
+        );
+    }
 }

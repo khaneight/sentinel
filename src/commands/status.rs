@@ -1,12 +1,25 @@
 use std::io;
 
 use colored::Colorize;
+use serde::Serialize;
 
 use crate::core::compilation::Compilation;
 use crate::core::links::LinkGraph;
 use crate::core::manifest::Manifest;
+use crate::core::output;
 use crate::core::paths;
 use crate::core::wiki;
+
+#[derive(Serialize)]
+struct Status {
+    raw_documents: usize,
+    wiki_articles: usize,
+    uncompiled: usize,
+    orphan_pages: usize,
+    unresolved_sources: usize,
+    raw_domains: usize,
+    wiki_domains: usize,
+}
 
 pub fn run() -> io::Result<()> {
     let root = paths::archive_root();
@@ -20,41 +33,53 @@ pub fn run() -> io::Result<()> {
     let manifest = Manifest::load()?;
     let articles = wiki::load_all().unwrap_or_default();
 
-    // Count raw docs. Compilation status is derived from what the wiki cites,
-    // so it stays correct even if `sentinel index` has not been run since the
-    // last article was written.
-    let raw_count = manifest.count();
+    // Compilation status is derived from what the wiki cites, so it stays
+    // correct even if `sentinel index` has not been run since the last article
+    // was written.
     let compilation = Compilation::derive(&articles, &manifest);
-    let uncompiled_count = compilation.uncompiled(&manifest).len();
-    let unresolved_count = compilation.unresolved.len();
-
-    let wiki_count = articles.len();
-
-    // Count domains with content
-    let raw_domains = count_nonempty_subdirs(&paths::raw_dir());
-    let wiki_domains = count_nonempty_subdirs(&paths::wiki_dir());
 
     // Load link graph for orphan count
     let graph = LinkGraph::load().unwrap_or_default();
-    let orphan_count = if graph.forward.is_empty() {
+    let orphan_pages = if graph.forward.is_empty() {
         0
     } else {
         let all_slugs: std::collections::HashSet<String> = graph.forward.keys().cloned().collect();
         graph.orphans(&all_slugs).len()
     };
 
+    let status = Status {
+        raw_documents: manifest.count(),
+        wiki_articles: articles.len(),
+        uncompiled: compilation.uncompiled(&manifest).len(),
+        orphan_pages,
+        unresolved_sources: compilation.unresolved.len(),
+        raw_domains: count_nonempty_subdirs(&paths::raw_dir()),
+        wiki_domains: count_nonempty_subdirs(&paths::wiki_dir()),
+    };
+
+    if output::is_json() {
+        return output::emit("status", status);
+    }
+
     println!("{}", "Archive Status".bold());
     println!("─────────────────────────────");
-    println!("  Raw documents:   {}", raw_count.to_string().cyan());
-    println!("  Wiki articles:   {}", wiki_count.to_string().green());
-    println!("  Uncompiled:      {}", format_count(uncompiled_count));
-    println!("  Orphan pages:    {}", format_count(orphan_count));
-    println!("  Raw domains:     {raw_domains}");
-    println!("  Wiki domains:    {wiki_domains}");
-    if unresolved_count > 0 {
+    println!(
+        "  Raw documents:   {}",
+        status.raw_documents.to_string().cyan()
+    );
+    println!(
+        "  Wiki articles:   {}",
+        status.wiki_articles.to_string().green()
+    );
+    println!("  Uncompiled:      {}", format_count(status.uncompiled));
+    println!("  Orphan pages:    {}", format_count(status.orphan_pages));
+    println!("  Raw domains:     {}", status.raw_domains);
+    println!("  Wiki domains:    {}", status.wiki_domains);
+    if status.unresolved_sources > 0 {
         println!(
-            "\n  {} {unresolved_count} source citation(s) match no raw document — run `sentinel lint`",
-            "!".yellow()
+            "\n  {} {} source citation(s) match no raw document — run `sentinel lint`",
+            "!".yellow(),
+            status.unresolved_sources
         );
     }
 

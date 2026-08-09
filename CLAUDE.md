@@ -20,6 +20,8 @@ cargo fmt --check
 - `src/core/wiki.rs` — shared loader for wiki articles
 - `src/core/frontmatter.rs` — YAML frontmatter parsing/rendering for wiki articles
 - `src/core/links.rs` — wikilink extraction and link graph (forward + backlinks)
+- `src/core/lint.rs` — lint finding type, severity model, stable ordering
+- `src/core/output.rs` — output format switch, JSON envelope, exit-code constants
 - `src/core/text.rs` — display helpers (character-safe truncation)
 - `src/commands/` — one module per CLI subcommand: init, config, ingest, ingest-repo, sync, status, uncompiled, index, lint, search, graph
 - `tests/` — integration tests that drive the compiled binary against temporary archives
@@ -57,10 +59,42 @@ A raw document is "compiled" when at least one wiki article names it in `sources
 
 Citations are matched leniently — `raw/d/x.md`, `./raw/d/x.md`, `/raw/d/x.md`, `d/x.md`, `[[raw/d/x.md]]`, and a bare `x.md` all resolve — because an agent writes them by hand into YAML. A bare filename matching two raw documents is reported as unresolved rather than guessed.
 
+## Output contract
+
+Every read command takes the global `--json` flag and emits one object with a common envelope:
+
+```json
+{ "schema_version": 1, "command": "status", "archive": "/path/to/archive", ... }
+```
+
+`SCHEMA_VERSION` lives in `src/core/output.rs`. **Bump it on any breaking change to a payload shape** — renaming or removing a field, changing a type, changing what a field means. Adding an optional field is not breaking. `tests/json_output.rs` asserts the field names, so a breaking change fails the build rather than silently breaking consumers.
+
+Errors are JSON too when `--json` was requested, on stderr: `{"schema_version":1,"error":{"message":"..."}}`. Otherwise a consumer needs a second, prose-shaped parser for the unhappy path.
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | the command failed |
+| 2 | the command ran and found problems (`output::EXIT_FINDINGS`) |
+
+Separating 1 from 2 is what lets a caller tell "your archive has issues" from "sentinel is broken".
+
+### Lint severities
+
+`error` means the archive is malformed — unparseable, ambiguous, or claiming something untrue. `warning` means work that is not finished yet. The split decides the exit code, so it is not cosmetic: a broken `[[wikilink]]` is a **warning** because the compile workflow deliberately links concepts before their articles exist, and a lint that failed on that would be one nobody could gate on.
+
+| Rule | Severity |
+|---|---|
+| `invalid-frontmatter`, `missing-field`, `invalid-origin`, `invalid-status`, `duplicate-slug`, `unresolved-source` | error |
+| `broken-link`, `missing-tags`, `missing-sources`, `uncompiled-source` | warning |
+
+`sentinel lint` exits 2 on any error; `--strict` also fails on warnings. Rule ids are stable, so output can be filtered or grouped without matching on prose.
+
 ## Known Limitations
 
 - `ingest-repo` command is a stub (not yet implemented)
 - Wikilink slugs are bare filename stems, so two articles with the same stem in different domains collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.
 - `meta/log.md` is append-only — commands that mutate state (init, ingest, sync, index, lint) auto-append entries
 - No CI/CD pipeline
-- No machine-readable (`--json`) output, and `lint` exits 0 even when it reports issues

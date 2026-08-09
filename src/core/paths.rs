@@ -33,6 +33,17 @@ pub enum RootSource {
 }
 
 impl RootSource {
+    /// Stable machine-readable token, for `--json` consumers that branch on it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RootSource::Flag => "flag",
+            RootSource::Env => "env",
+            RootSource::Config => "config",
+            RootSource::Discovered => "discovered",
+            RootSource::Cwd => "cwd",
+        }
+    }
+
     /// Human-readable explanation of the precedence rule that won.
     pub fn describe(self) -> &'static str {
         match self {

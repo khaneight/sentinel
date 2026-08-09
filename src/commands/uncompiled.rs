@@ -1,10 +1,29 @@
+use std::collections::BTreeMap;
 use std::io;
 
 use colored::Colorize;
+use serde::Serialize;
 
 use crate::core::compilation::Compilation;
 use crate::core::manifest::Manifest;
+use crate::core::output;
 use crate::core::wiki;
+
+#[derive(Serialize)]
+struct Document {
+    raw_path: String,
+    title: String,
+    domain: String,
+    origin: String,
+    source_type: String,
+    ingested_at: String,
+}
+
+#[derive(Serialize)]
+struct Queue {
+    count: usize,
+    documents: Vec<Document>,
+}
 
 pub fn run() -> io::Result<()> {
     let manifest = Manifest::load()?;
@@ -13,6 +32,27 @@ pub fn run() -> io::Result<()> {
     let articles = wiki::load_all().unwrap_or_default();
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
+
+    if output::is_json() {
+        let documents = uncompiled
+            .iter()
+            .map(|e| Document {
+                raw_path: e.raw_path.clone(),
+                title: e.title.clone(),
+                domain: e.domain.clone(),
+                origin: e.origin.clone(),
+                source_type: e.source_type.clone(),
+                ingested_at: e.ingested_at.clone(),
+            })
+            .collect::<Vec<_>>();
+        return output::emit(
+            "uncompiled",
+            Queue {
+                count: documents.len(),
+                documents,
+            },
+        );
+    }
 
     if uncompiled.is_empty() {
         println!("{}", "All raw documents have been compiled.".green());
@@ -24,8 +64,7 @@ pub fn run() -> io::Result<()> {
         uncompiled.len().to_string().yellow()
     );
 
-    // Group by domain
-    let mut by_domain: std::collections::BTreeMap<&str, Vec<_>> = std::collections::BTreeMap::new();
+    let mut by_domain: BTreeMap<&str, Vec<_>> = BTreeMap::new();
     for entry in &uncompiled {
         by_domain.entry(&entry.domain).or_default().push(entry);
     }

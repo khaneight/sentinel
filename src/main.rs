@@ -5,6 +5,7 @@ use std::io;
 
 use clap::{Parser, Subcommand};
 
+use crate::core::output::{self, Format};
 use crate::core::paths;
 
 #[derive(Parser)]
@@ -17,12 +18,17 @@ use crate::core::paths;
      2. SENTINEL_ARCHIVE environment variable\n  \
      3. archive = \"...\" in ~/.config/sentinel/config.toml\n  \
      4. the nearest parent directory containing meta/manifest.json\n\n\
-     Run `sentinel config` to see which rule is in effect."
+     Run `sentinel config` to see which rule is in effect.\n\n\
+     Exit codes: 0 success, 1 error, 2 the command ran and found problems."
 ))]
 struct Cli {
     /// Archive root to operate on (overrides SENTINEL_ARCHIVE and the config file)
     #[arg(short = 'A', long, global = true, value_name = "PATH")]
     archive: Option<String>,
+
+    /// Emit machine-readable JSON instead of formatted text
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -91,8 +97,14 @@ enum Commands {
     /// Rebuild all index files and link graph
     Index,
 
-    /// Validate links, frontmatter, and find orphans
-    Lint,
+    /// Validate frontmatter, links, and the raw/wiki mapping
+    ///
+    /// Exits 2 when errors are found; warnings alone exit 0 unless --strict.
+    Lint {
+        /// Treat warnings as failures too
+        #[arg(long)]
+        strict: bool,
+    },
 
     /// Full-text search across wiki articles
     Search {
@@ -114,13 +126,29 @@ enum Commands {
 }
 
 fn main() {
-    if let Err(e) = run(Cli::parse()) {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+    let cli = Cli::parse();
+    // Installed before anything can fail, so even resolution errors honour it.
+    output::set_format(if cli.json {
+        Format::Json
+    } else {
+        Format::Human
+    });
+
+    match run(cli) {
+        Ok(0) => {}
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            if output::is_json() {
+                output::emit_error(&e.to_string());
+            } else {
+                eprintln!("Error: {e}");
+            }
+            std::process::exit(1);
+        }
     }
 }
 
-fn run(cli: Cli) -> io::Result<()> {
+fn run(cli: Cli) -> io::Result<i32> {
     // `sentinel config` exists to diagnose resolution problems, so it must not
     // die on the very failure the user is trying to inspect.
     if matches!(cli.command, Commands::Config) {
@@ -143,24 +171,26 @@ fn run(cli: Cli) -> io::Result<()> {
     paths::set_archive_root(resolved.path.clone());
 
     match cli.command {
-        Commands::Init { set_default, .. } => commands::init::run(&resolved, set_default),
+        Commands::Init { set_default, .. } => {
+            commands::init::run(&resolved, set_default).map(|()| 0)
+        }
         Commands::Config => unreachable!("handled above"),
         Commands::Ingest {
             path,
             domain,
             origin,
             title,
-        } => commands::ingest::run(&path, &domain, &origin, title.as_deref()),
+        } => commands::ingest::run(&path, &domain, &origin, title.as_deref()).map(|()| 0),
         Commands::IngestRepo { path, domain, name } => {
-            commands::ingest_repo::run(&path, &domain, name.as_deref())
+            commands::ingest_repo::run(&path, &domain, name.as_deref()).map(|()| 0)
         }
-        Commands::Sync { dry_run } => commands::sync::run(dry_run),
-        Commands::Status => commands::status::run(),
-        Commands::Uncompiled => commands::uncompiled::run(),
-        Commands::Index => commands::index::run(),
-        Commands::Lint => commands::lint::run(),
-        Commands::Search { query } => commands::search::run(&query),
-        Commands::Graph => commands::graph::run(),
-        Commands::Log { operation, detail } => commands::log::run(&operation, &detail),
+        Commands::Sync { dry_run } => commands::sync::run(dry_run).map(|()| 0),
+        Commands::Status => commands::status::run().map(|()| 0),
+        Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
+        Commands::Index => commands::index::run().map(|()| 0),
+        Commands::Lint { strict } => commands::lint::run(strict),
+        Commands::Search { query } => commands::search::run(&query).map(|()| 0),
+        Commands::Graph => commands::graph::run().map(|()| 0),
+        Commands::Log { operation, detail } => commands::log::run(&operation, &detail).map(|()| 0),
     }
 }

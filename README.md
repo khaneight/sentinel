@@ -111,6 +111,35 @@ sentinel graph           # print link graph topology
 sentinel log op "detail" # append to activity log (meta/log.md)
 ```
 
+## Driving it from a script or an agent
+
+Every read command takes `--json`:
+
+```bash
+sentinel status --json
+sentinel lint --json
+sentinel uncompiled --json
+sentinel search "stoicism" --json
+sentinel graph --json
+sentinel config --json
+```
+
+Each payload carries `schema_version`, the `command` that produced it, and the `archive` it describes. Errors come back as JSON too, on stderr, so there is only ever one thing to parse.
+
+Exit codes distinguish "your archive has problems" from "sentinel broke":
+
+| Code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | the command failed |
+| 2 | the command ran and found problems |
+
+`sentinel lint` exits 2 when it finds **errors** — malformed frontmatter, invalid `origin`/`status`, colliding slugs, a `sources:` entry pointing at nothing. Warnings alone exit 0, because an archive with uncompiled sources and forward-declared `[[wikilinks]]` is a healthy archive mid-workflow, not a broken one. Use `--strict` to fail on warnings too.
+
+```bash
+sentinel lint --json | jq -r '.findings[] | select(.severity=="error") | "\(.rule)\t\(.path)"'
+```
+
 ## Architecture
 
 Three layers, following the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern:
