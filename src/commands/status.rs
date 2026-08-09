@@ -33,6 +33,10 @@ struct Status {
     /// `orphan_pages` above is 0 because nothing could be counted.
     #[serde(skip_serializing_if = "Option::is_none")]
     link_graph_error: Option<String>,
+    /// Set when the graph parsed fine but no longer matches disk. Distinct from
+    /// the error above: the count is real, it just describes an older archive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_graph_stale: Option<String>,
 }
 
 pub fn run() -> io::Result<()> {
@@ -58,6 +62,9 @@ pub fn run() -> io::Result<()> {
         Ok(graph) => (graph, None),
         Err(e) => (LinkGraph::default(), Some(links::corrupt_graph_note(&e))),
     };
+    // Same trap as `next`: an unbuilt graph reported "0 orphans", which reads
+    // as a healthy archive rather than one nothing has looked at yet.
+    let graph_stale = links::staleness(&graph, &articles).note();
     let orphan_pages = if graph.forward.is_empty() {
         0
     } else {
@@ -88,6 +95,7 @@ pub fn run() -> io::Result<()> {
         },
         unreadable: loaded.unreadable,
         link_graph_error: graph_error,
+        link_graph_stale: graph_stale,
     };
 
     if output::is_json() {
@@ -120,6 +128,9 @@ pub fn run() -> io::Result<()> {
     if let Some(note) = &status.link_graph_error {
         println!("\n  {} {note}", "!".red());
         println!("      orphan count above is 0 because none could be counted.");
+    }
+    if let Some(note) = &status.link_graph_stale {
+        println!("\n  {} {note}", "!".yellow());
     }
     if !status.unreadable.is_empty() {
         println!(

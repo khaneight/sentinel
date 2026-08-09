@@ -4,8 +4,9 @@ use std::io;
 use colored::Colorize;
 use serde::Serialize;
 
-use crate::core::links::LinkGraph;
+use crate::core::links::{self, LinkGraph, Staleness};
 use crate::core::output;
+use crate::core::wiki;
 
 #[derive(Serialize)]
 struct GraphReport {
@@ -14,6 +15,10 @@ struct GraphReport {
     forward: BTreeMap<String, Vec<String>>,
     backlinks: BTreeMap<String, Vec<String>>,
     orphans: Vec<String>,
+    /// Set when the graph disagrees with what is on disk. Every count above
+    /// describes the archive as it was at the last `sentinel index`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stale: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -27,8 +32,15 @@ struct Neighbourhood {
     /// Edges among those nodes only.
     forward: BTreeMap<String, Vec<String>>,
     backlinks: BTreeMap<String, Vec<String>>,
-    /// True when `node` is not in the graph at all.
+    /// True when no article of this name exists — not merely when the graph has
+    /// not heard of it. Those were conflated, so a freshly written article
+    /// reported `unknown: true` while sitting on disk with outgoing links.
     unknown: bool,
+    /// Whether the saved graph knows this node. False with `unknown: false`
+    /// means the article exists but postdates the last `sentinel index`.
+    in_graph: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stale: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -40,11 +52,24 @@ struct Neighbour {
 pub fn run(node: Option<&str>, depth: usize) -> io::Result<()> {
     let graph = LinkGraph::load()?;
 
+    // The graph is a cache that only `index` refreshes, so it can disagree with
+    // disk. Reading the articles costs what `search` and `status` already pay,
+    // and is what lets this command tell "no such article" apart from "written
+    // since the last index" — which it used to report identically.
+    let loaded = wiki::load_all()?;
+    let stale = links::staleness(&graph, &loaded.articles);
+
     match node {
         // Canonicalised so `--node "Compile Loop"` finds the same node the
         // wikilinks do.
-        Some(node) => neighbourhood(&graph, &crate::core::slug::canonical(node), depth),
-        None => whole_graph(&graph),
+        Some(node) => neighbourhood(
+            &graph,
+            &loaded.articles,
+            &crate::core::slug::canonical(node),
+            depth,
+            &stale,
+        ),
+        None => whole_graph(&graph, &stale),
     }
 }
 
@@ -53,8 +78,15 @@ pub fn run(node: Option<&str>, depth: usize) -> io::Result<()> {
 /// The full topology is the wrong shape for "what surrounds this article": on a
 /// 423-article archive `graph --json` is ~65 KB, and it grows with the archive.
 /// A neighbourhood answer stays the size of the answer.
-fn neighbourhood(graph: &LinkGraph, node: &str, depth: usize) -> io::Result<()> {
+fn neighbourhood(
+    graph: &LinkGraph,
+    articles: &[wiki::LoadedArticle],
+    node: &str,
+    depth: usize,
+    stale: &Staleness,
+) -> io::Result<()> {
     let known = graph.forward.contains_key(node) || graph.backlinks.contains_key(node);
+    let on_disk = articles.iter().any(|a| a.canonical_slug() == node);
 
     // BFS over both directions — "what surrounds this" means what it links to
     // and what links to it.
@@ -124,14 +156,21 @@ fn neighbourhood(graph: &LinkGraph, node: &str, depth: usize) -> io::Result<()> 
                 nodes,
                 forward,
                 backlinks,
-                unknown: !known,
+                unknown: !known && !on_disk,
+                in_graph: known,
+                stale: stale.note(),
             },
         );
     }
 
     if !known {
+        let reason = if on_disk {
+            "it exists on disk but postdates the last `sentinel index`"
+        } else {
+            "no article of that name exists"
+        };
         println!(
-            "{} '{node}' is not in the link graph. It may be unwritten, or `sentinel index` may be stale.",
+            "{} '{node}' is not in the link graph — {reason}.",
             "note:".yellow()
         );
     }
@@ -165,7 +204,7 @@ fn neighbourhood(graph: &LinkGraph, node: &str, depth: usize) -> io::Result<()> 
     Ok(())
 }
 
-fn whole_graph(graph: &LinkGraph) -> io::Result<()> {
+fn whole_graph(graph: &LinkGraph, stale: &Staleness) -> io::Result<()> {
     if output::is_json() {
         let forward = sorted(&graph.forward);
         let backlinks = sorted(&graph.backlinks);
@@ -181,10 +220,14 @@ fn whole_graph(graph: &LinkGraph) -> io::Result<()> {
                 forward,
                 backlinks,
                 orphans,
+                stale: stale.note(),
             },
         );
     }
 
+    if let Some(note) = stale.note() {
+        println!("{} {note}\n", "note:".yellow());
+    }
     if graph.forward.is_empty() {
         println!("Link graph is empty. Run `sentinel index` first.");
         return Ok(());

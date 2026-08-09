@@ -24,7 +24,13 @@ Announce the budget before starting.
 Stop and report when **any** of these holds. Do not push past one.
 
 1. **Budget exhausted** — the iteration count is used up.
-2. **Backlog empty** — `sentinel next` returns `action: "none"`.
+2. **Backlog empty** — `sentinel next` returns `action: "none"` **and
+   `progress.link_graph_stale` is absent**. That field means the link graph no
+   longer matches disk, so orphan and connection counts describe an older
+   archive and `connect` work can be missing from the backlog entirely. Run
+   `sentinel index`, re-run `sentinel next`, and only then treat an empty
+   backlog as real. An empty backlog derived from a stale graph is the one way
+   this loop can stop while there is still work to do.
 3. **No progress** — an iteration finishes and **nothing in `progress` moved in
    the right direction**: `wiki_articles` did not increase, `uncompiled` did not
    decrease, and `errors` did not decrease. That means the iteration produced
