@@ -142,6 +142,8 @@ Every mutating command does load → modify → save on the manifest, and nothin
 
 Comparing the manifest against what was loaded is **not sufficient**, and it is worth knowing why: both processes read, both compare successfully, and both write, because nothing orders the compare against the write. That was measured too — it caught 4 of 12 and left 7 silently lost.
 
+Every subcommand is classified in `tests/command_contract.rs` as a query, a locked mutation, or an unlocked mutation with a stated reason — and the list is checked against `sentinel --help`, so adding a command fails the build until someone decides which it is. `init` and `log` were in neither the lock set nor the query set for a full PR: safe by construction, but by accident.
+
 `core::lock::ArchiveLock` takes `meta/.lock` via `File::create_new`, the atomic primitive available without a dependency, and holds it for the whole read-modify-write. `main` acquires it for `ingest`, `ingest-repo`, `sync`, `index`, `mv`, and `rm`. Queries take no lock, so they are never blocked and never contend.
 
 `Drop` releases it on every ordinary exit, including `?` propagation. It cannot release on SIGKILL, so a lock older than two minutes is treated as stale and broken — without that, one killed process would wedge the archive permanently, which is worse than the race.

@@ -87,6 +87,8 @@ pub fn run(resolved: &ResolvedRoot, set_default: bool) -> io::Result<()> {
         ));
     }
 
+    let mut created = false;
+
     // Create directory structure
     let dirs = [
         paths::raw_dir(),
@@ -110,12 +112,14 @@ pub fn run(resolved: &ResolvedRoot, set_default: bool) -> io::Result<()> {
     let manifest_path = paths::manifest_path();
     if !manifest_path.exists() {
         fs::write(&manifest_path, r#"{"entries":{}}"#)?;
+        created = true;
     }
 
     // Create empty link graph if it doesn't exist
     let link_graph_path = paths::link_graph_path();
     if !link_graph_path.exists() {
         fs::write(&link_graph_path, r#"{"forward":{},"backlinks":{}}"#)?;
+        created = true;
     }
 
     // Create activity log if it doesn't exist
@@ -125,6 +129,7 @@ pub fn run(resolved: &ResolvedRoot, set_default: bool) -> io::Result<()> {
             &log_path,
             "# Activity Log\n\n*Append-only record of sentinel operations. Parseable: `grep \"^## \\[\" meta/log.md`*\n\n",
         )?;
+        created = true;
     }
 
     // Create wiki article template
@@ -146,6 +151,7 @@ status: draft
 
 "#,
         )?;
+        created = true;
     }
 
     // Create raw note template
@@ -162,6 +168,7 @@ ingested:
 
 "#,
         )?;
+        created = true;
     }
 
     // Create empty index files
@@ -192,6 +199,7 @@ ingested:
         let path = paths::index_dir().join(name);
         if !path.exists() {
             fs::write(&path, content)?;
+            created = true;
         }
     }
 
@@ -200,6 +208,7 @@ ingested:
     let claude_md = root.join("CLAUDE.md");
     if !claude_md.exists() {
         fs::write(&claude_md, ARCHIVE_CLAUDE_MD)?;
+        created = true;
     }
 
     // Create SUMMARY.md if it doesn't exist
@@ -209,9 +218,15 @@ ingested:
             &summary_path,
             "# Archive Knowledge Base\n\nA personal knowledge base compiled and maintained by Claude Code.\n\n## Domains\n\n- **Philosophy** — Personal philosophical writings and explorations\n- **Coding** — Software engineering knowledge, patterns, and codebase analyses\n- **Research** — Research topics and findings\n\n## Structure\n\n- `raw/` — Source documents (ingested, untouched)\n- `wiki/` — Compiled knowledge articles\n- `index/` — Auto-generated indexes\n- `meta/` — Machine-readable state (manifest, link graph)\n- `templates/` — Article templates\n",
         )?;
+        created = true;
     }
 
-    crate::core::log::append("init", "Archive initialized")?;
+    // Re-running `init` on a complete archive creates nothing, so recording
+    // "Archive initialized" would log an event that did not happen — the same
+    // reason `lint` stopped logging.
+    if created {
+        crate::core::log::append("init", "Archive initialized")?;
+    }
 
     println!("Archive initialized at {}", root.display());
     println!("  raw/       — source documents");
