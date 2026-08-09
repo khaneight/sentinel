@@ -58,13 +58,27 @@ pub fn run(dry_run: bool) -> io::Result<()> {
         discovered.push((rel_path, manifest::hash_file(entry.path())));
     }
 
-    // Entries whose file is gone.
-    let orphaned: Vec<String> = manifest
-        .entries
-        .keys()
-        .filter(|rel| !root.join(rel).exists())
-        .cloned()
-        .collect();
+    // Entries whose file is gone — and, separately, entries whose file could
+    // not be checked at all.
+    //
+    // `Path::exists()` answers false both for "not there" and for "could not
+    // find out", and this is the one place in the tool where that difference
+    // destroys something: an unreadable parent directory made every entry
+    // beneath it look deleted, and `sync` pruned them. The files were still on
+    // disk. What was lost was `origin` and `ingested_at`, which the comment
+    // below already says cannot be recovered — a later sync re-registers the
+    // file as `authored`, silently discarding a `researched` provenance.
+    let mut orphaned: Vec<String> = Vec::new();
+    let mut unverifiable: Vec<(String, String)> = Vec::new();
+    for rel in manifest.entries.keys() {
+        match root.join(rel).try_exists() {
+            Ok(true) => {}
+            Ok(false) => orphaned.push(rel.clone()),
+            Err(e) => unverifiable.push((rel.clone(), e.to_string())),
+        }
+    }
+    orphaned.sort();
+    unverifiable.sort();
 
     // A file renamed by hand looks like a deletion plus an addition. Treating
     // it as such destroys metadata that cannot be recovered from disk — most
@@ -118,6 +132,19 @@ pub fn run(dry_run: bool) -> io::Result<()> {
     // the whole output, and anything printed here would precede it.
     if !output::is_json() {
         print_changes(&moved, &added, &removed, &manifest);
+    }
+
+    if !unverifiable.is_empty() {
+        println!(
+            "\n  {} {} manifest entr(ies) could not be checked and were left \
+             alone. Their raw documents may still exist; pruning them would \
+             discard provenance that is not recoverable from disk:",
+            "!".yellow(),
+            unverifiable.len()
+        );
+        for (rel, error) in &unverifiable {
+            println!("      {rel} — {}", error.dimmed());
+        }
     }
 
     if dry_run {
