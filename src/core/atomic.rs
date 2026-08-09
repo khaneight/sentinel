@@ -36,6 +36,25 @@ pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
     })
 }
 
+/// Rehearse `write` without changing anything, to find out whether it would
+/// work.
+///
+/// Creates and removes the same temp sibling `write` would, so it exercises the
+/// permission that actually fails — directory write access, not the target
+/// file's mode. A caller about to perform several writes as one logical change
+/// can check them all first.
+///
+/// This narrows a window; it does not close it. Nothing stops permissions
+/// changing between the rehearsal and the write. It turns the overwhelmingly
+/// common cause of a half-applied change — a directory that was never writable
+/// — into a refusal that does nothing.
+pub fn preflight(path: &Path) -> io::Result<()> {
+    let temp = temp_path(path)?;
+    std::fs::File::create(&temp)?;
+    let _ = std::fs::remove_file(&temp);
+    Ok(())
+}
+
 /// A hidden sibling of `path`, so the rename stays within one filesystem.
 ///
 /// The pid keeps two concurrent sentinel processes from colliding on the temp

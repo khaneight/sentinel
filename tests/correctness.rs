@@ -1102,3 +1102,129 @@ fn an_unverifiable_entry_keeps_its_provenance_intact() {
         "provenance was reset to the default after an unreadable sync"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The manifest must agree with the filesystem
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_manifest_entry_with_no_file_on_disk_is_an_error() {
+    // Every other rule compares articles with the manifest or with each other,
+    // so an entry naming a file that does not exist was consistent with
+    // everything and reported by nothing. An archive could lose a raw document
+    // and lint clean.
+    let a = Archive::new();
+    a.write("raw/philosophy/doc.md", "text");
+    a.run(&["sync"]);
+    assert_eq!(a.code(&["lint"]), 0);
+
+    std::fs::rename(
+        a.path("raw/philosophy/doc.md"),
+        a.path("raw/philosophy/renamed.md"),
+    )
+    .unwrap();
+
+    let report = a.json(&["lint"]);
+    let rules: Vec<&str> = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["rule"].as_str().unwrap())
+        .collect();
+    assert!(
+        rules.contains(&"missing-raw-document"),
+        "the manifest names a file that is gone: {rules:?}"
+    );
+    assert_eq!(a.code(&["lint"]), 2);
+}
+
+#[test]
+fn a_file_that_cannot_be_checked_is_not_reported_as_missing() {
+    // Same principle as `sync`: an unknown is not a negative. Reporting this as
+    // malformed would send an agent to delete a citation over a permissions
+    // problem.
+    let a = Archive::new();
+    a.write("raw/philosophy/doc.md", "text");
+    a.run(&["sync"]);
+
+    let dir = a.path("raw/philosophy");
+    set_mode(&dir, 0o000);
+    let blocked = std::fs::read_dir(&dir).is_err();
+    let out = a.run(&["lint"]);
+    set_mode(&dir, 0o755);
+
+    assert!(blocked, "fixture still readable — probably running as root");
+    assert!(
+        !out.contains("missing-raw-document"),
+        "reported a file it merely could not stat:\n{out}"
+    );
+}
+
+#[test]
+fn mv_changes_nothing_when_a_citation_cannot_be_rewritten() {
+    // A rename plus N citation rewrites is one logical change made of many
+    // filesystem operations. Failing partway left the document renamed, the
+    // manifest naming the old path, and the citations split between the two.
+    let a = Archive::new();
+    a.write("raw/philosophy/doc.md", "text");
+    a.run(&["sync"]);
+    for domain in ["philosophy", "coding"] {
+        a.write(
+            &format!("wiki/{domain}/{domain}.md"),
+            &format!(
+                "---\ntitle: {domain}\ndomain: {domain}\norigin: authored\ntags: [t]\n\
+                 sources: [raw/philosophy/doc.md]\n---\n\nBody.\n"
+            ),
+        );
+    }
+    a.run(&["index"]);
+
+    let blocked_dir = a.path("wiki/coding");
+    set_mode(&blocked_dir, 0o555);
+    let out = a.output(&["mv", "raw/philosophy/doc.md", "raw/philosophy/renamed.md"]);
+    let writable = std::fs::File::create(blocked_dir.join(".probe")).is_ok();
+    set_mode(&blocked_dir, 0o755);
+
+    assert!(
+        !writable,
+        "fixture still writable — probably running as root"
+    );
+    assert!(!out.status.success(), "mv should refuse");
+    assert!(
+        common::stderr(&out).contains("Nothing has been moved"),
+        "the refusal must say the archive is untouched:\n{}",
+        common::stderr(&out)
+    );
+
+    // The archive is exactly as it was.
+    common::assert_exists(&a.path("raw/philosophy/doc.md"));
+    assert!(!a.path("raw/philosophy/renamed.md").exists());
+    assert!(
+        a.read("wiki/philosophy/philosophy.md")
+            .contains("raw/philosophy/doc.md")
+    );
+    assert_eq!(a.code(&["lint"]), 0, "{}", a.run(&["lint"]));
+}
+
+#[test]
+fn mv_still_works_when_every_citation_can_be_rewritten() {
+    // The precheck is only correct if it does not block ordinary moves.
+    let a = Archive::new();
+    a.write("raw/philosophy/doc.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/cites.md",
+        "---\ntitle: Cites\ndomain: philosophy\norigin: authored\ntags: [t]\n\
+         sources: [raw/philosophy/doc.md]\n---\n\nBody.\n",
+    );
+
+    assert_eq!(
+        a.code(&["mv", "raw/philosophy/doc.md", "raw/coding/doc.md"]),
+        0
+    );
+    assert!(
+        a.read("wiki/philosophy/cites.md")
+            .contains("raw/coding/doc.md")
+    );
+    assert_eq!(a.code(&["lint"]), 0, "{}", a.run(&["lint"]));
+}

@@ -128,7 +128,28 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
         return Ok(());
     }
 
-    // Move the file first: if it fails, nothing else has been touched.
+    // A rename plus N citation rewrites is one logical change made of many
+    // filesystem operations. Failing partway used to leave the raw document
+    // renamed, the manifest still naming the old path, and the citations split
+    // between the two — and `lint` had no rule that could see it.
+    //
+    // Rehearse every rewrite before touching anything. This narrows the window
+    // rather than closing it, but the common cause is a directory that was
+    // never writable, and that now costs nothing.
+    for (rel_path, _) in &edits {
+        crate::core::atomic::preflight(&root.join(rel_path)).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!(
+                    "Cannot rewrite {rel_path}, which cites this document ({e}). \
+                     Nothing has been moved — repointing only some citations \
+                     would leave the archive disagreeing with itself."
+                ),
+            )
+        })?;
+    }
+
+    // Move the file second: if it fails, nothing else has been touched.
     if let Some(parent) = to_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
