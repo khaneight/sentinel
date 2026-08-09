@@ -252,7 +252,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
         .or_else(|| build(Action::Review))
         .unwrap_or_else(|| Recommendation {
             action: Action::None,
-            reason: "Nothing outstanding. Every source is compiled, every link resolves, and no draft has stalled.".to_string(),
+            reason: nothing_outstanding(&articles),
             target_count: 0,
             targets: Vec::new(),
             suggested_command: None,
@@ -267,6 +267,27 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
 
     report_human(&recommendation);
     Ok(())
+}
+
+/// The terminal message.
+///
+/// "Nothing outstanding" is true of the mechanical work and can still be
+/// misleading: an archive where every article is a draft is complete by every
+/// measure the tool takes and has not been reviewed by anyone. Say so rather
+/// than let the silence imply otherwise.
+fn nothing_outstanding(articles: &[LoadedArticle]) -> String {
+    let base = "Nothing outstanding. Every source is compiled, every link resolves, and no draft has stalled.";
+    let drafts = articles
+        .iter()
+        .filter(|a| a.article.frontmatter.status.as_deref() == Some("draft"))
+        .count();
+    if !articles.is_empty() && drafts == articles.len() {
+        return format!(
+            "{base}\n  Note: all {drafts} article(s) are still `draft` — the \
+             mechanical work is done, the reading has not been."
+        );
+    }
+    base.to_string()
 }
 
 fn fix_errors(

@@ -526,3 +526,84 @@ fn an_untruncated_target_list_says_nothing_extra() {
     assert_eq!(v["target_count"], 1);
     assert!(!a.run(&["next", "--action", "write"]).contains("more"));
 }
+
+// ---------------------------------------------------------------------------
+// The terminal state
+//
+// Driving a real corpus to completion — 8 sources, 26 articles, one connected
+// graph — showed the loop terminating cleanly and also showed the tool saying
+// "Nothing outstanding" over an archive in which every single article was
+// still a draft. True of the mechanical work, misleading about the whole.
+// ---------------------------------------------------------------------------
+
+fn completed_archive(status: &str) -> Archive {
+    // Updated today, so the drafts are current rather than stale — otherwise
+    // `next` correctly recommends `review` and this is not the terminal state.
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    for (slug, other) in [("alpha", "beta"), ("beta", "alpha")] {
+        a.write(
+            &format!("wiki/philosophy/{slug}.md"),
+            &article_with(
+                slug,
+                &["raw/philosophy/src.md"],
+                &format!("See [[{other}]]."),
+            )
+            .replace("status: draft", &format!("status: {status}"))
+            .replace("updated: 2026-01-01", &format!("updated: {today}")),
+        );
+    }
+    a.run(&["index"]);
+    a
+}
+
+#[test]
+fn a_finished_archive_reports_nothing_outstanding() {
+    let a = completed_archive("stable");
+    let v = a.json(&["next"]);
+
+    assert_eq!(v["action"], "none");
+    assert_eq!(v["backlog"].as_array().unwrap().len(), 0);
+    assert!(v["suggested_command"].is_null());
+    assert_eq!(a.code(&["next"]), 0);
+}
+
+#[test]
+fn an_all_draft_archive_says_so_rather_than_implying_completion() {
+    let a = completed_archive("draft");
+    let v = a.json(&["next"]);
+
+    assert_eq!(v["action"], "none", "there is no mechanical work left");
+    let reason = v["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("still `draft`"),
+        "an archive nobody has reviewed must not read as finished:\n{reason}"
+    );
+}
+
+#[test]
+fn a_reviewed_archive_gets_no_such_note() {
+    let a = completed_archive("stable");
+    // Not merely "draft": the base message legitimately contains "no draft has
+    // stalled", so the assertion has to name the note itself.
+    assert!(
+        !a.json(&["next"])["reason"]
+            .as_str()
+            .unwrap()
+            .contains("still `draft`")
+    );
+}
+
+#[test]
+fn status_reports_the_maturity_breakdown() {
+    let a = completed_archive("draft");
+    let v = a.json(&["status"]);
+    assert_eq!(v["maturity"]["draft"], 2, "{v}");
+    assert!(
+        a.run(&["status"]).contains("2 draft"),
+        "{}",
+        a.run(&["status"])
+    );
+}

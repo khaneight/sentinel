@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io;
 
 use colored::Colorize;
@@ -19,6 +20,11 @@ struct Status {
     unresolved_sources: usize,
     raw_domains: usize,
     wiki_domains: usize,
+    /// Article counts by `status`. Nothing in the tool promotes an article, and
+    /// `next` only surfaces a draft once it has gone stale — so an archive can
+    /// be complete by every other measure while nothing in it has been
+    /// reviewed, and report "nothing outstanding".
+    maturity: BTreeMap<String, usize>,
     /// Files under wiki/ that could not be read. Every count above is computed
     /// without them, so a non-zero value means the whole report is partial.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -67,6 +73,19 @@ pub fn run() -> io::Result<()> {
         unresolved_sources: compilation.unresolved.len(),
         raw_domains: count_nonempty_subdirs(&paths::raw_dir()),
         wiki_domains: count_nonempty_subdirs(&paths::wiki_dir()),
+        maturity: {
+            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+            for a in &articles {
+                let status = a
+                    .article
+                    .frontmatter
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "unset".to_string());
+                *counts.entry(status).or_default() += 1;
+            }
+            counts
+        },
         unreadable: loaded.unreadable,
         link_graph_error: graph_error,
     };
@@ -89,6 +108,15 @@ pub fn run() -> io::Result<()> {
     println!("  Orphan pages:    {}", format_count(status.orphan_pages));
     println!("  Raw domains:     {}", status.raw_domains);
     println!("  Wiki domains:    {}", status.wiki_domains);
+    if !status.maturity.is_empty() {
+        let summary = status
+            .maturity
+            .iter()
+            .map(|(k, v)| format!("{v} {k}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("  Maturity:        {summary}");
+    }
     if let Some(note) = &status.link_graph_error {
         println!("\n  {} {note}", "!".red());
         println!("      orphan count above is 0 because none could be counted.");

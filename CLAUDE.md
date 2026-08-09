@@ -239,7 +239,11 @@ Three properties worth knowing, because a change that breaks them is a regressio
 
 **Demand ranking picks correctly.** At 8 articles the top gap was `prohairesis`, at 13 `assent-to-impressions` — both the genuinely central concept for what the surrounding articles were about. Ranking has been right at every size measured.
 
-The caveat is real: one corpus, one domain, articles written by one agent in one session. This says the mechanism behaves as designed, not that the resulting wiki is good. That second question is still open.
+Driven to completion, the same corpus produced **26 articles from 8 sources**: zero uncompiled, zero orphans, zero unwritten gaps, lint clean, and `sentinel next` returning `none`. The link graph is **one connected component** — 26 nodes, 116 edges, no article without an outgoing link — and its most-linked concepts are `prohairesis` (19 inbound), `dichotomy-of-control` (12) and `akrasia` (12), which are the actual centre of the subject. The graph's centre matched the material's without anyone arranging it.
+
+Reaching that state also showed what the tool does **not** track: every one of the 26 was still `status: draft`, and `next` reported "nothing outstanding". Nothing in sentinel promotes an article, and `review` only fires once a draft has gone stale, so a freshly-completed archive is complete by every measure the tool takes and has been read by nobody. `status` now reports the maturity breakdown, and the terminal message says so, rather than letting the silence imply otherwise.
+
+The caveat is real: one corpus, one domain, articles written by one agent. This says the mechanism behaves as designed, not that the resulting wiki is good.
 
 ## Output contract
 
