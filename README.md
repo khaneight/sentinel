@@ -103,6 +103,7 @@ The skills above handle the LLM-driven work. These CLI commands handle the bookk
 
 ```bash
 sentinel next            # what should I do next?
+sentinel schema          # frontmatter contract, domains, lint rules
 sentinel status          # overview of archive health
 sentinel uncompiled      # list raw docs no wiki article cites yet
 sentinel index           # rebuild indexes and link graph
@@ -172,7 +173,7 @@ Three layers, following the [LLM Wiki](https://gist.github.com/karpathy/442a6bf5
 
 **The wiki** — LLM-generated markdown files. Summaries, entity pages, concept pages, comparisons, synthesis. The LLM owns this layer entirely — it creates pages, updates them when new sources arrive, maintains cross-references and wikilinks, and keeps everything consistent. You read it; the LLM writes it.
 
-**The schema** — `CLAUDE.md` tells the LLM how the wiki is structured, what conventions to follow, and what workflows to use. You and the LLM co-evolve this over time.
+**The schema** — `sentinel schema` publishes the machine-readable contract: frontmatter fields, accepted enum values, the domains this archive has, every lint rule. `sentinel init` also writes a `CLAUDE.md` into the archive with the conventions and workflow; you and the LLM co-evolve that over time, while `sentinel schema` stays generated from the code so it cannot drift.
 
 ```
 archive/

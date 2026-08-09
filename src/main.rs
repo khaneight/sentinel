@@ -94,6 +94,9 @@ enum Commands {
     /// Recommend the single most valuable next action
     Next,
 
+    /// Print the wiki article contract: frontmatter fields, domains, lint rules
+    Schema,
+
     /// List raw docs that haven't been compiled into wiki articles
     Uncompiled,
 
@@ -190,6 +193,7 @@ fn run(cli: Cli) -> io::Result<i32> {
         Commands::Sync { dry_run } => commands::sync::run(dry_run).map(|()| 0),
         Commands::Status => commands::status::run().map(|()| 0),
         Commands::Next => commands::next::run().map(|()| 0),
+        Commands::Schema => commands::schema::run().map(|()| 0),
         Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
         Commands::Index => commands::index::run().map(|()| 0),
         Commands::Lint { strict } => commands::lint::run(strict),

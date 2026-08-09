@@ -23,7 +23,7 @@ cargo fmt --check
 - `src/core/lint.rs` — lint rules (`analyze`), finding type, severity model, stable ordering
 - `src/core/output.rs` — output format switch, JSON envelope, exit-code constants
 - `src/core/text.rs` — display helpers (character-safe truncation)
-- `src/commands/` — one module per CLI subcommand: init, config, ingest, ingest-repo, sync, status, next, uncompiled, index, lint, search, graph
+- `src/commands/` — one module per CLI subcommand: init, config, schema, ingest, ingest-repo, sync, status, next, uncompiled, index, lint, search, graph
 - `tests/` — integration tests that drive the compiled binary against temporary archives
 
 ## Skills
@@ -75,6 +75,21 @@ Reads the whole archive and recommends one action. The priority ladder encodes e
 Priority 3 is the self-generating part: an unresolved wikilink is existing knowledge naming what it wants next, and `links::wanted` ranks those by demand. `/sentinel-research <slug>` on the top entry is a loop that grows the wiki from its own gaps.
 
 `next` is a recommendation, not a constraint — `backlog` reports the count for every category, so a caller that disagrees with the ordering has the same data without a second invocation. The rules come from `core::lint::analyze`, shared with `sentinel lint`, so the two can never drift.
+
+## `sentinel schema` — the published contract
+
+Emits the frontmatter fields and which are required, the accepted `origin`/`status` values, the domains this archive actually has, the directory layout, every lint rule with its severity and description, and the `next` priority ladder.
+
+It exists so skills and agent instructions stop restating the schema in prose. Prose drifts: `/sentinel-compile` documented five domains where `DEFAULT_DOMAINS` had three, and nothing could tell which was true. Anything published here is generated from the code.
+
+Two invariants hold this together, both enforced by tests:
+
+- `core::frontmatter::ORIGINS` and `STATUSES` are the single source for both the lint rule and the schema output, so the checker cannot reject a value the contract advertises.
+- `core::lint::RULES` and `core::lint::analyze` are asserted to agree in **both** directions — every documented rule can actually fire, and every emitted rule is documented, with matching severities.
+
+`domains.present` is read from disk (the union of `raw/` and `wiki/` subdirectories); `domains.default` is `DEFAULT_DOMAINS`. Reporting both is deliberate — an archive that has moved past the defaults should say so.
+
+`sentinel init` also writes a `CLAUDE.md` into the archive. The README always described this file as "the schema" that you and the LLM co-evolve, but `init` never created one, so a fresh archive had no conventions at all. It is deliberately short and mostly pointers — `sentinel schema --json` is authoritative, and anything restated in that file is something that can go stale.
 
 ## Output contract
 

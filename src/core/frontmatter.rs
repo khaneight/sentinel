@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+/// Accepted values for `origin`.
+///
+/// Shared by the lint rule and by `sentinel schema` so the checker and the
+/// published contract cannot disagree about what is legal.
+pub const ORIGINS: &[&str] = &["authored", "researched", "hybrid"];
+
+/// Accepted values for `status`.
+pub const STATUSES: &[&str] = &["draft", "review", "stable"];
+
 /// Parsed YAML frontmatter from a wiki article.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Frontmatter {

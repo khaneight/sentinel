@@ -7,6 +7,7 @@ pub mod init;
 pub mod lint;
 pub mod log;
 pub mod next;
+pub mod schema;
 pub mod search;
 pub mod status;
 pub mod sync;

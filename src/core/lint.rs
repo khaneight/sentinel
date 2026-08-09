@@ -79,6 +79,72 @@ impl Finding {
     }
 }
 
+/// What a lint rule checks, for `sentinel schema`.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct RuleInfo {
+    pub rule: &'static str,
+    pub severity: Severity,
+    pub description: &'static str,
+}
+
+/// Every rule `analyze` can emit.
+///
+/// Published by `sentinel schema` so a skill can be written against the real
+/// rule set instead of restating it in prose that drifts. Tests assert this
+/// list and `analyze` agree in both directions, on rule ids and severities.
+pub const RULES: &[RuleInfo] = &[
+    RuleInfo {
+        rule: "invalid-frontmatter",
+        severity: Severity::Error,
+        description: "The `---` block is present but is not valid YAML.",
+    },
+    RuleInfo {
+        rule: "missing-field",
+        severity: Severity::Error,
+        description: "A required frontmatter field (title, domain, origin) is absent. These drive the generated indexes.",
+    },
+    RuleInfo {
+        rule: "invalid-origin",
+        severity: Severity::Error,
+        description: "`origin` is not one of authored, researched, hybrid.",
+    },
+    RuleInfo {
+        rule: "invalid-status",
+        severity: Severity::Error,
+        description: "`status` is not one of draft, review, stable.",
+    },
+    RuleInfo {
+        rule: "duplicate-slug",
+        severity: Severity::Error,
+        description: "Two articles share a filename stem, so [[wikilinks]] to it are ambiguous and the link graph merges them.",
+    },
+    RuleInfo {
+        rule: "unresolved-source",
+        severity: Severity::Error,
+        description: "A `sources:` entry matches no raw document in the manifest, or matches more than one ambiguously.",
+    },
+    RuleInfo {
+        rule: "broken-link",
+        severity: Severity::Warning,
+        description: "A [[wikilink]] target has no article yet. Expected: the compile workflow links concepts before writing them, and `sentinel next` ranks these as the articles most worth writing.",
+    },
+    RuleInfo {
+        rule: "missing-tags",
+        severity: Severity::Warning,
+        description: "No `tags:` defined.",
+    },
+    RuleInfo {
+        rule: "missing-sources",
+        severity: Severity::Warning,
+        description: "No `sources:` listed, so the raw document this came from will stay uncompiled.",
+    },
+    RuleInfo {
+        rule: "uncompiled-source",
+        severity: Severity::Warning,
+        description: "A raw document that no wiki article cites in its `sources:`.",
+    },
+];
+
 /// Run every check against a loaded archive.
 ///
 /// Lives here rather than in the `lint` command because `sentinel next` needs
@@ -170,7 +236,7 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
         }
 
         if let Some(origin) = &frontmatter.origin
-            && !["authored", "researched", "hybrid"].contains(&origin.as_str())
+            && !super::frontmatter::ORIGINS.contains(&origin.as_str())
         {
             findings.push(Finding::error(
                 "invalid-origin",
@@ -180,7 +246,7 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
         }
 
         if let Some(status) = &frontmatter.status
-            && !["draft", "review", "stable"].contains(&status.as_str())
+            && !super::frontmatter::STATUSES.contains(&status.as_str())
         {
             findings.push(Finding::error(
                 "invalid-status",
@@ -230,6 +296,146 @@ pub fn count(findings: &[Finding], severity: Severity) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::core::frontmatter::{Frontmatter, WikiArticle};
+    use crate::core::manifest::ManifestEntry;
+    use std::collections::BTreeSet;
+
+    fn loaded(path: &str, fm: Frontmatter, content: &str, error: Option<&str>) -> LoadedArticle {
+        LoadedArticle {
+            article: WikiArticle {
+                frontmatter: fm,
+                body: content.to_string(),
+                rel_path: path.to_string(),
+                frontmatter_error: error.map(ToString::to_string),
+            },
+            path: std::path::PathBuf::from(path),
+            content: content.to_string(),
+        }
+    }
+
+    fn complete(sources: &[&str]) -> Frontmatter {
+        Frontmatter {
+            title: Some("T".into()),
+            domain: Some("philosophy".into()),
+            origin: Some("authored".into()),
+            tags: vec!["t".into()],
+            sources: sources.iter().map(|s| (*s).to_string()).collect(),
+            status: Some("draft".into()),
+            ..Default::default()
+        }
+    }
+
+    /// An archive rigged to trip every rule at once.
+    fn everything_wrong() -> (Vec<LoadedArticle>, Manifest) {
+        let mut manifest = Manifest::default();
+        for raw in ["raw/philosophy/cited.md", "raw/philosophy/stranded.md"] {
+            manifest.upsert(ManifestEntry {
+                raw_path: raw.to_string(),
+                title: "T".into(),
+                domain: "philosophy".into(),
+                origin: "authored".into(),
+                ingested_at: "2026-01-01 00:00:00".into(),
+                wiki_articles: vec![],
+                source_type: "document".into(),
+            });
+        }
+
+        let articles = vec![
+            // invalid-frontmatter
+            loaded(
+                "wiki/a/broken.md",
+                Frontmatter::default(),
+                "x",
+                Some("bad yaml"),
+            ),
+            // missing-field (title/domain/origin) + missing-tags + missing-sources
+            loaded("wiki/a/bare.md", Frontmatter::default(), "x", None),
+            // invalid-origin + invalid-status
+            loaded(
+                "wiki/a/enums.md",
+                Frontmatter {
+                    origin: Some("nonsense".into()),
+                    status: Some("nonsense".into()),
+                    ..complete(&["raw/philosophy/cited.md"])
+                },
+                "x",
+                None,
+            ),
+            // broken-link + unresolved-source
+            loaded(
+                "wiki/a/links.md",
+                complete(&["raw/philosophy/nowhere.md"]),
+                "See [[not-written]].",
+                None,
+            ),
+            // duplicate-slug: same stem, different domain
+            loaded(
+                "wiki/b/dup.md",
+                complete(&["raw/philosophy/cited.md"]),
+                "x",
+                None,
+            ),
+            loaded(
+                "wiki/c/dup.md",
+                complete(&["raw/philosophy/cited.md"]),
+                "x",
+                None,
+            ),
+        ];
+        (articles, manifest)
+    }
+
+    #[test]
+    fn every_documented_rule_can_actually_fire() {
+        let (articles, manifest) = everything_wrong();
+        let emitted: BTreeSet<&str> = analyze(&articles, &manifest)
+            .iter()
+            .map(|f| f.rule)
+            .collect();
+        let documented: BTreeSet<&str> = RULES.iter().map(|r| r.rule).collect();
+
+        let never_fires: Vec<&&str> = documented.difference(&emitted).collect();
+        assert!(
+            never_fires.is_empty(),
+            "RULES documents rules that analyze() never emits: {never_fires:?}"
+        );
+    }
+
+    #[test]
+    fn every_emitted_rule_is_documented() {
+        let (articles, manifest) = everything_wrong();
+        let documented: BTreeSet<&str> = RULES.iter().map(|r| r.rule).collect();
+        for finding in analyze(&articles, &manifest) {
+            assert!(
+                documented.contains(finding.rule),
+                "rule '{}' is emitted but missing from RULES, so `sentinel schema` under-reports it",
+                finding.rule
+            );
+        }
+    }
+
+    #[test]
+    fn documented_severity_matches_emitted_severity() {
+        let (articles, manifest) = everything_wrong();
+        for finding in analyze(&articles, &manifest) {
+            let documented = RULES
+                .iter()
+                .find(|r| r.rule == finding.rule)
+                .unwrap_or_else(|| panic!("undocumented rule {}", finding.rule));
+            assert_eq!(
+                documented.severity, finding.severity,
+                "rule '{}' is documented as {:?} but emitted as {:?}",
+                finding.rule, documented.severity, finding.severity
+            );
+        }
+    }
+
+    #[test]
+    fn rule_ids_are_unique() {
+        let unique: BTreeSet<&str> = RULES.iter().map(|r| r.rule).collect();
+        assert_eq!(unique.len(), RULES.len());
+    }
 
     #[test]
     fn errors_sort_before_warnings() {
