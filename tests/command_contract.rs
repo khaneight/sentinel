@@ -13,7 +13,7 @@
 
 mod common;
 
-use common::Archive;
+use common::{Archive, stdout};
 use std::collections::BTreeSet;
 use std::process::Command;
 
@@ -289,4 +289,56 @@ fn init_stubs_exactly_the_indexes_that_index_regenerates() {
         listing(&a),
         "the set `init` stubs and the set `index` regenerates disagree"
     );
+}
+
+#[test]
+fn every_command_that_accepts_json_actually_emits_it() {
+    // `--json` is a *global* flag, so it is accepted by every subcommand — and
+    // four of them ignored it and printed human text: `init`, `ingest`, `sync`,
+    // and `index`. A flag that parses and does nothing is worse than one that
+    // does not exist, because a caller has no way to tell.
+    //
+    // Enumerated from `--help`, so a new subcommand fails here until it either
+    // emits JSON or is listed below with a reason.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    let scratch = a.path("scratch.md");
+    std::fs::write(&scratch, "x").unwrap();
+
+    // Commands needing arguments, and the ones that legitimately produce none.
+    let invocation = |c: &str| -> Option<Vec<String>> {
+        let s = |v: &[&str]| Some(v.iter().map(|x| x.to_string()).collect());
+        match c {
+            // Refuses by design; its error path is covered elsewhere.
+            "ingest-repo" => None,
+            "init" => s(&["init", &a.root.display().to_string()]),
+            "ingest" => Some(vec![
+                "ingest".into(),
+                scratch.display().to_string(),
+                "-d".into(),
+                "philosophy".into(),
+            ]),
+            "search" => s(&["search", "text"]),
+            "log" => s(&["log", "probe", "detail"]),
+            "mv" | "rm" => None, // exercised in their own suites
+            other => s(&[other]),
+        }
+    };
+
+    for command in subcommands() {
+        let Some(args) = invocation(&command) else {
+            continue;
+        };
+        let mut with_json: Vec<&str> = args.iter().map(String::as_str).collect();
+        with_json.push("--json");
+
+        let out = a.output(&with_json);
+        let text = stdout(&out);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&text).is_ok(),
+            "`sentinel {} --json` did not emit JSON:\n{}",
+            args.join(" "),
+            text.lines().take(3).collect::<Vec<_>>().join("\n")
+        );
+    }
 }

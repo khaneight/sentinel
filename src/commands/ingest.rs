@@ -2,8 +2,11 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use serde::Serialize;
+
 use crate::core::frontmatter;
 use crate::core::manifest::{self, Manifest, ManifestEntry};
+use crate::core::output;
 use crate::core::paths;
 use crate::core::slug;
 
@@ -131,6 +134,25 @@ pub fn run(
     }
 
     crate::core::log::append("ingest", &format!("{display_title} → {rel_path}"))?;
+
+    if output::is_json() {
+        #[derive(Serialize)]
+        struct Ingested {
+            raw_path: String,
+            title: String,
+            domain: String,
+            origin: String,
+        }
+        return output::emit(
+            "ingest",
+            Ingested {
+                raw_path: rel_path,
+                title: display_title.to_string(),
+                domain: domain.to_string(),
+                origin: origin.to_string(),
+            },
+        );
+    }
 
     println!("Ingested: {rel_path}");
     println!("  title:  {display_title}");

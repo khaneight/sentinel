@@ -3,10 +3,13 @@ use std::io;
 
 use colored::Colorize;
 
+use serde::Serialize;
+
 use crate::core::atomic;
 use crate::core::compilation::Compilation;
 use crate::core::links::{self, LinkGraph};
 use crate::core::manifest::Manifest;
+use crate::core::output;
 use crate::core::paths;
 use crate::core::slug;
 use crate::core::wiki::{self, LoadedArticle};
@@ -185,6 +188,32 @@ pub fn run() -> io::Result<()> {
     // no-op — and logging it would be a change where there was none.
     if wrote || remapped > 0 {
         crate::core::log::append("index", &format!("{} articles indexed", sorted.len()))?;
+    }
+
+    if output::is_json() {
+        #[derive(Serialize)]
+        struct Rebuilt {
+            articles_indexed: usize,
+            domains: usize,
+            orphan_pages: usize,
+            uncompiled: usize,
+            manifest_remaps: usize,
+            unresolved_sources: usize,
+            /// False when every generated file already held the right contents.
+            files_written: bool,
+        }
+        return output::emit(
+            "index",
+            Rebuilt {
+                articles_indexed: sorted.len(),
+                domains: by_domain.len(),
+                orphan_pages: orphans.len(),
+                uncompiled,
+                manifest_remaps: remapped,
+                unresolved_sources: compilation.unresolved.len(),
+                files_written: wrote,
+            },
+        );
     }
 
     println!("{}", "Index rebuilt.".green());

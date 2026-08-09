@@ -101,7 +101,7 @@ back to the working directory, and only when it is empty. `sentinel config`
 reports which rule produced the current root, and diagnoses failures rather than
 dying on them.
 
-**Output** — every read command takes `--json` and emits
+**Output** — `--json` is global, so **every** command must honour it, mutating ones included; a flag that parses and does nothing is worse than one that does not exist. Every command takes `--json` and emits
 `{schema_version, command, archive, …}`. Errors are JSON too when JSON was
 asked for. Bump `SCHEMA_VERSION` (`core/output.rs`) on any breaking payload
 change; adding an optional field is not breaking.
