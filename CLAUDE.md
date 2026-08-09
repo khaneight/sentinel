@@ -21,7 +21,8 @@ CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. The tre
 - `src/core/compilation.rs` — derives the raw → wiki mapping from article `sources:` frontmatter
 - `src/core/wiki.rs` — shared loader for wiki articles
 - `src/core/frontmatter.rs` — YAML frontmatter parsing/rendering for wiki articles
-- `src/core/links.rs` — wikilink extraction and link graph (forward + backlinks)
+- `src/core/links.rs` — wikilink extraction, demand ranking, link graph (forward + backlinks)
+- `src/core/slug.rs` — canonical form used for all wikilink resolution
 - `src/core/lint.rs` — lint rules (`analyze`), finding type, severity model, stable ordering
 - `src/core/output.rs` — output format switch, JSON envelope, exit-code constants
 - `src/core/text.rs` — display helpers (character-safe truncation)
@@ -96,6 +97,16 @@ Two invariants hold this together, both enforced by tests:
 
 `sentinel init` also writes a `CLAUDE.md` into the archive. The README always described this file as "the schema" that you and the LLM co-evolve, but `init` never created one, so a fresh archive had no conventions at all. It is deliberately short and mostly pointers — `sentinel schema --json` is authoritative, and anything restated in that file is something that can go stale.
 
+## Wikilink resolution
+
+Every match between a wikilink and an article goes through `core::slug::canonical` — lowercase, and any run of non-alphanumerics collapsed to a single `-`. So `[[Compile Loop]]`, `[[Compile-Loop]]`, and `[[compile-loop]]` all resolve to `compile-loop.md`, which is also how Obsidian behaves.
+
+This is not cosmetic. Before it, the same concept referenced three ways produced three separate entries in `links::wanted`, each with one referrer — so `sentinel next` could rank a rarely-mentioned gap above a popular one, and could recommend writing an article that already existed under a different capitalisation. `/sentinel-grow` acting on that would have created a duplicate.
+
+Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-states` stay distinct — merging needs a stemmer, and a wrong merge silently collapses two real concepts, which is worse than a missed one.
+
+Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
+
 ## Bounded output
 
 Every agent-facing query is bounded, because the consumer has a context window. This was measured, not assumed — on a generated archive of 423 articles and 140 sources:
@@ -149,5 +160,5 @@ Separating 1 from 2 is what lets a caller tell "your archive has issues" from "s
 ## Known Limitations
 
 - `ingest-repo` is not implemented. It exits non-zero with guidance rather than pretending to succeed.
-- Wikilink slugs are bare filename stems, so two articles with the same stem in different domains collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.
+- Wikilink slugs are bare filename stems, so two articles whose stems canonicalise the same collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.
 - `meta/log.md` is append-only — commands that mutate state (init, ingest, sync, index, lint) auto-append entries

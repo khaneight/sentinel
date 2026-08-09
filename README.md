@@ -85,6 +85,7 @@ sentinel init
 
 # 2. Add your raw documents
 sentinel ingest path/to/essay.md -d philosophy -o authored
+sentinel ingest a/SKILL.md -d coding -t "Skill: compile"   # stored as skill-compile.md
 sentinel ingest path/to/notes.md -d research -o authored
 
 # 3. Or drop files directly into raw/ and register them

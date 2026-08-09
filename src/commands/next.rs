@@ -286,7 +286,7 @@ fn orphan_articles(articles: &[LoadedArticle]) -> Vec<&LoadedArticle> {
         .filter(|a| {
             graph
                 .backlinks
-                .get(&a.slug())
+                .get(&a.canonical_slug())
                 .is_none_or(|refs| refs.is_empty())
         })
         .collect()

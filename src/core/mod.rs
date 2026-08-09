@@ -6,5 +6,6 @@ pub mod log;
 pub mod manifest;
 pub mod output;
 pub mod paths;
+pub mod slug;
 pub mod text;
 pub mod wiki;

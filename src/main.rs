@@ -65,6 +65,11 @@ enum Commands {
         /// Optional title override (defaults to filename)
         #[arg(short, long)]
         title: Option<String>,
+
+        /// Filename to store it under in raw/{domain}/ (defaults to the title's
+        /// slug, else the source filename)
+        #[arg(long = "as", value_name = "FILENAME")]
+        filename: Option<String>,
     },
 
     /// Ingest and analyze a codebase
@@ -210,7 +215,15 @@ fn run(cli: Cli) -> io::Result<i32> {
             domain,
             origin,
             title,
-        } => commands::ingest::run(&path, &domain, &origin, title.as_deref()).map(|()| 0),
+            filename,
+        } => commands::ingest::run(
+            &path,
+            &domain,
+            &origin,
+            title.as_deref(),
+            filename.as_deref(),
+        )
+        .map(|()| 0),
         Commands::IngestRepo { path, domain, name } => {
             commands::ingest_repo::run(&path, &domain, name.as_deref()).map(|()| 0)
         }

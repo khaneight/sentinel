@@ -152,7 +152,7 @@ pub const RULES: &[RuleInfo] = &[
 /// rules would drift, and the one an agent acts on would be the stale one.
 pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> {
     let mut findings = Vec::new();
-    let all_slugs: HashSet<String> = articles.iter().map(|a| a.slug()).collect();
+    let all_slugs: HashSet<String> = articles.iter().map(|a| a.canonical_slug()).collect();
 
     // A wikilink names a slug, and a slug is just a filename stem. Two articles
     // sharing one across domains collapse into a single node in the link graph:
@@ -160,8 +160,10 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
     // Nothing else in the pipeline notices, so it has to be caught here.
     let mut slug_owners: BTreeMap<String, Vec<&str>> = BTreeMap::new();
     for article in articles {
+        // Canonical, so `Ethics.md` and `ethics.md` are caught as the collision
+        // they are — a wikilink cannot distinguish them either.
         slug_owners
-            .entry(article.slug())
+            .entry(article.canonical_slug())
             .or_default()
             .push(article.rel_path());
     }
@@ -185,7 +187,7 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
         // Broken wikilinks are checked first because the body is readable even
         // when the frontmatter is not.
         for link in links::extract_wikilinks(&loaded.content) {
-            if !all_slugs.contains(link.as_str()) {
+            if !all_slugs.contains(super::slug::canonical(&link).as_str()) {
                 // A warning, not an error: the compile workflow deliberately
                 // links concepts before their articles exist.
                 findings.push(Finding::warning(

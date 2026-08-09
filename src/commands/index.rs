@@ -7,6 +7,7 @@ use crate::core::compilation::Compilation;
 use crate::core::links::{self, LinkGraph};
 use crate::core::manifest::Manifest;
 use crate::core::paths;
+use crate::core::slug;
 use crate::core::wiki::{self, LoadedArticle};
 
 /// Rebuild every piece of derived state: the link graph, the four generated
@@ -18,7 +19,16 @@ pub fn run() -> io::Result<()> {
     let mut graph = LinkGraph::default();
     let graph_entries: Vec<(String, Vec<String>)> = articles
         .iter()
-        .map(|a| (a.slug(), links::extract_wikilinks(&a.content)))
+        // Both ends canonical, so an edge written `[[Compile Loop]]` lands on
+        // the same node as one written `[[compile-loop]]`.
+        .map(|a| {
+            let targets = links::extract_wikilinks(&a.content)
+                .iter()
+                .map(|t| slug::canonical(t))
+                .filter(|t| !t.is_empty())
+                .collect();
+            (a.canonical_slug(), targets)
+        })
         .collect();
 
     let all_slugs: HashSet<String> = graph_entries.iter().map(|(s, _)| s.clone()).collect();

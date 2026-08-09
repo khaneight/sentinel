@@ -26,31 +26,46 @@ pub fn extract_wikilinks(content: &str) -> Vec<String> {
 /// knowledge most wants filled in.
 #[derive(Debug, Clone, Serialize)]
 pub struct WantedArticle {
+    /// Canonical slug — the filename an article for this concept should use.
     pub slug: String,
-    /// Articles that link to it, sorted.
+    /// Articles that link to it, sorted. Demand is distinct articles, and
+    /// spellings are folded together first, so `[[Free Will]]` in one article
+    /// and `[[free-will]]` in another count as two articles wanting one thing.
     pub referrers: Vec<String>,
+    /// The spellings actually used, when they differ from the canonical form.
+    /// Worth surfacing: inconsistent naming across articles is itself a finding.
+    pub variants: Vec<String>,
 }
 
 /// Find every wikilink target that has no article, most-wanted first.
 pub fn wanted(articles: &[super::wiki::LoadedArticle]) -> Vec<WantedArticle> {
-    let existing: HashSet<String> = articles.iter().map(|a| a.slug()).collect();
+    let existing: HashSet<String> = articles.iter().map(|a| a.canonical_slug()).collect();
     let mut demand: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut spellings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for article in articles {
         for target in extract_wikilinks(&article.content) {
-            if existing.contains(&target) {
+            let key = super::slug::canonical(&target);
+            if key.is_empty() || existing.contains(&key) {
                 continue;
             }
             demand
-                .entry(target)
+                .entry(key.clone())
                 .or_default()
                 .insert(article.rel_path().to_string());
+            if target != key {
+                spellings.entry(key).or_default().insert(target);
+            }
         }
     }
 
     let mut wanted: Vec<WantedArticle> = demand
         .into_iter()
         .map(|(slug, referrers)| WantedArticle {
+            variants: spellings
+                .get(&slug)
+                .map(|v| v.iter().cloned().collect())
+                .unwrap_or_default(),
             slug,
             referrers: referrers.into_iter().collect(),
         })

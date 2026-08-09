@@ -22,6 +22,14 @@ impl LoadedArticle {
         &self.article.rel_path
     }
 
+    /// The canonical identity used to match wikilinks against this article.
+    ///
+    /// Link resolution goes through here, never through `slug()`, so a target
+    /// spelled `[[Compile Loop]]` finds `compile-loop.md`.
+    pub fn canonical_slug(&self) -> String {
+        super::slug::canonical(&self.slug())
+    }
+
     /// The wikilink target that names this article: the filename stem.
     pub fn slug(&self) -> String {
         self.path

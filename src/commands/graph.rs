@@ -41,7 +41,9 @@ pub fn run(node: Option<&str>, depth: usize) -> io::Result<()> {
     let graph = LinkGraph::load()?;
 
     match node {
-        Some(node) => neighbourhood(&graph, node, depth),
+        // Canonicalised so `--node "Compile Loop"` finds the same node the
+        // wikilinks do.
+        Some(node) => neighbourhood(&graph, &crate::core::slug::canonical(node), depth),
         None => whole_graph(&graph),
     }
 }

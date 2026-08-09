@@ -4,8 +4,15 @@ use std::path::Path;
 
 use crate::core::manifest::{Manifest, ManifestEntry};
 use crate::core::paths;
+use crate::core::slug;
 
-pub fn run(path: &str, domain: &str, origin: &str, title: Option<&str>) -> io::Result<()> {
+pub fn run(
+    path: &str,
+    domain: &str,
+    origin: &str,
+    title: Option<&str>,
+    filename: Option<&str>,
+) -> io::Result<()> {
     let source = Path::new(path);
     if !source.exists() {
         return Err(io::Error::new(
@@ -27,30 +34,52 @@ pub fn run(path: &str, domain: &str, origin: &str, title: Option<&str>) -> io::R
     fs::create_dir_all(&domain_dir)?;
 
     // Determine filename and title
-    let filename = source
+    let source_name = source
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid filename"))?;
 
     let display_title = title.unwrap_or_else(|| {
-        Path::new(filename)
+        Path::new(source_name)
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or(filename)
+            .unwrap_or(source_name)
     });
 
-    // Copy file to raw/{domain}/
-    let dest = domain_dir.join(filename);
+    // Destination name: --as wins, else the title's slug when a title was
+    // given, else the source basename.
+    //
+    // Basenames repeat constantly in real corpora — SKILL.md, README.md,
+    // index.md, chapter-1.md under per-book directories, exported notes. With
+    // only the basename available, ingesting the second one failed and there
+    // was no flag to resolve it, so a whole class of source collection could
+    // not be ingested at all.
+    let extension = Path::new(source_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("md");
+    let dest_name = match (filename, title) {
+        (Some(explicit), _) => explicit.to_string(),
+        (None, Some(title)) => format!("{}.{extension}", slug::canonical(title)),
+        (None, None) => source_name.to_string(),
+    };
+
+    let dest = domain_dir.join(&dest_name);
     if dest.exists() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("File already exists: {}", dest.display()),
+            format!(
+                "File already exists: {}\n\
+                 Give it a different name with `--as <FILENAME>`, or a different \
+                 title with `--title` (which is used to derive the name).",
+                dest.display()
+            ),
         ));
     }
     fs::copy(source, &dest)?;
 
     // Build relative path from archive root
-    let rel_path = format!("raw/{domain}/{filename}");
+    let rel_path = format!("raw/{domain}/{dest_name}");
 
     // Update manifest
     let mut manifest = Manifest::load()?;
