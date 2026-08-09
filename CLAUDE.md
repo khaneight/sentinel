@@ -126,6 +126,16 @@ Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-st
 
 Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
 
+## Queries must not modify the archive
+
+The archive lives in git — the README recommends it. So a command that only reads must leave the working tree byte-identical, or it cannot be used to check whether the tree is clean.
+
+`sentinel lint` appended to `meta/log.md` on every run, which broke that: validating an archive dirtied it. `/sentinel-grow` runs lint every iteration, so the log filled with `0 error(s), 0 warning(s)` and buried the entries recording actual changes. `lint` no longer logs, and `tests/correctness.rs` snapshots every file to assert that lint, status, next, uncompiled, graph, schema, search, and config leave nothing behind.
+
+The same rule applies to rewrites that rewrite nothing. Generated output is deterministic (#3), so `atomic::write_if_changed` skips a write whose contents already match and `index` only logs when something moved. Three consecutive `index` runs on an unchanged archive now leave every file and every mtime alone.
+
+`meta/log.md` records what changed the archive. Not what looked at it.
+
 ## Durable state is replaced atomically
 
 Everything that persists state goes through `core::atomic::write`: temp sibling, `sync_all`, `rename`. Never `fs::write`.

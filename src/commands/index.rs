@@ -75,7 +75,7 @@ pub fn run() -> io::Result<()> {
             article.title()
         ));
     }
-    atomic::write(&paths::index_dir().join("_master.md"), master)?;
+    let mut wrote = atomic::write_if_changed(&paths::index_dir().join("_master.md"), master)?;
 
     // Generate _by-domain.md
     let mut by_domain: BTreeMap<&str, Vec<&LoadedArticle>> = BTreeMap::new();
@@ -97,7 +97,7 @@ pub fn run() -> io::Result<()> {
         }
         domain_index.push('\n');
     }
-    atomic::write(&paths::index_dir().join("_by-domain.md"), domain_index)?;
+    wrote |= atomic::write_if_changed(&paths::index_dir().join("_by-domain.md"), domain_index)?;
 
     // Generate _recent.md (sorted by updated date, descending)
     let mut by_date: Vec<&LoadedArticle> = articles.iter().collect();
@@ -144,7 +144,7 @@ pub fn run() -> io::Result<()> {
             article.title()
         ));
     }
-    atomic::write(&paths::index_dir().join("_recent.md"), recent)?;
+    wrote |= atomic::write_if_changed(&paths::index_dir().join("_recent.md"), recent)?;
 
     // Generate _orphans.md
     let mut sorted_orphans = orphans.clone();
@@ -160,7 +160,7 @@ pub fn run() -> io::Result<()> {
             orphans_md.push_str(&format!("- [[{slug}]]\n"));
         }
     }
-    atomic::write(&paths::index_dir().join("_orphans.md"), orphans_md)?;
+    wrote |= atomic::write_if_changed(&paths::index_dir().join("_orphans.md"), orphans_md)?;
 
     // Generate _uncompiled.md — the work queue an agent reads to decide what
     // to compile next. Derived state belongs in index/ like everything else.
@@ -179,9 +179,13 @@ pub fn run() -> io::Result<()> {
             ));
         }
     }
-    atomic::write(&paths::index_dir().join("_uncompiled.md"), uncompiled_md)?;
+    wrote |= atomic::write_if_changed(&paths::index_dir().join("_uncompiled.md"), uncompiled_md)?;
 
-    crate::core::log::append("index", &format!("{} articles indexed", sorted.len()))?;
+    // Generated output is deterministic, so an index that changed nothing is a
+    // no-op — and logging it would be a change where there was none.
+    if wrote || remapped > 0 {
+        crate::core::log::append("index", &format!("{} articles indexed", sorted.len()))?;
+    }
 
     println!("{}", "Index rebuilt.".green());
     println!("  Articles indexed: {}", sorted.len());

@@ -60,7 +60,11 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
     let errors = lint::count(&all, Severity::Error);
     let warnings = lint::count(&all, Severity::Warning);
 
-    crate::core::log::append("lint", &format!("{errors} error(s), {warnings} warning(s)"))?;
+    // `lint` deliberately does not touch the activity log. It is a query, and
+    // the archive lives in git: a validation command that dirties the working
+    // tree cannot be run to check whether the tree is clean. It also runs every
+    // iteration of `/sentinel-grow`, so logging it buried the entries that
+    // record actual changes under "0 error(s), 0 warning(s)".
 
     if output::is_json() {
         output::emit(

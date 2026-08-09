@@ -631,3 +631,129 @@ fn the_manifest_survives_a_full_write_cycle_intact() {
     assert_eq!(entry["origin"], "researched", "{entry}");
     assert!(entry["ingested_at"].is_string(), "{entry}");
 }
+
+// ---------------------------------------------------------------------------
+// Read-only commands must not modify the archive
+//
+// The archive lives in git — the README recommends it. `sentinel lint`
+// appended to meta/log.md on every run, so a validation command left a dirty
+// working tree and could not be used to check whether the tree was clean.
+// `/sentinel-grow` runs lint every iteration, which buried the entries
+// recording real changes under "0 error(s), 0 warning(s)".
+// ---------------------------------------------------------------------------
+
+fn indexed_archive() -> Archive {
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "x");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/one.md",
+        &common::article("One", "philosophy", &["raw/philosophy/s.md"]),
+    );
+    a.run(&["index"]);
+    a
+}
+
+/// Every file's contents, so "nothing was touched" can be asserted precisely.
+fn snapshot(a: &Archive) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for dir in ["meta", "index", "wiki/philosophy", "raw/philosophy"] {
+        if let Ok(entries) = std::fs::read_dir(a.path(dir)) {
+            for e in entries
+                .filter_map(Result::ok)
+                .filter(|e| e.path().is_file())
+            {
+                let name = format!("{dir}/{}", e.file_name().to_string_lossy());
+                out.push((name, std::fs::read_to_string(e.path()).unwrap_or_default()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn lint_does_not_modify_the_archive() {
+    let a = indexed_archive();
+    let before = snapshot(&a);
+
+    for _ in 0..5 {
+        a.run(&["lint"]);
+        a.run(&["lint", "--summary"]);
+        a.json(&["lint"]);
+    }
+
+    assert_eq!(before, snapshot(&a), "a query must leave no trace");
+}
+
+#[test]
+fn other_query_commands_do_not_modify_the_archive() {
+    let a = indexed_archive();
+    let before = snapshot(&a);
+
+    for args in [
+        vec!["status"],
+        vec!["next"],
+        vec!["uncompiled"],
+        vec!["graph"],
+        vec!["schema"],
+        vec!["search", "one"],
+        vec!["config"],
+    ] {
+        a.run(&args);
+    }
+
+    assert_eq!(before, snapshot(&a));
+}
+
+#[test]
+fn a_rebuild_that_changes_nothing_writes_nothing() {
+    // Generated output is deterministic, so a no-op index should leave every
+    // file — and every mtime — alone.
+    let a = indexed_archive();
+    let before = snapshot(&a);
+    let mtimes: Vec<_> = ["index/_master.md", "meta/link-graph.json"]
+        .iter()
+        .map(|f| std::fs::metadata(a.path(f)).unwrap().modified().unwrap())
+        .collect();
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    for _ in 0..3 {
+        a.run(&["index"]);
+    }
+
+    assert_eq!(before, snapshot(&a));
+    for (i, f) in ["index/_master.md", "meta/link-graph.json"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            std::fs::metadata(a.path(f)).unwrap().modified().unwrap(),
+            mtimes[i],
+            "{f} was rewritten with identical contents"
+        );
+    }
+}
+
+#[test]
+fn a_rebuild_that_changes_something_still_writes_and_logs() {
+    // The no-op path must not turn into a no-work path.
+    let a = indexed_archive();
+    let entries_before = a.read("meta/log.md").matches("## [").count();
+
+    a.write(
+        "wiki/philosophy/two.md",
+        &common::article("Two", "philosophy", &["raw/philosophy/s.md"]),
+    );
+    a.run(&["index"]);
+
+    assert!(
+        a.read("index/_master.md").contains("Two"),
+        "the index must update"
+    );
+    assert_eq!(
+        a.read("meta/log.md").matches("## [").count(),
+        entries_before + 1,
+        "a real change must still be recorded"
+    );
+}

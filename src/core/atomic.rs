@@ -56,6 +56,23 @@ fn temp_path(path: &Path) -> io::Result<PathBuf> {
     Ok(parent.join(format!(".{name}.{}.tmp", std::process::id())))
 }
 
+/// Write only if the contents differ from what is already there.
+///
+/// Returns whether it wrote. Generated files are deterministic, so an `index`
+/// that changes nothing should leave every mtime alone: the archive lives in
+/// git, and a rebuild that rewrites five identical files makes the working tree
+/// look modified when nothing happened.
+pub fn write_if_changed(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<bool> {
+    let contents = contents.as_ref();
+    if let Ok(existing) = std::fs::read(path)
+        && existing == contents
+    {
+        return Ok(false);
+    }
+    write(path, contents)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,6 +121,37 @@ mod tests {
 
         assert!(write(&path, "replacement").is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    }
+
+    #[test]
+    fn write_if_changed_skips_an_identical_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.md");
+        assert!(
+            write_if_changed(&path, "same").unwrap(),
+            "first write happens"
+        );
+
+        let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(
+            !write_if_changed(&path, "same").unwrap(),
+            "second is a no-op"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            before,
+            "an unchanged write must not touch the mtime"
+        );
+    }
+
+    #[test]
+    fn write_if_changed_writes_when_it_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.md");
+        write_if_changed(&path, "old").unwrap();
+        assert!(write_if_changed(&path, "new").unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
     }
 
     #[test]
