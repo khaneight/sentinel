@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io;
 
 use colored::Colorize;
@@ -12,17 +13,47 @@ use crate::core::wiki;
 struct Report {
     errors: usize,
     warnings: usize,
-    findings: Vec<Finding>,
+    /// Findings grouped by rule. Always present — on a real archive this is the
+    /// part worth reading first, because one root cause produces many findings.
+    by_rule: BTreeMap<&'static str, RuleCount>,
+    /// Omitted entirely in summary mode. At 423 articles the full list was
+    /// ~50 KB of JSON, which is not a reasonable thing to hand an agent by
+    /// default when it usually wants the shape of the problem, not every case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    findings: Option<Vec<Finding>>,
+}
+
+#[derive(Serialize)]
+struct RuleCount {
+    severity: Severity,
+    count: usize,
 }
 
 /// Validate the archive. Returns the process exit code.
-pub fn run(strict: bool) -> io::Result<i32> {
+pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result<i32> {
     let articles = wiki::load_all()?;
     let manifest = Manifest::load()?;
-    let findings = lint::analyze(&articles, &manifest);
+    let all = lint::analyze(&articles, &manifest);
 
-    let errors = lint::count(&findings, Severity::Error);
-    let warnings = lint::count(&findings, Severity::Warning);
+    // Counts always describe the whole archive; a filter narrows what is
+    // listed, never what is counted, so `--rule` cannot make a broken archive
+    // look healthy or change the exit code.
+    let mut by_rule: BTreeMap<&'static str, RuleCount> = BTreeMap::new();
+    for finding in &all {
+        let entry = by_rule.entry(finding.rule).or_insert(RuleCount {
+            severity: finding.severity,
+            count: 0,
+        });
+        entry.count += 1;
+    }
+
+    let findings: Vec<Finding> = match rule_filter {
+        Some(rule) => all.iter().filter(|f| f.rule == rule).cloned().collect(),
+        None => all.clone(),
+    };
+
+    let errors = lint::count(&all, Severity::Error);
+    let warnings = lint::count(&all, Severity::Warning);
 
     crate::core::log::append("lint", &format!("{errors} error(s), {warnings} warning(s)"))?;
 
@@ -32,9 +63,12 @@ pub fn run(strict: bool) -> io::Result<i32> {
             Report {
                 errors,
                 warnings,
-                findings,
+                by_rule,
+                findings: (!summary).then_some(findings),
             },
         )?;
+    } else if summary {
+        report_summary(&by_rule, errors, warnings);
     } else {
         report_human(&findings, errors, warnings);
     }
@@ -48,6 +82,30 @@ pub fn run(strict: bool) -> io::Result<i32> {
     } else {
         0
     })
+}
+
+fn report_summary(by_rule: &BTreeMap<&'static str, RuleCount>, errors: usize, warnings: usize) {
+    if by_rule.is_empty() {
+        println!("{}", "No issues found.".green());
+        return;
+    }
+    println!(
+        "{} error(s), {} warning(s) across {} rule(s):\n",
+        errors.to_string().red(),
+        warnings.to_string().yellow(),
+        by_rule.len()
+    );
+    for (rule, info) in by_rule {
+        let tag = match info.severity {
+            Severity::Error => info.severity.label().red(),
+            Severity::Warning => info.severity.label().yellow(),
+        };
+        println!("  {tag:<7} {:>5}  {}", info.count, rule.cyan());
+    }
+    println!(
+        "\n{}",
+        "Use --rule <id> to list one rule's findings.".dimmed()
+    );
 }
 
 fn report_human(findings: &[Finding], errors: usize, warnings: usize) {

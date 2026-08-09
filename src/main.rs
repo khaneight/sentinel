@@ -110,16 +110,40 @@ enum Commands {
         /// Treat warnings as failures too
         #[arg(long)]
         strict: bool,
+
+        /// Report counts per rule instead of listing every finding
+        #[arg(long)]
+        summary: bool,
+
+        /// List only findings for one rule id (counts still cover everything)
+        #[arg(long, value_name = "ID")]
+        rule: Option<String>,
     },
 
-    /// Full-text search across wiki articles
+    /// Full-text search across wiki articles, ranked by relevance
     Search {
         /// Search query
         query: String,
+
+        /// Maximum files to return
+        #[arg(long, default_value_t = commands::search::DEFAULT_LIMIT)]
+        limit: usize,
+
+        /// Maximum matching lines to show per file
+        #[arg(long, default_value_t = commands::search::DEFAULT_MATCHES)]
+        matches: usize,
     },
 
-    /// Print the backlink graph
-    Graph,
+    /// Print the link graph, or one article's neighbourhood
+    Graph {
+        /// Show only what surrounds this slug, instead of the whole topology
+        #[arg(long, value_name = "SLUG")]
+        node: Option<String>,
+
+        /// How many hops from --node to include
+        #[arg(long, default_value_t = 1)]
+        depth: usize,
+    },
 
     /// Append an entry to the activity log
     Log {
@@ -196,9 +220,17 @@ fn run(cli: Cli) -> io::Result<i32> {
         Commands::Schema => commands::schema::run().map(|()| 0),
         Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
         Commands::Index => commands::index::run().map(|()| 0),
-        Commands::Lint { strict } => commands::lint::run(strict),
-        Commands::Search { query } => commands::search::run(&query).map(|()| 0),
-        Commands::Graph => commands::graph::run().map(|()| 0),
+        Commands::Lint {
+            strict,
+            summary,
+            rule,
+        } => commands::lint::run(strict, summary, rule.as_deref()),
+        Commands::Search {
+            query,
+            limit,
+            matches,
+        } => commands::search::run(&query, limit, matches).map(|()| 0),
+        Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log { operation, detail } => commands::log::run(&operation, &detail).map(|()| 0),
     }
 }

@@ -46,6 +46,10 @@ One file per concept at `wiki/{domain}/{kebab-case-slug}.md`.
 
 **Slugs must be unique across the whole wiki, not just within a domain.** A wikilink target is a bare filename stem, so `wiki/philosophy/ethics.md` and `wiki/coding/ethics.md` collide into one node in the link graph. `sentinel search` before naming a file; if the obvious slug is taken, qualify it (`stoic-ethics`, `engineering-ethics`).
 
+Search results are ranked and capped at 20 files by default. A title or tag
+match scores far above a passing body mention, so if the concept already has
+an article it will be at the top — you do not need to read down the list.
+
 Frontmatter must follow `sentinel schema`. Two fields carry weight beyond validation:
 
 - **`sources:`** — archive-relative paths of the raw documents this came from. **This is what marks a raw document as compiled.** Omit it and the source sits in the uncompiled queue forever, no matter how well you wrote the article.

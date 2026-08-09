@@ -78,7 +78,7 @@ Stalled drafts. Read each and either finish it or promote its `status`. If a dra
 
 ```
 sentinel index
-sentinel lint
+sentinel lint --summary
 ```
 
 `lint` must exit 0. If your work introduced an **error**, fix it before the next iteration — never carry one forward.

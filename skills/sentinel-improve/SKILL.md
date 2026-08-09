@@ -19,11 +19,17 @@ A health check and repair pass.
 ```
 sentinel next --json
 sentinel status --json
-sentinel lint --json
+sentinel lint --summary --json
 sentinel schema --json
 ```
 
-`next` gives the highest-value action plus a `backlog` count for every category. `lint --json` gives findings with a stable `rule` id and a `severity`; group by `rule` rather than working through the list top to bottom, because one root cause usually produces many findings.
+`next` gives the highest-value action plus a `backlog` count for every category.
+
+**Start with `lint --summary`**, which returns counts per rule and omits the
+findings themselves. One root cause usually produces many findings, so the
+shape of the problem is what you want first — and on a large archive the full
+list is tens of kilobytes. Then pull one rule at a time with
+`sentinel lint --rule <id> --json` as you work it.
 
 **Do not read `index/_master.md`.** Use `sentinel search --json` to reach specific articles.
 

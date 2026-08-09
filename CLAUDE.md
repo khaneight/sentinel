@@ -96,6 +96,23 @@ Two invariants hold this together, both enforced by tests:
 
 `sentinel init` also writes a `CLAUDE.md` into the archive. The README always described this file as "the schema" that you and the LLM co-evolve, but `init` never created one, so a fresh archive had no conventions at all. It is deliberately short and mostly pointers — `sentinel schema --json` is authoritative, and anything restated in that file is something that can go stale.
 
+## Bounded output
+
+Every agent-facing query is bounded, because the consumer has a context window. This was measured, not assumed — on a generated archive of 423 articles and 140 sources:
+
+| command | before | after |
+|---|---|---|
+| `search <common-word> --json` | 467 KB (~117k tokens) | 11 KB |
+| `graph --json` | 65 KB | 1.8 KB via `--node <slug>` |
+| `lint --json` | 50 KB | 315 B via `--summary` |
+
+- `search` returns the top `--limit` (default 20) results, capped at `--matches` (default 3) excerpts each, each excerpt truncated to 200 characters. `result_count` always reports the true total and `truncated` says whether the list was cut.
+- `search` ranks by relevance, not raw match count: title 1000, slug 500, tag 200, body line 1. Before this, searching a common term ranked articles that mention it in passing above the article named for it.
+- `graph --node <slug> --depth <n>` returns a BFS neighbourhood over both link directions. The bare form still dumps the whole topology, which is fine for a human and wrong for an agent — the skills use `--node`.
+- `lint --summary` returns per-rule counts and omits the findings array; `lint --rule <id>` lists one rule. **A filter narrows what is listed, never what is counted** — counts and the exit code always describe the whole archive, so no flag can make a broken archive look healthy.
+
+Any new query command should assume its output lands in a context window and be bounded by default.
+
 ## Output contract
 
 Every read command takes the global `--json` flag and emits one object with a common envelope:

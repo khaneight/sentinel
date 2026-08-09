@@ -24,7 +24,10 @@ Returns paths, titles, slugs, and matching lines ranked by match count. Search a
 
 **Do not read `index/_master.md`.** It is the whole archive; reading it to answer one question wastes the context you need for the articles that actually matter.
 
-Once you have candidate articles, `sentinel graph --json` shows what links to what, so you can follow connection chains rather than guessing which article is central.
+Once you have candidate articles, follow their connections with
+`sentinel graph --node <slug> --depth 2 --json`. Use `--node`, not the bare
+form — the full graph is the entire topology and grows with the archive, which
+is the same context problem as reading the master index.
 
 ## Step 2: Read and synthesize
 

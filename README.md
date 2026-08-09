@@ -119,8 +119,9 @@ sentinel status          # overview of archive health
 sentinel uncompiled      # list raw docs no wiki article cites yet
 sentinel index           # rebuild indexes and link graph
 sentinel lint            # validate frontmatter, links, structure
-sentinel search "query"  # full-text search across wiki
-sentinel graph           # print link graph topology
+sentinel search "query"  # ranked search (top 20; --limit to widen)
+sentinel graph --node X  # what surrounds one article (--depth N)
+sentinel lint --summary  # counts per rule instead of every finding
 sentinel log op "detail" # append to activity log (meta/log.md)
 ```
 
