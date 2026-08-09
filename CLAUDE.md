@@ -178,6 +178,27 @@ Every agent-facing query is bounded, because the consumer has a context window. 
 
 Any new query command should assume its output lands in a context window and be bounded by default.
 
+## What the loop actually does, measured
+
+The compile/write loop was run by hand against a real corpus — *Meditations* and the *Enchiridion* from Project Gutenberg, eight sources — writing genuine articles from the source text rather than fixtures. The trajectory:
+
+| wiki articles | uncompiled | wanted concepts | orphans |
+|---|---|---|---|
+| 8 | 6 | 8 | 1 |
+| 10 | 6 | 7 | 0 |
+| 13 | 5 | 8 | 1 |
+| 18 | 5 | 3 | 0 |
+
+Three properties worth knowing, because a change that breaks them is a regression the test suite will not catch:
+
+**It converges.** Gaps per article falls as the wiki grows. Early articles mostly name concepts that do not exist yet; later ones increasingly link to articles already written, so filling a gap stops creating new ones. Five write iterations took the gap count from 8 to 3. A loop that diverged instead would be the more obvious design, and it is not what happens.
+
+**Growth is bounded by the sources.** The wiki completes what the raw documents imply and then stops. That is the intended behaviour, not a limitation: an archive that kept generating would be inventing territory with no provenance.
+
+**Demand ranking picks correctly.** At 8 articles the top gap was `prohairesis`, at 13 `assent-to-impressions` — both the genuinely central concept for what the surrounding articles were about. Ranking has been right at every size measured.
+
+The caveat is real: one corpus, one domain, articles written by one agent in one session. This says the mechanism behaves as designed, not that the resulting wiki is good. That second question is still open.
+
 ## Output contract
 
 Every read command takes the global `--json` flag and emits one object with a common envelope:

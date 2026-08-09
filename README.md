@@ -151,6 +151,8 @@ One command that reads the whole archive and tells you the most valuable thing t
 
 That third step is where the wiki starts feeding itself. When you write `[[virtue]]` in an article and no such page exists, you've told the archive what it's missing. `sentinel next` ranks those gaps by how many articles ask for each one, so the most-wanted concept surfaces first — and `/sentinel-research virtue` fills it, which usually creates new links, which name the next gap.
 
+This converges rather than running away. Measured on a real corpus, filling five top-ranked gaps took the outstanding count from 8 to 3 and orphans to zero: early articles name concepts that don't exist yet, later ones mostly link to pages already written. The wiki completes what your sources imply and then stops — which is what keeps every page traceable to something you actually put in.
+
 `sentinel next --json` gives the same thing with a `backlog` count for every category, and `sentinel next --action write` jumps straight to a category the strict priority order would otherwise starve — useful when you have just ingested a pile of sources and want the wiki growing rather than only absorbing.
 
 ## Driving it from a script or an agent
