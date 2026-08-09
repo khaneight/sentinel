@@ -1,7 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io;
-use std::path::Path;
 
 /// Parsed YAML frontmatter from a wiki article.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -33,18 +30,6 @@ pub struct WikiArticle {
     /// from an article that has none. Carrying the reason lets `lint` say
     /// "invalid YAML" instead of inventing five missing-field errors.
     pub frontmatter_error: Option<String>,
-}
-
-/// Parse a markdown file's YAML frontmatter and body.
-pub fn parse_file(path: &Path, rel_path: &str) -> io::Result<WikiArticle> {
-    let content = fs::read_to_string(path)?;
-    let parsed = parse_content(&content);
-    Ok(WikiArticle {
-        frontmatter: parsed.frontmatter,
-        body: parsed.body,
-        rel_path: rel_path.to_string(),
-        frontmatter_error: parsed.error,
-    })
 }
 
 /// The result of splitting a markdown document into frontmatter and body.

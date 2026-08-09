@@ -18,7 +18,13 @@ pub struct ManifestEntry {
     pub origin: String,
     /// When the document was ingested
     pub ingested_at: String,
-    /// Relative paths to wiki articles compiled from this raw doc (empty if uncompiled)
+    /// Wiki articles compiled from this raw doc, empty if uncompiled.
+    ///
+    /// A *projection*, not a source of truth. It is recomputed by
+    /// `sentinel index` from the `sources:` frontmatter of every wiki article
+    /// and published here for external readers. Nothing in sentinel reads it
+    /// back to make a decision — use `core::compilation::Compilation`, which
+    /// derives the mapping live and therefore cannot go stale.
     pub wiki_articles: Vec<String>,
     /// Optional source type: "document", "codebase", "url"
     #[serde(default = "default_source_type")]
@@ -56,14 +62,6 @@ impl Manifest {
     /// Add or update an entry.
     pub fn upsert(&mut self, entry: ManifestEntry) {
         self.entries.insert(entry.raw_path.clone(), entry);
-    }
-
-    /// Get entries that have no wiki articles mapped.
-    pub fn uncompiled(&self) -> Vec<&ManifestEntry> {
-        self.entries
-            .values()
-            .filter(|e| e.wiki_articles.is_empty())
-            .collect()
     }
 
     /// Total count of entries.

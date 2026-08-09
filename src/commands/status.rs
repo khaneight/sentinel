@@ -1,11 +1,12 @@
 use std::io;
 
 use colored::Colorize;
-use walkdir::WalkDir;
 
+use crate::core::compilation::Compilation;
 use crate::core::links::LinkGraph;
 use crate::core::manifest::Manifest;
 use crate::core::paths;
+use crate::core::wiki;
 
 pub fn run() -> io::Result<()> {
     let root = paths::archive_root();
@@ -17,13 +18,17 @@ pub fn run() -> io::Result<()> {
     }
 
     let manifest = Manifest::load()?;
+    let articles = wiki::load_all().unwrap_or_default();
 
-    // Count raw docs
+    // Count raw docs. Compilation status is derived from what the wiki cites,
+    // so it stays correct even if `sentinel index` has not been run since the
+    // last article was written.
     let raw_count = manifest.count();
-    let uncompiled_count = manifest.uncompiled().len();
+    let compilation = Compilation::derive(&articles, &manifest);
+    let uncompiled_count = compilation.uncompiled(&manifest).len();
+    let unresolved_count = compilation.unresolved.len();
 
-    // Count wiki articles
-    let wiki_count = count_md_files(&paths::wiki_dir());
+    let wiki_count = articles.len();
 
     // Count domains with content
     let raw_domains = count_nonempty_subdirs(&paths::raw_dir());
@@ -46,19 +51,14 @@ pub fn run() -> io::Result<()> {
     println!("  Orphan pages:    {}", format_count(orphan_count));
     println!("  Raw domains:     {raw_domains}");
     println!("  Wiki domains:    {wiki_domains}");
+    if unresolved_count > 0 {
+        println!(
+            "\n  {} {unresolved_count} source citation(s) match no raw document — run `sentinel lint`",
+            "!".yellow()
+        );
+    }
 
     Ok(())
-}
-
-fn count_md_files(dir: &std::path::Path) -> usize {
-    if !dir.exists() {
-        return 0;
-    }
-    WalkDir::new(dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
-        .count()
 }
 
 fn count_nonempty_subdirs(dir: &std::path::Path) -> usize {

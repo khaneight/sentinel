@@ -103,7 +103,7 @@ The skills above handle the LLM-driven work. These CLI commands handle the bookk
 
 ```bash
 sentinel status          # overview of archive health
-sentinel uncompiled      # list raw docs not yet compiled
+sentinel uncompiled      # list raw docs no wiki article cites yet
 sentinel index           # rebuild indexes and link graph
 sentinel lint            # validate frontmatter, links, structure
 sentinel search "query"  # full-text search across wiki
@@ -149,6 +149,8 @@ updated: 2025-01-15
 status: draft | review | stable
 ---
 ```
+
+The `sources:` field is what closes the loop. A raw document counts as compiled once at least one wiki article cites it, so `sentinel uncompiled` is a real work queue that empties as the wiki grows. An article with no `sources:` leaves its raw document stranded — `sentinel lint` says so.
 
 - **authored** -- distilled from the user's own writings
 - **researched** -- gathered via AI research

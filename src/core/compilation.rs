@@ -1,0 +1,307 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use super::manifest::Manifest;
+use super::wiki::LoadedArticle;
+
+/// Which raw documents have been compiled into which wiki articles.
+///
+/// This is *derived*, not recorded. A wiki article declares what it was built
+/// from in its `sources:` frontmatter; inverting that across the whole wiki
+/// gives the raw → wiki mapping. Deriving it means the answer cannot go stale
+/// and cannot disagree with the files on disk, which is what happened when the
+/// manifest was expected to carry the mapping and nothing ever wrote it.
+#[derive(Debug, Clone, Default)]
+pub struct Compilation {
+    /// Manifest raw_path → wiki article paths compiled from it, sorted.
+    by_raw: BTreeMap<String, Vec<String>>,
+    /// `(wiki article, source as written)` for citations matching no raw document.
+    pub unresolved: Vec<(String, String)>,
+}
+
+impl Compilation {
+    /// Invert every article's `sources:` list against the manifest.
+    pub fn derive(articles: &[LoadedArticle], manifest: &Manifest) -> Self {
+        let index = SourceIndex::new(manifest);
+        let mut by_raw: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut unresolved = Vec::new();
+
+        for article in articles {
+            for source in &article.article.frontmatter.sources {
+                match index.resolve(source) {
+                    Some(raw_path) => {
+                        by_raw
+                            .entry(raw_path)
+                            .or_default()
+                            .insert(article.rel_path().to_string());
+                    }
+                    None => {
+                        unresolved.push((article.rel_path().to_string(), source.clone()));
+                    }
+                }
+            }
+        }
+
+        Self {
+            by_raw: by_raw
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect(),
+            unresolved,
+        }
+    }
+
+    /// Wiki articles compiled from `raw_path`.
+    pub fn articles_for(&self, raw_path: &str) -> &[String] {
+        self.by_raw.get(raw_path).map_or(&[], Vec::as_slice)
+    }
+
+    /// Raw documents in the manifest that no wiki article cites as a source.
+    pub fn uncompiled<'m>(
+        &self,
+        manifest: &'m Manifest,
+    ) -> Vec<&'m super::manifest::ManifestEntry> {
+        let mut entries: Vec<_> = manifest
+            .entries
+            .values()
+            .filter(|e| self.articles_for(&e.raw_path).is_empty())
+            .collect();
+        entries.sort_by(|a, b| a.raw_path.cmp(&b.raw_path));
+        entries
+    }
+
+    /// Copy the derived mapping into the manifest's `wiki_articles` fields.
+    ///
+    /// The manifest is a published artifact — Obsidian plugins and scripts read
+    /// it — so the mapping is written down as well as derived. Nothing reads it
+    /// back to make decisions; it is a projection, not a second source of truth.
+    pub fn apply_to(&self, manifest: &mut Manifest) -> usize {
+        let mut changed = 0;
+        for entry in manifest.entries.values_mut() {
+            let articles = self.articles_for(&entry.raw_path).to_vec();
+            if entry.wiki_articles != articles {
+                entry.wiki_articles = articles;
+                changed += 1;
+            }
+        }
+        changed
+    }
+}
+
+/// Resolves a `sources:` citation to a manifest key.
+struct SourceIndex<'m> {
+    by_rel_path: BTreeSet<&'m str>,
+    /// Basename → manifest keys. Only unambiguous basenames are usable.
+    by_basename: HashMap<&'m str, Vec<&'m str>>,
+}
+
+impl<'m> SourceIndex<'m> {
+    fn new(manifest: &'m Manifest) -> Self {
+        let mut by_rel_path = BTreeSet::new();
+        let mut by_basename: HashMap<&str, Vec<&str>> = HashMap::new();
+
+        for key in manifest.entries.keys() {
+            by_rel_path.insert(key.as_str());
+            if let Some(base) = basename(key) {
+                by_basename.entry(base).or_default().push(key.as_str());
+            }
+        }
+
+        Self {
+            by_rel_path,
+            by_basename,
+        }
+    }
+
+    /// Match a citation to a raw document.
+    ///
+    /// Citations are hand-written by an agent into YAML, so they arrive in
+    /// several shapes: `raw/philosophy/x.md`, `./raw/philosophy/x.md`,
+    /// `/raw/philosophy/x.md`, `[[x]]`. Exact paths are matched first; a bare
+    /// filename is accepted only when exactly one raw document has that name,
+    /// because guessing between two is worse than reporting the ambiguity.
+    fn resolve(&self, source: &str) -> Option<String> {
+        let cleaned = normalize(source);
+        if cleaned.is_empty() {
+            return None;
+        }
+
+        if self.by_rel_path.contains(cleaned.as_str()) {
+            return Some(cleaned);
+        }
+
+        // `philosophy/x.md` written without the `raw/` prefix.
+        let prefixed = format!("raw/{cleaned}");
+        if self.by_rel_path.contains(prefixed.as_str()) {
+            return Some(prefixed);
+        }
+
+        let base = basename(&cleaned)?;
+        match self.by_basename.get(base).map(Vec::as_slice) {
+            Some([only]) => Some((*only).to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// Strip the decorations a citation may arrive with.
+fn normalize(source: &str) -> String {
+    let mut s = source.trim();
+    // A source written as a wikilink: `[[raw/philosophy/x.md]]` or `[[x|Title]]`.
+    if let Some(inner) = s.strip_prefix("[[").and_then(|s| s.strip_suffix("]]")) {
+        s = inner.split('|').next().unwrap_or(inner).trim();
+    }
+    s.trim_start_matches("./")
+        .trim_start_matches('/')
+        .replace('\\', "/")
+}
+
+fn basename(path: &str) -> Option<&str> {
+    path.rsplit('/').next().filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::frontmatter::{Frontmatter, WikiArticle};
+    use crate::core::manifest::ManifestEntry;
+    use std::path::PathBuf;
+
+    fn manifest(raw_paths: &[&str]) -> Manifest {
+        let mut m = Manifest::default();
+        for raw in raw_paths {
+            m.upsert(ManifestEntry {
+                raw_path: (*raw).to_string(),
+                title: "T".into(),
+                domain: "philosophy".into(),
+                origin: "authored".into(),
+                ingested_at: "2026-01-01 00:00:00".into(),
+                wiki_articles: vec![],
+                source_type: "document".into(),
+            });
+        }
+        m
+    }
+
+    fn article(rel_path: &str, sources: &[&str]) -> LoadedArticle {
+        LoadedArticle {
+            article: WikiArticle {
+                frontmatter: Frontmatter {
+                    sources: sources.iter().map(|s| (*s).to_string()).collect(),
+                    ..Default::default()
+                },
+                body: String::new(),
+                rel_path: rel_path.to_string(),
+                frontmatter_error: None,
+            },
+            path: PathBuf::from(rel_path),
+            content: String::new(),
+        }
+    }
+
+    #[test]
+    fn an_exact_path_resolves() {
+        let m = manifest(&["raw/philosophy/meditations.md"]);
+        let c = Compilation::derive(
+            &[article(
+                "wiki/philosophy/stoicism.md",
+                &["raw/philosophy/meditations.md"],
+            )],
+            &m,
+        );
+        assert_eq!(
+            c.articles_for("raw/philosophy/meditations.md"),
+            ["wiki/philosophy/stoicism.md"]
+        );
+        assert!(c.unresolved.is_empty());
+    }
+
+    #[test]
+    fn one_raw_doc_can_feed_several_articles() {
+        let m = manifest(&["raw/philosophy/meditations.md"]);
+        let c = Compilation::derive(
+            &[
+                article("wiki/philosophy/b.md", &["raw/philosophy/meditations.md"]),
+                article("wiki/philosophy/a.md", &["raw/philosophy/meditations.md"]),
+            ],
+            &m,
+        );
+        assert_eq!(
+            c.articles_for("raw/philosophy/meditations.md"),
+            ["wiki/philosophy/a.md", "wiki/philosophy/b.md"],
+            "results must be sorted so generated output is diff-friendly"
+        );
+    }
+
+    #[test]
+    fn citation_spellings_are_tolerated() {
+        let m = manifest(&["raw/philosophy/meditations.md"]);
+        for spelling in [
+            "raw/philosophy/meditations.md",
+            "./raw/philosophy/meditations.md",
+            "/raw/philosophy/meditations.md",
+            "philosophy/meditations.md",
+            "  raw/philosophy/meditations.md  ",
+            "[[raw/philosophy/meditations.md]]",
+            "meditations.md",
+        ] {
+            let c = Compilation::derive(&[article("wiki/a.md", &[spelling])], &m);
+            assert!(
+                !c.articles_for("raw/philosophy/meditations.md").is_empty(),
+                "failed to resolve {spelling:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ambiguous_basename_is_reported_rather_than_guessed() {
+        let m = manifest(&["raw/philosophy/notes.md", "raw/coding/notes.md"]);
+        let c = Compilation::derive(&[article("wiki/a.md", &["notes.md"])], &m);
+
+        assert!(c.articles_for("raw/philosophy/notes.md").is_empty());
+        assert!(c.articles_for("raw/coding/notes.md").is_empty());
+        assert_eq!(
+            c.unresolved,
+            [("wiki/a.md".to_string(), "notes.md".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_citation_with_no_raw_document_is_unresolved() {
+        let m = manifest(&["raw/philosophy/meditations.md"]);
+        let c = Compilation::derive(&[article("wiki/a.md", &["raw/philosophy/gone.md"])], &m);
+        assert_eq!(c.unresolved.len(), 1);
+    }
+
+    #[test]
+    fn uncompiled_lists_raw_docs_nothing_cites() {
+        let m = manifest(&["raw/a.md", "raw/b.md"]);
+        let c = Compilation::derive(&[article("wiki/x.md", &["raw/a.md"])], &m);
+
+        let uncompiled: Vec<&str> = c
+            .uncompiled(&m)
+            .iter()
+            .map(|e| e.raw_path.as_str())
+            .collect();
+        assert_eq!(uncompiled, ["raw/b.md"]);
+    }
+
+    #[test]
+    fn applying_the_mapping_reports_only_real_changes() {
+        let mut m = manifest(&["raw/a.md"]);
+        let c = Compilation::derive(&[article("wiki/x.md", &["raw/a.md"])], &m);
+
+        assert_eq!(c.apply_to(&mut m), 1);
+        assert_eq!(m.entries["raw/a.md"].wiki_articles, ["wiki/x.md"]);
+        assert_eq!(c.apply_to(&mut m), 0, "a second pass must be a no-op");
+    }
+
+    #[test]
+    fn applying_clears_a_mapping_whose_article_stopped_citing_it() {
+        let mut m = manifest(&["raw/a.md"]);
+        m.entries.get_mut("raw/a.md").unwrap().wiki_articles = vec!["wiki/stale.md".into()];
+
+        let c = Compilation::derive(&[], &m);
+        assert_eq!(c.apply_to(&mut m), 1);
+        assert!(m.entries["raw/a.md"].wiki_articles.is_empty());
+    }
+}

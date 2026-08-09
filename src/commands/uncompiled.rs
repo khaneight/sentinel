@@ -2,11 +2,17 @@ use std::io;
 
 use colored::Colorize;
 
+use crate::core::compilation::Compilation;
 use crate::core::manifest::Manifest;
+use crate::core::wiki;
 
 pub fn run() -> io::Result<()> {
     let manifest = Manifest::load()?;
-    let uncompiled = manifest.uncompiled();
+    // Derived from the wiki on every call rather than read from the manifest,
+    // so the answer is right whether or not `sentinel index` has been run.
+    let articles = wiki::load_all().unwrap_or_default();
+    let compilation = Compilation::derive(&articles, &manifest);
+    let uncompiled = compilation.uncompiled(&manifest);
 
     if uncompiled.is_empty() {
         println!("{}", "All raw documents have been compiled.".green());
