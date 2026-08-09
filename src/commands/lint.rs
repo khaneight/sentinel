@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io;
 
 use colored::Colorize;
@@ -22,6 +22,7 @@ pub fn run() -> io::Result<()> {
 
     // Collect all wiki article slugs
     let mut all_slugs: HashSet<String> = HashSet::new();
+    let mut slug_owners: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut all_articles = Vec::new();
 
     for entry in WalkDir::new(&wiki_dir)
@@ -39,15 +40,51 @@ pub fn run() -> io::Result<()> {
             .to_string();
 
         all_slugs.insert(slug.clone());
+        slug_owners
+            .entry(slug.clone())
+            .or_default()
+            .push(rel_path.clone());
 
         if let Ok(article) = frontmatter::parse_file(path, &rel_path) {
             all_articles.push((slug, article, path.to_path_buf()));
         }
     }
 
+    // A wikilink names a slug, and a slug is just a filename stem. Two articles
+    // sharing one across domains collapse into a single node in the link graph:
+    // backlinks merge and one article's forward links overwrite the other's.
+    // Nothing else in the pipeline notices, so it has to be caught here.
+    for (slug, owners) in &slug_owners {
+        if owners.len() > 1 {
+            issues.push(format!(
+                "duplicate slug '{slug}': {} — [[{slug}]] is ambiguous and the link graph merges them",
+                owners.join(", ")
+            ));
+        }
+    }
+
     // Check each article
     for (slug, article, path) in &all_articles {
         let display = path.display();
+
+        // Check for broken wikilinks. Done first because the body is readable
+        // even when the frontmatter is not.
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        for link in links::extract_wikilinks(&content) {
+            if !all_slugs.contains(link.as_str()) {
+                issues.push(format!(
+                    "{display}: broken link [[{link}]] — no matching article found"
+                ));
+            }
+        }
+
+        // Malformed YAML yields default frontmatter, so every field check below
+        // would fire at once and point the reader at five imaginary problems
+        // instead of the one real one.
+        if let Some(error) = &article.frontmatter_error {
+            issues.push(format!("{display}: invalid frontmatter — {error}"));
+            continue;
+        }
 
         // Check required frontmatter fields
         if article.frontmatter.title.is_none() {
@@ -64,17 +101,6 @@ pub fn run() -> io::Result<()> {
         }
         if article.frontmatter.sources.is_empty() {
             issues.push(format!("{display}: no sources listed"));
-        }
-
-        // Check for broken wikilinks
-        let content = std::fs::read_to_string(path).unwrap_or_default();
-        let wikilinks = links::extract_wikilinks(&content);
-        for link in &wikilinks {
-            if !all_slugs.contains(link.as_str()) {
-                issues.push(format!(
-                    "{display}: broken link [[{link}]] — no matching article found"
-                ));
-            }
         }
 
         // Check origin value

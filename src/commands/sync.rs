@@ -2,13 +2,18 @@ use std::io;
 use std::path::Path;
 
 use colored::Colorize;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::core::manifest::{Manifest, ManifestEntry};
 use crate::core::paths;
 
-/// Scan raw/ for files not in the manifest and register them.
-pub fn run() -> io::Result<()> {
+/// Reconcile the manifest with what is actually on disk under `raw/`.
+///
+/// Registers files the manifest has never seen and drops entries whose source
+/// file is gone. Without the second half the manifest only ever grows: a raw
+/// document deleted by hand stays "uncompiled" forever, permanently skewing
+/// `sentinel status`, `sentinel uncompiled`, and `sentinel lint`.
+pub fn run(dry_run: bool) -> io::Result<()> {
     let raw_dir = paths::raw_dir();
     if !raw_dir.exists() {
         return Err(io::Error::new(
@@ -19,9 +24,11 @@ pub fn run() -> io::Result<()> {
 
     let mut manifest = Manifest::load()?;
     let mut added = 0;
+    let mut removed = 0;
 
     for entry in WalkDir::new(&raw_dir)
         .into_iter()
+        .filter_entry(|e| !is_hidden(e))
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
     {
@@ -63,19 +70,48 @@ pub fn run() -> io::Result<()> {
         added += 1;
     }
 
+    let root = paths::archive_root();
+    let orphaned: Vec<String> = manifest
+        .entries
+        .keys()
+        .filter(|rel| !root.join(rel).exists())
+        .cloned()
+        .collect();
+
+    for rel_path in orphaned {
+        println!("  {} {rel_path}", "-".red());
+        manifest.entries.remove(&rel_path);
+        removed += 1;
+    }
+
+    if dry_run {
+        println!(
+            "\n{} {added} to add, {removed} to remove. Nothing written.",
+            "Dry run:".yellow()
+        );
+        return Ok(());
+    }
+
     manifest.save()?;
 
-    if added == 0 {
+    if added == 0 && removed == 0 {
         println!("{}", "Manifest is already in sync.".green());
     } else {
-        crate::core::log::append("sync", &format!("{added} file(s) synced"))?;
-        println!(
-            "\nSynced {} new file(s) into manifest.",
-            added.to_string().green()
-        );
+        let summary = format!("{added} added, {removed} removed");
+        crate::core::log::append("sync", &summary)?;
+        println!("\nSynced: {}.", summary.green());
     }
 
     Ok(())
+}
+
+/// Editor scratch files, `.DS_Store`, and VCS metadata are not source documents.
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry.depth() > 0
+        && entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with('.'))
 }
 
 fn infer_source_type(path: &Path) -> String {

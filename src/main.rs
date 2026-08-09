@@ -75,8 +75,12 @@ enum Commands {
         name: Option<String>,
     },
 
-    /// Sync raw/ directory with manifest (register untracked files)
-    Sync,
+    /// Reconcile the manifest with raw/ (register new files, drop deleted ones)
+    Sync {
+        /// Report what would change without writing the manifest
+        #[arg(long)]
+        dry_run: bool,
+    },
 
     /// Show knowledge base status overview
     Status,
@@ -150,7 +154,7 @@ fn run(cli: Cli) -> io::Result<()> {
         Commands::IngestRepo { path, domain, name } => {
             commands::ingest_repo::run(&path, &domain, name.as_deref())
         }
-        Commands::Sync => commands::sync::run(),
+        Commands::Sync { dry_run } => commands::sync::run(dry_run),
         Commands::Status => commands::status::run(),
         Commands::Uncompiled => commands::uncompiled::run(),
         Commands::Index => commands::index::run(),

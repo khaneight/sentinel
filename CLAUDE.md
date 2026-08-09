@@ -18,6 +18,7 @@ cargo fmt --check
 - `src/core/manifest.rs` — JSON manifest tracking raw documents and compilation status
 - `src/core/frontmatter.rs` — YAML frontmatter parsing/rendering for wiki articles
 - `src/core/links.rs` — wikilink extraction and link graph (forward + backlinks)
+- `src/core/text.rs` — display helpers (character-safe truncation)
 - `src/commands/` — one module per CLI subcommand: init, config, ingest, ingest-repo, sync, status, uncompiled, index, lint, search, graph
 - `tests/` — integration tests that drive the compiled binary against temporary archives
 
@@ -49,5 +50,6 @@ Commands reach the root through `paths::archive_root()`, which reads a `OnceLock
 ## Known Limitations
 
 - `ingest-repo` command is a stub (not yet implemented)
+- Wikilink slugs are bare filename stems, so two articles with the same stem in different domains collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.
 - `meta/log.md` is append-only — commands that mutate state (init, ingest, sync, index, lint) auto-append entries
 - No CI/CD pipeline

@@ -4,6 +4,7 @@ use colored::Colorize;
 use walkdir::WalkDir;
 
 use crate::core::paths;
+use crate::core::text;
 
 struct SearchResult {
     rel_path: String,
@@ -67,13 +68,7 @@ pub fn run(query: &str) -> io::Result<()> {
                 if result.matches.len() == 1 { "" } else { "es" }
             );
             for (line_num, line) in result.matches.iter().take(3) {
-                let trimmed = line.trim();
-                // Truncate long lines
-                let display = if trimmed.len() > 100 {
-                    format!("{}...", &trimmed[..100])
-                } else {
-                    trimmed.to_string()
-                };
+                let display = text::truncate_chars(line.trim(), 100);
                 println!("    L{line_num}: {display}");
             }
             if result.matches.len() > 3 {
