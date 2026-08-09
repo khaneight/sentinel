@@ -845,3 +845,142 @@ fn a_file_that_genuinely_lacks_frontmatter_still_reports_missing_fields() {
         "a file with no frontmatter is not a file with broken frontmatter: {rules:?}"
     );
 }
+
+// Dates
+// ---------------------------------------------------------------------------
+
+fn dated(a: &Archive, name: &str, field: &str, value: &str) {
+    a.write(
+        &format!("wiki/philosophy/{name}.md"),
+        &format!(
+            "---\ntitle: {name}\ndomain: philosophy\norigin: authored\nstatus: draft\n\
+             tags: [t]\nsources: [raw/philosophy/s.md]\n{field}: {value}\n---\n\nBody.\n"
+        ),
+    );
+}
+
+fn rules_for(a: &Archive, name: &str) -> Vec<String> {
+    a.json(&["lint"])["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| {
+            f["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with(&format!("{name}.md")))
+        })
+        .map(|f| f["rule"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Every shape of `updated:` an archive picked up by hand can end up with.
+const BAD_DATES: &[&str] = &[
+    "not-a-date",
+    "01/02/2024",
+    "2024-01",
+    "2024-13-01",
+    "\"2024-01-01T10:00:00Z\"",
+];
+
+#[test]
+fn an_unparseable_date_is_an_error_rather_than_silence() {
+    // These all linted clean, and `next` dropped them from the review step with
+    // `.ok()?`. A draft dated `01/02/2024` was invisible to the loop forever —
+    // no command reported it and no amount of waiting surfaced it.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+
+    for (i, value) in BAD_DATES.iter().enumerate() {
+        let name = format!("bad{i}");
+        dated(&a, &name, "updated", value);
+        let rules = rules_for(&a, &name);
+        assert!(
+            rules.contains(&"invalid-date".to_string()),
+            "`updated: {value}` linted clean: {rules:?}"
+        );
+        std::fs::remove_file(a.path(&format!("wiki/philosophy/{name}.md"))).unwrap();
+    }
+}
+
+#[test]
+fn both_date_fields_are_checked_not_just_the_one_next_reads() {
+    // `next` only ever reads `updated`, so a rule written from its perspective
+    // would have left `created` unvalidated beside it.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+
+    for field in ["created", "updated"] {
+        let name = format!("f-{field}");
+        dated(&a, &name, field, "nonsense");
+        let rules = rules_for(&a, &name);
+        assert!(
+            rules.contains(&"invalid-date".to_string()),
+            "`{field}` is not checked: {rules:?}"
+        );
+        std::fs::remove_file(a.path(&format!("wiki/philosophy/{name}.md"))).unwrap();
+    }
+}
+
+#[test]
+fn a_future_date_is_an_error_because_it_hides_a_draft_forever() {
+    // A draft dated 2999 parses fine and never becomes stale, so it never
+    // reaches `review` — the same disappearance as an unparseable date, by a
+    // different route.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+    dated(&a, "future", "updated", "2999-12-31");
+
+    let rules = rules_for(&a, "future");
+    assert!(rules.contains(&"invalid-date".to_string()), "{rules:?}");
+}
+
+#[test]
+fn a_date_a_day_ahead_is_not_an_error() {
+    // An article written across a timezone boundary is not a data error, and a
+    // rule that fires on one is noise the loop would have to learn to ignore.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+    let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1)).to_string();
+    dated(&a, "tomorrow", "updated", &tomorrow);
+
+    let rules = rules_for(&a, "tomorrow");
+    assert!(
+        !rules.contains(&"invalid-date".to_string()),
+        "fired on a date one day ahead: {rules:?}"
+    );
+}
+
+#[test]
+fn a_well_formed_date_still_passes() {
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+    dated(&a, "fine", "updated", "2024-06-01");
+
+    assert!(!rules_for(&a, "fine").contains(&"invalid-date".to_string()));
+}
+
+#[test]
+fn fixing_the_date_makes_the_draft_reachable_by_review() {
+    // The point of the rule is that the loop can now get to the article:
+    // `fix-errors` outranks `review`, so a bad date is repaired first and the
+    // draft then appears where it always should have.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+    dated(&a, "stalled", "updated", "01/02/2020");
+    a.run(&["index"]);
+
+    let before = a.json(&["next", "--action", "review"]);
+    assert_eq!(before["target_count"], 0, "unreachable while undated");
+    assert_eq!(a.json(&["next"])["action"], "fix-errors");
+
+    dated(&a, "stalled", "updated", "2020-01-02");
+    a.run(&["index"]);
+    let after = a.json(&["next", "--action", "review"]);
+    assert_eq!(after["target_count"], 1, "still unreachable after repair");
+}

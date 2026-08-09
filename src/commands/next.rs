@@ -1,6 +1,5 @@
 use std::io;
 
-use chrono::NaiveDate;
 use colored::Colorize;
 use serde::Serialize;
 
@@ -573,7 +572,10 @@ fn stale_drafts(articles: &[LoadedArticle]) -> Vec<(&LoadedArticle, String)> {
         .filter(|a| a.article.frontmatter.status.as_deref() == Some("draft"))
         .filter_map(|a| {
             let updated = a.article.frontmatter.updated.as_deref()?;
-            let date = NaiveDate::parse_from_str(updated, "%Y-%m-%d").ok()?;
+            // Unparseable dates are an `invalid-date` lint error, and
+            // `fix-errors` outranks `review`, so they are surfaced there
+            // rather than silently dropped here.
+            let date = crate::core::frontmatter::parse_date(updated).ok()?;
             ((today - date).num_days() > STALE_DRAFT_DAYS).then(|| (a, updated.to_string()))
         })
         .collect();

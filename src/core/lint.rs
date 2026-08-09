@@ -114,6 +114,11 @@ pub const RULES: &[RuleInfo] = &[
         description: "`status` is not one of draft, review, stable.",
     },
     RuleInfo {
+        rule: "invalid-date",
+        severity: Severity::Error,
+        description: "`created` or `updated` is not a YYYY-MM-DD date, or is dated in the future. `next` cannot rank a draft it cannot date, so the article never reaches the review step.",
+    },
+    RuleInfo {
         rule: "duplicate-slug",
         severity: Severity::Error,
         description: "Two articles share a filename stem, so [[wikilinks]] to it are ambiguous and the link graph merges them.",
@@ -274,6 +279,38 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
         }
     }
 
+    // Dates. An unparseable one is not cosmetic: `next` ranks stale drafts by
+    // `updated`, and silently skipped any it could not parse — so a draft dated
+    // `01/02/2024` was invisible to the review step no matter how long it sat.
+    // A future date hides one the same way, by never becoming stale.
+    let today = chrono::Local::now().date_naive();
+    for article in articles {
+        let path = article.rel_path().to_string();
+        let fm = &article.article.frontmatter;
+        for (field, value) in fm.dates() {
+            let Some(value) = value else {
+                continue;
+            };
+            match super::frontmatter::parse_date(value) {
+                Err(why) => findings.push(Finding::error(
+                    "invalid-date",
+                    path.clone(),
+                    format!("`{field}`: {why}"),
+                )),
+                // A day of slack: an article written across a timezone boundary
+                // is not a data error, and a rule that fires on one is noise.
+                Ok(date) if (date - today).num_days() > 1 => {
+                    findings.push(Finding::error(
+                        "invalid-date",
+                        path.clone(),
+                        format!("`{field}` is dated {date}, in the future"),
+                    ));
+                }
+                Ok(_) => {}
+            }
+        }
+    }
+
     // Check the raw <-> wiki mapping, derived from what each article cites.
     let compilation = Compilation::derive(articles, manifest);
     for (article, source) in &compilation.unresolved {
@@ -385,6 +422,17 @@ mod tests {
                 "wiki/a/links.md",
                 complete(&["raw/philosophy/nowhere.md"]),
                 "See [[not-written]].",
+                None,
+            ),
+            // invalid-date, both ways it can be wrong
+            loaded(
+                "wiki/a/dated.md",
+                Frontmatter {
+                    updated: Some("01/02/2024".into()),
+                    created: Some("2999-01-01".into()),
+                    ..complete(&["raw/philosophy/cited.md"])
+                },
+                "x",
                 None,
             ),
             // duplicate-slug: same stem, different domain
