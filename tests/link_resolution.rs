@@ -325,20 +325,31 @@ fn a_case_colliding_ingest_names_the_file_that_actually_exists() {
         "NOTES.MD",
     ]);
 
+    // On a case-sensitive filesystem `NOTES.MD` and `notes.md` are different
+    // files and there is no collision to report, so the premise only holds on
+    // a case-insensitive one. Probed rather than assumed: this test failed on
+    // Linux CI for ten PRs because it asserted the macOS outcome
+    // unconditionally.
+    if !common::is_case_insensitive(&a.path("raw/philosophy")) {
+        assert!(
+            output.status.success(),
+            "case-sensitive filesystem: the two names do not collide, so the \
+             ingest should have succeeded:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
     assert!(!output.status.success());
     let err = String::from_utf8_lossy(&output.stderr);
-    // On a case-sensitive filesystem there is no collision at all, so only
-    // assert the message when one occurred.
-    if err.contains("already exists") {
-        assert!(
-            err.contains("raw/philosophy/notes.md"),
-            "must name the file that exists, not the one requested:\n{err}"
-        );
-        assert!(
-            err.contains("does not distinguish filenames by case"),
-            "{err}"
-        );
-    }
+    assert!(
+        err.contains("raw/philosophy/notes.md"),
+        "must name the file that exists, not the one requested:\n{err}"
+    );
+    assert!(
+        err.contains("does not distinguish filenames by case"),
+        "{err}"
+    );
 }
 
 // ---------------------------------------------------------------------------

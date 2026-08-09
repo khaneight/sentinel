@@ -96,6 +96,23 @@ impl Archive {
     }
 }
 
+/// Whether `dir` sits on a filesystem that ignores filename case.
+///
+/// Determined by probing rather than by `cfg!(target_os)`: macOS defaults to
+/// case-insensitive but can be case-sensitive, and Linux is usually the
+/// reverse. A test whose premise is a name collision has no collision to
+/// observe on a case-sensitive volume, and must say which case it is in rather
+/// than assume the developer's.
+pub fn is_case_insensitive(dir: &Path) -> bool {
+    let lower = dir.join(".case-probe");
+    if std::fs::write(&lower, "").is_err() {
+        return false;
+    }
+    let seen = dir.join(".CASE-PROBE").exists();
+    let _ = std::fs::remove_file(&lower);
+    seen
+}
+
 /// A `sentinel` invocation with no archive configured.
 pub fn bare() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_sentinel"));

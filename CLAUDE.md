@@ -11,7 +11,14 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. The tree is warning-free, and clippy runs with `-D warnings` to keep it that way. Tests run on both Linux and macOS — the defect that made this project unusable was a hardcoded `/home/...` path, and a Linux-only matrix would not have caught it.
+CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. **Read its result** — a local run on one filesystem is not the same evidence.
+
+A test whose premise is a filesystem behaviour must probe for it, not assume the developer's. `tests/common::is_case_insensitive` exists because a test asserting a macOS name-collision failed on Linux for ten PRs: the matrix runs both platforms, but a test that hardcodes one platform's outcome turns that coverage into a permanent red X. To exercise the other branch locally:
+
+```
+hdiutil create -size 200m -fs "Case-sensitive APFS" -volname CSTEST cs.dmg && hdiutil attach cs.dmg
+TMPDIR=/Volumes/CSTEST cargo test --locked --all-targets
+``` The tree is warning-free, and clippy runs with `-D warnings` to keep it that way. Tests run on both Linux and macOS — the defect that made this project unusable was a hardcoded `/home/...` path, and a Linux-only matrix would not have caught it.
 
 ## Architecture
 
