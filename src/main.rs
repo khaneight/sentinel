@@ -100,6 +100,20 @@ enum Commands {
         dry_run: bool,
     },
 
+    /// Delete a raw document, refusing if wiki articles cite it
+    Rm {
+        /// Raw document: archive-relative path, or a unique filename
+        target: String,
+
+        /// Delete even though articles cite it, breaking their provenance
+        #[arg(long)]
+        force: bool,
+
+        /// Report what would happen without deleting anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Reconcile the manifest with raw/ (register new files, drop deleted ones)
     Sync {
         /// Report what would change without writing the manifest
@@ -248,6 +262,11 @@ fn run(cli: Cli) -> io::Result<i32> {
             commands::ingest_repo::run(&path, &domain, name.as_deref()).map(|()| 0)
         }
         Commands::Mv { from, to, dry_run } => commands::mv::run(&from, &to, dry_run).map(|()| 0),
+        Commands::Rm {
+            target,
+            force,
+            dry_run,
+        } => commands::rm::run(&target, force, dry_run).map(|()| 0),
         Commands::Sync { dry_run } => commands::sync::run(dry_run).map(|()| 0),
         Commands::Status => commands::status::run().map(|()| 0),
         Commands::Next { action } => {

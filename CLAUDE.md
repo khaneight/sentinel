@@ -26,7 +26,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. The tre
 - `src/core/lint.rs` — lint rules (`analyze`), finding type, severity model, stable ordering
 - `src/core/output.rs` — output format switch, JSON envelope, exit-code constants
 - `src/core/text.rs` — display helpers (character-safe truncation)
-- `src/commands/` — one module per CLI subcommand: init, config, schema, ingest, ingest-repo, mv, sync, status, next, uncompiled, index, lint, search, graph
+- `src/commands/` — one module per CLI subcommand: init, config, schema, ingest, ingest-repo, mv, rm, sync, status, next, uncompiled, index, lint, search, graph
 - `tests/` — integration tests that drive the compiled binary against temporary archives
 
 ## Skills
@@ -142,6 +142,12 @@ A hand-renamed file looks exactly like a deletion plus an addition, so this was 
 The hash is `DefaultHasher` over the file's bytes — not cryptographic, and it does not need to be. It exists only to recognise the same content under a new name, and a collision would carry metadata between two byte-identical files, which is the same outcome either way.
 
 `sync` backfills the hash on entries that lack one, so archives written before the field are protected from the next rename onward.
+
+## Deleting raw documents
+
+`sentinel rm` is refusal-first. A move can be repaired; a delete cannot, and `raw/` is the provenance floor — removing a document articles were compiled from permanently breaks the trail from a claim back to its source.
+
+So it refuses when anything cites the target, names every citing article, and points at `sentinel mv`, because most attempts to delete a cited source are a rename in disguise. `--force` proceeds and reports each citation it orphans; the resulting `unresolved-source` errors are left visible to `lint` rather than absorbed. It requires a complete view for the same reason `mv` does — an article it could not read is a citation it would not have counted, and understating the damage is the one thing this command must not do.
 
 ## Moving raw documents
 

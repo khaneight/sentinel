@@ -8,6 +8,7 @@ pub mod lint;
 pub mod log;
 pub mod mv;
 pub mod next;
+pub mod rm;
 pub mod schema;
 pub mod search;
 pub mod status;

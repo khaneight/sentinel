@@ -124,6 +124,7 @@ sentinel search "query"  # ranked search (top 20; --limit to widen)
 sentinel graph --node X  # what surrounds one article (--depth N)
 sentinel lint --summary  # counts per rule instead of every finding
 sentinel mv old.md new.md  # move a source, repointing every citation
+sentinel rm old.md       # delete a source (refuses if articles cite it)
 sentinel log op "detail" # append to activity log (meta/log.md)
 ```
 
