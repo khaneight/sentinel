@@ -65,7 +65,6 @@ pub fn load_all() -> io::Result<Vec<LoadedArticle>> {
         loaded.push(LoadedArticle {
             article: WikiArticle {
                 frontmatter: parsed.frontmatter,
-                body: parsed.body,
                 rel_path,
                 frontmatter_error: parsed.error,
             },

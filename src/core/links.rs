@@ -111,7 +111,7 @@ impl LinkGraph {
             .filter(|slug| {
                 self.backlinks
                     .get(slug.as_str())
-                    .map_or(true, |v| v.is_empty())
+                    .is_none_or(|v| v.is_empty())
             })
             .cloned()
             .collect()
@@ -140,7 +140,6 @@ mod tests {
         crate::core::wiki::LoadedArticle {
             article: WikiArticle {
                 frontmatter: Frontmatter::default(),
-                body: body.to_string(),
                 rel_path: rel_path.to_string(),
                 frontmatter_error: None,
             },

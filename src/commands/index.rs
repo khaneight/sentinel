@@ -35,7 +35,9 @@ pub fn run() -> io::Result<()> {
 
     // Sort articles for index generation
     let mut sorted: Vec<&LoadedArticle> = articles.iter().collect();
-    sorted.sort_by(|a, b| a.title().to_lowercase().cmp(&b.title().to_lowercase()));
+    // Title, then path: two articles with the same title would otherwise order
+    // by whatever the filesystem walk returned, and these files live in a git repo.
+    sorted.sort_by_key(|a| (a.title().to_lowercase(), a.rel_path().to_string()));
 
     // Generate _master.md
     let mut master = header("Master Index", None);

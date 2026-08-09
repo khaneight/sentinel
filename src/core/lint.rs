@@ -305,7 +305,6 @@ mod tests {
         LoadedArticle {
             article: WikiArticle {
                 frontmatter: fm,
-                body: content.to_string(),
                 rel_path: path.to_string(),
                 frontmatter_error: error.map(ToString::to_string),
             },

@@ -189,7 +189,6 @@ mod tests {
                     sources: sources.iter().map(|s| (*s).to_string()).collect(),
                     ..Default::default()
                 },
-                body: String::new(),
                 rel_path: rel_path.to_string(),
                 frontmatter_error: None,
             },

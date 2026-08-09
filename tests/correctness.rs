@@ -106,3 +106,37 @@ fn index_handles_articles_with_unicode_titles() {
     let master = a.read("index/_master.md");
     assert!(master.contains("Ἠθικά — “virtue”"), "{master}");
 }
+
+#[test]
+fn an_unimplemented_command_fails_instead_of_silently_succeeding() {
+    // `ingest-repo` printed an apology and exited 0. It is listed in --help, so
+    // an agent picking from the available commands would run it, see success,
+    // and continue as though a codebase had been ingested.
+    let a = Archive::new();
+    let output = a.output(&["ingest-repo", "/some/repo"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(err.contains("not implemented"), "{err}");
+    assert!(
+        err.contains("sentinel ingest"),
+        "it must name the thing to do instead:\n{err}"
+    );
+}
+
+#[test]
+fn an_unimplemented_command_reports_json_when_json_was_requested() {
+    let a = Archive::new();
+    let output = a.output(&["ingest-repo", "/some/repo", "--json"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8_lossy(&output.stderr);
+    let v: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("not JSON ({e}):\n{text}"));
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not implemented")
+    );
+}

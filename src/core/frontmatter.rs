@@ -30,7 +30,6 @@ pub struct Frontmatter {
 #[derive(Debug, Clone)]
 pub struct WikiArticle {
     pub frontmatter: Frontmatter,
-    pub body: String,
     /// Relative path from archive root
     pub rel_path: String,
     /// Why the frontmatter block failed to parse, if it did.
@@ -45,6 +44,14 @@ pub struct WikiArticle {
 #[derive(Debug, Clone, Default)]
 pub struct ParsedMarkdown {
     pub frontmatter: Frontmatter,
+    /// The document with its frontmatter block removed.
+    ///
+    /// Part of the parser's contract and asserted on by its tests — they are
+    /// what prove the block ends where it should — but no command consumes it
+    /// yet: `search` and the link extractor both want the whole file, including
+    /// `tags:` and `related:`. Kept rather than dropped so the boundary stays
+    /// tested; revisit if a caller appears or the tests are reworked.
+    #[allow(dead_code)]
     pub body: String,
     /// Set when a delimited block was present but did not parse.
     pub error: Option<String>,
@@ -113,12 +120,6 @@ fn strip_opening_fence(content: &str) -> Option<&str> {
 /// True for a line consisting only of the `---` delimiter.
 fn is_fence(line: &str) -> bool {
     line.trim_end_matches(['\n', '\r']) == "---"
-}
-
-/// Generate frontmatter YAML string.
-pub fn render_frontmatter(fm: &Frontmatter) -> String {
-    let yaml = serde_yaml::to_string(fm).unwrap_or_default();
-    format!("---\n{}---\n", yaml)
 }
 
 #[cfg(test)]

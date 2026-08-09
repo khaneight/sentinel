@@ -1,3 +1,7 @@
+// Each integration test binary compiles this module separately and uses only
+// the helpers it needs, so unused-warnings here are structural rather than real.
+#![allow(dead_code)]
+
 //! Shared harness for integration tests.
 //!
 //! Every helper scrubs `SENTINEL_ARCHIVE` and `SENTINEL_CONFIG` from the child

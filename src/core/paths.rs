@@ -351,29 +351,6 @@ pub fn rel(path: &Path) -> String {
         .join("/")
 }
 
-/// Convert a filename to kebab-case slug.
-pub fn slugify(name: &str) -> String {
-    let stem = Path::new(name)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(name);
-
-    stem.to_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,15 +521,5 @@ mod tests {
         let r = resolve(None, Some("/elsewhere"), None, None, &root, false).unwrap();
         assert_eq!(r.path, PathBuf::from("/elsewhere"));
         assert_eq!(r.source, RootSource::Env);
-    }
-
-    #[test]
-    fn slugify_normalizes_separators_and_case() {
-        assert_eq!(
-            slugify("The Problem of Other Minds.md"),
-            "the-problem-of-other-minds"
-        );
-        assert_eq!(slugify("already-kebab"), "already-kebab");
-        assert_eq!(slugify("Trailing   spaces  .txt"), "trailing-spaces");
     }
 }

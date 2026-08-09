@@ -7,9 +7,11 @@ Rust CLI for managing a personal knowledge base. Operates on an archive director
 ```
 cargo build
 cargo test
-cargo clippy
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
+
+CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. The tree is warning-free, and clippy runs with `-D warnings` to keep it that way. Tests run on both Linux and macOS — the defect that made this project unusable was a hardcoded `/home/...` path, and a Linux-only matrix would not have caught it.
 
 ## Architecture
 
@@ -129,7 +131,6 @@ Separating 1 from 2 is what lets a caller tell "your archive has issues" from "s
 
 ## Known Limitations
 
-- `ingest-repo` command is a stub (not yet implemented)
+- `ingest-repo` is not implemented. It exits non-zero with guidance rather than pretending to succeed.
 - Wikilink slugs are bare filename stems, so two articles with the same stem in different domains collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.
 - `meta/log.md` is append-only — commands that mutate state (init, ingest, sync, index, lint) auto-append entries
-- No CI/CD pipeline
