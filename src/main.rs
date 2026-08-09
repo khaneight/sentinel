@@ -239,6 +239,21 @@ fn run(cli: Cli) -> io::Result<i32> {
     let resolved = paths::resolve_from_environment(requested, creating)?;
     paths::set_archive_root(resolved.path.clone());
 
+    // Commands that read the manifest, change it, and write it back must not
+    // interleave: two doing so both read the same state and the second write
+    // discards the first's. Measured, that lost one entry per pair of
+    // concurrent `ingest` calls, every one reporting success.
+    let _lock = match &cli.command {
+        Commands::Ingest { .. }
+        | Commands::IngestRepo { .. }
+        | Commands::Sync { .. }
+        | Commands::Index
+        | Commands::Mv { .. }
+        | Commands::Rm { .. } => Some(core::lock::ArchiveLock::acquire(&paths::meta_dir())?),
+        // Queries and commands that touch no shared state run unserialised.
+        _ => None,
+    };
+
     match cli.command {
         Commands::Init { set_default, .. } => {
             commands::init::run(&resolved, set_default).map(|()| 0)

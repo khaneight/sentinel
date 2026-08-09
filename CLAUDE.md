@@ -136,6 +136,16 @@ The same rule applies to rewrites that rewrite nothing. Generated output is dete
 
 `meta/log.md` records what changed the archive. Not what looked at it.
 
+## Concurrent commands are serialised
+
+Every mutating command does load → modify → save on the manifest, and nothing ordered them. Measured, two concurrent `ingest` calls lost one entry every time, and twelve lost nine — each reporting success and exiting 0, with the documents left on disk and unregistered. Recovering those through `sync` resets `origin`, which is the unrecoverable loss from #16.
+
+Comparing the manifest against what was loaded is **not sufficient**, and it is worth knowing why: both processes read, both compare successfully, and both write, because nothing orders the compare against the write. That was measured too — it caught 4 of 12 and left 7 silently lost.
+
+`core::lock::ArchiveLock` takes `meta/.lock` via `File::create_new`, the atomic primitive available without a dependency, and holds it for the whole read-modify-write. `main` acquires it for `ingest`, `ingest-repo`, `sync`, `index`, `mv`, and `rm`. Queries take no lock, so they are never blocked and never contend.
+
+`Drop` releases it on every ordinary exit, including `?` propagation. It cannot release on SIGKILL, so a lock older than two minutes is treated as stale and broken — without that, one killed process would wedge the archive permanently, which is worse than the race.
+
 ## Durable state is replaced atomically
 
 Everything that persists state goes through `core::atomic::write`: temp sibling, `sync_all`, `rename`. Never `fs::write`.
@@ -144,7 +154,7 @@ Everything that persists state goes through `core::atomic::write`: temp sibling,
 
 The temp file is a hidden sibling specifically so `rename` never crosses a filesystem, and `sync_all` runs before the rename so the rename cannot land ahead of the data.
 
-This makes each individual write crash-safe. It does **not** make concurrent sentinel processes safe — two of them rewriting the manifest still race, last writer wins. That is a known and unaddressed limitation.
+This makes each individual write crash-safe. Ordering between processes is handled separately, below.
 
 ## Partial views must not overwrite durable state
 
@@ -264,7 +274,6 @@ Separating 1 from 2 is what lets a caller tell "your archive has issues" from "s
 
 ## Known Limitations
 
-- Concurrent sentinel processes are not coordinated: two rewriting the manifest race, last writer wins. Individual writes are atomic; the read-modify-write cycle around them is not.
 
 - `ingest-repo` is not implemented. It exits non-zero with guidance rather than pretending to succeed.
 - Wikilink slugs are bare filename stems, so two articles whose stems canonicalise the same collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.

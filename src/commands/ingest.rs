@@ -106,7 +106,12 @@ pub fn run(
         source_type: "document".to_string(),
         content_hash: manifest::hash_file(&dest),
     });
-    manifest.save()?;
+    // A save conflict must not leave the copied file behind unregistered:
+    // `sync` would adopt it as `authored`, which is the #16 provenance loss.
+    if let Err(e) = manifest.save() {
+        let _ = fs::remove_file(&dest);
+        return Err(e);
+    }
 
     crate::core::log::append("ingest", &format!("{display_title} → {rel_path}"))?;
 

@@ -3,6 +3,7 @@ pub mod compilation;
 pub mod frontmatter;
 pub mod links;
 pub mod lint;
+pub mod lock;
 pub mod log;
 pub mod manifest;
 pub mod output;

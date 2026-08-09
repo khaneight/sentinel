@@ -17,4 +17,5 @@ toml = "0.8"
 unicode-normalization = "0.1.25"
 
 [dev-dependencies]
+filetime = "0.2.29"
 tempfile = "3"
