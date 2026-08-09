@@ -38,7 +38,7 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
     let loaded = wiki::load_all()?;
     let articles = &loaded.articles;
     let manifest = Manifest::load()?;
-    let all = lint::analyze(articles, &manifest);
+    let all = lint::analyze(articles, &manifest, &crate::core::paths::archive_root());
 
     // Counts always describe the whole archive; a filter narrows what is
     // listed, never what is counted, so `--rule` cannot make a broken archive

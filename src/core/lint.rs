@@ -144,6 +144,11 @@ pub const RULES: &[RuleInfo] = &[
         description: "No `sources:` listed, so the raw document this came from will stay uncompiled.",
     },
     RuleInfo {
+        rule: "missing-raw-document",
+        severity: Severity::Error,
+        description: "The manifest registers a raw document that is not on disk. Every article citing it resolves against an entry describing nothing.",
+    },
+    RuleInfo {
         rule: "uncompiled-source",
         severity: Severity::Warning,
         description: "A raw document that no wiki article cites in its `sources:`.",
@@ -155,7 +160,14 @@ pub const RULES: &[RuleInfo] = &[
 /// Lives here rather than in the `lint` command because `sentinel next` needs
 /// the same findings to decide what is most worth doing — two copies of these
 /// rules would drift, and the one an agent acts on would be the stale one.
-pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> {
+/// `root` is passed rather than read from `paths::archive_root()` so this stays
+/// a pure function of its inputs — the unit tests below call it with no archive
+/// installed, and a global read here made three of them panic.
+pub fn analyze(
+    articles: &[LoadedArticle],
+    manifest: &Manifest,
+    root: &std::path::Path,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
     let all_slugs: HashSet<String> = articles.iter().map(|a| a.canonical_slug()).collect();
 
@@ -311,6 +323,26 @@ pub fn analyze(articles: &[LoadedArticle], manifest: &Manifest) -> Vec<Finding> 
         }
     }
 
+    // The manifest against disk. Every other rule checks articles against the
+    // manifest or against each other, so a manifest entry naming a file that
+    // does not exist was consistent with everything and reported by nothing —
+    // an archive could lose a raw document and lint clean.
+    //
+    // `try_exists`, not `exists`: a file we cannot stat is not a file we know
+    // to be missing, and reporting it as malformed would send an agent to
+    // delete a citation over a permissions problem.
+    for rel_path in manifest.entries.keys() {
+        if root.join(rel_path).try_exists().is_ok_and(|there| !there) {
+            findings.push(Finding::error(
+                "missing-raw-document",
+                rel_path.clone(),
+                "registered in the manifest but not on disk. Restore the file, \
+                 or `sentinel rm` the entry if it is genuinely gone."
+                    .to_string(),
+            ));
+        }
+    }
+
     // Check the raw <-> wiki mapping, derived from what each article cites.
     let compilation = Compilation::derive(articles, manifest);
     for (article, source) in &compilation.unresolved {
@@ -383,6 +415,9 @@ mod tests {
     /// An archive rigged to trip every rule at once.
     fn everything_wrong() -> (Vec<LoadedArticle>, Manifest) {
         let mut manifest = Manifest::default();
+        // `missing-raw-document`: nothing in this fixture exists on disk, so
+        // every entry fires it. That is the point — the rule compares the
+        // manifest with the filesystem, and there is no filesystem here.
         for raw in ["raw/philosophy/cited.md", "raw/philosophy/stranded.md"] {
             manifest.upsert(ManifestEntry {
                 raw_path: raw.to_string(),
@@ -455,10 +490,14 @@ mod tests {
     #[test]
     fn every_documented_rule_can_actually_fire() {
         let (articles, manifest) = everything_wrong();
-        let emitted: BTreeSet<&str> = analyze(&articles, &manifest)
-            .iter()
-            .map(|f| f.rule)
-            .collect();
+        let emitted: BTreeSet<&str> = analyze(
+            &articles,
+            &manifest,
+            std::path::Path::new("/nonexistent-archive"),
+        )
+        .iter()
+        .map(|f| f.rule)
+        .collect();
         let documented: BTreeSet<&str> = RULES.iter().map(|r| r.rule).collect();
 
         let never_fires: Vec<&&str> = documented.difference(&emitted).collect();
@@ -472,7 +511,11 @@ mod tests {
     fn every_emitted_rule_is_documented() {
         let (articles, manifest) = everything_wrong();
         let documented: BTreeSet<&str> = RULES.iter().map(|r| r.rule).collect();
-        for finding in analyze(&articles, &manifest) {
+        for finding in analyze(
+            &articles,
+            &manifest,
+            std::path::Path::new("/nonexistent-archive"),
+        ) {
             assert!(
                 documented.contains(finding.rule),
                 "rule '{}' is emitted but missing from RULES, so `sentinel schema` under-reports it",
@@ -484,7 +527,11 @@ mod tests {
     #[test]
     fn documented_severity_matches_emitted_severity() {
         let (articles, manifest) = everything_wrong();
-        for finding in analyze(&articles, &manifest) {
+        for finding in analyze(
+            &articles,
+            &manifest,
+            std::path::Path::new("/nonexistent-archive"),
+        ) {
             let documented = RULES
                 .iter()
                 .find(|r| r.rule == finding.rule)

@@ -192,7 +192,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
     let articles = loaded.articles;
     let manifest = Manifest::load()?;
 
-    let findings = lint::analyze(&articles, &manifest);
+    let findings = lint::analyze(&articles, &manifest, &crate::core::paths::archive_root());
     let errors: Vec<_> = findings
         .iter()
         .filter(|f| f.severity == Severity::Error)
