@@ -66,13 +66,26 @@ pub fn run(
 
     let dest = domain_dir.join(&dest_name);
     if dest.exists() {
+        // On a case-insensitive filesystem the clashing file may be listed
+        // under different capitalisation, so naming the path that exists is
+        // more use than echoing the one that was asked for.
+        let existing = std::fs::canonicalize(&dest)
+            .map(|p| paths::rel(&p))
+            .unwrap_or_else(|_| paths::rel(&dest));
+        let note = if existing.rsplit('/').next() != Some(dest_name.as_str()) {
+            format!(
+                "\nYou asked for `{dest_name}`; this filesystem does not \
+                 distinguish filenames by case."
+            )
+        } else {
+            String::new()
+        };
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!(
-                "File already exists: {}\n\
+                "File already exists: {existing}{note}\n\
                  Give it a different name with `--as <FILENAME>`, or a different \
                  title with `--title` (which is used to derive the name).",
-                dest.display()
             ),
         ));
     }

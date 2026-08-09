@@ -302,3 +302,41 @@ fn distinct_gaps_remain_distinct_findings() {
     let v = a.json(&["lint", "--rule", "broken-link"]);
     assert_eq!(v["findings"].as_array().unwrap().len(), 2, "{v}");
 }
+
+#[test]
+fn a_case_colliding_ingest_names_the_file_that_actually_exists() {
+    // On a case-insensitive filesystem the clashing file is listed under
+    // different capitalisation, so echoing the requested name tells the user
+    // nothing — they go looking for a file that is not there.
+    let a = Archive::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let first = tmp.path().join("notes.md");
+    std::fs::write(&first, "one").unwrap();
+    a.run(&["ingest", &first.display().to_string(), "-d", "philosophy"]);
+
+    let second = tmp.path().join("other.md");
+    std::fs::write(&second, "two").unwrap();
+    let output = a.output(&[
+        "ingest",
+        &second.display().to_string(),
+        "-d",
+        "philosophy",
+        "--as",
+        "NOTES.MD",
+    ]);
+
+    assert!(!output.status.success());
+    let err = String::from_utf8_lossy(&output.stderr);
+    // On a case-sensitive filesystem there is no collision at all, so only
+    // assert the message when one occurred.
+    if err.contains("already exists") {
+        assert!(
+            err.contains("raw/philosophy/notes.md"),
+            "must name the file that exists, not the one requested:\n{err}"
+        );
+        assert!(
+            err.contains("does not distinguish filenames by case"),
+            "{err}"
+        );
+    }
+}

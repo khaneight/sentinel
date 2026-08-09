@@ -53,7 +53,16 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
             "Source and destination are the same.",
         ));
     }
-    if root.join(&to_key).exists() {
+    // On a case-insensitive filesystem — the macOS default — `Notes.md`
+    // "exists" whenever `notes.md` does, because they are the same file. A
+    // case-only rename is a legitimate and fairly common tidy-up, made more
+    // likely by the `duplicate-slug` rule, whose natural fix is to rename one
+    // of the colliding files. Refusing it with "destination already exists" is
+    // both wrong and confusing, since the named destination does not appear in
+    // any listing.
+    let from_path = root.join(&from_key);
+    let to_path = root.join(&to_key);
+    if to_path.exists() && !is_same_file(&from_path, &to_path) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!("Destination already exists: {to_key}"),
@@ -118,11 +127,10 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
     }
 
     // Move the file first: if it fails, nothing else has been touched.
-    let dest = root.join(&to_key);
-    if let Some(parent) = dest.parent() {
+    if let Some(parent) = to_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::rename(root.join(&from_key), &dest)?;
+    std::fs::rename(&from_path, &to_path)?;
 
     for (rel_path, content) in &edits {
         crate::core::atomic::write(&root.join(rel_path), content)?;
@@ -246,6 +254,18 @@ fn split_scalar(raw: &str) -> (&str, &str, &str) {
         }
     }
     (&raw[..lo], &raw[lo..hi], &raw[hi..])
+}
+
+/// Whether two paths name the same file on disk.
+///
+/// Distinguishes "the destination is taken" from "the destination *is* the
+/// source under different capitalisation", which a case-insensitive filesystem
+/// cannot tell apart by existence alone.
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Resolve the destination against the source's location.

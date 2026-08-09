@@ -417,3 +417,62 @@ fn mv_does_not_claim_nothing_cited_a_source_it_could_not_check() {
         "a claim about citations must not be made from an incomplete read:\n{out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Case-only renames
+//
+// On a case-insensitive filesystem — the macOS default — `Notes.md` "exists"
+// whenever `notes.md` does, because they are the same file. `mv` refused the
+// rename with "Destination already exists", naming a file that appears in no
+// listing. #10's `duplicate-slug` rule makes this more likely to be wanted:
+// it flags case-only collisions, and renaming one is the natural fix.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_case_only_rename_is_allowed() {
+    let a = Archive::new();
+    a.write("raw/philosophy/notes.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/cites.md",
+        &with_sources("Cites", &["raw/philosophy/notes.md"]),
+    );
+
+    a.run(&["mv", "raw/philosophy/notes.md", "Notes.md"]);
+
+    assert!(
+        a.read("wiki/philosophy/cites.md")
+            .contains("raw/philosophy/Notes.md"),
+        "the citation must follow the new capitalisation"
+    );
+    assert_eq!(a.code(&["lint"]), 0);
+}
+
+#[test]
+fn a_case_only_rename_across_domains_is_allowed() {
+    let a = Archive::new();
+    a.write("raw/philosophy/notes.md", "text");
+    a.run(&["sync"]);
+    a.run(&["mv", "raw/philosophy/notes.md", "raw/research/Notes.md"]);
+
+    assert!(a.path("raw/research/Notes.md").is_file());
+    let m: serde_json::Value = serde_json::from_str(&a.read("meta/manifest.json")).unwrap();
+    assert_eq!(m["entries"]["raw/research/Notes.md"]["domain"], "research");
+}
+
+#[test]
+fn a_genuine_collision_is_still_refused() {
+    // The same-file check must not become a way to overwrite a different file.
+    let a = Archive::new();
+    a.write("raw/philosophy/one.md", "one");
+    a.write("raw/philosophy/two.md", "two");
+    a.run(&["sync"]);
+
+    let output = a.output(&["mv", "raw/philosophy/one.md", "two.md"]);
+    assert!(!output.status.success());
+    assert_eq!(
+        a.read("raw/philosophy/two.md"),
+        "two",
+        "the target was clobbered"
+    );
+}
