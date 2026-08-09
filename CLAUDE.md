@@ -108,6 +108,8 @@ Two invariants hold this together, both enforced by tests:
 
 `domains.present` is read from disk (the union of `raw/` and `wiki/` subdirectories); `domains.default` is `DEFAULT_DOMAINS`. Reporting both is deliberate — an archive that has moved past the defaults should say so.
 
+**Nothing `init` writes may assert a fact the tool will not maintain.** `SUMMARY.md` listed three domains with descriptions, written once and never revisited, so an archive that grew a fourth had a front page disagreeing with it — the same drift #6 removed from the skills, in a file the tool itself authors. It now points at `index/_by-domain.md` and `sentinel schema` instead of restating them. `templates/wiki-article.md` was a fourth hand-written copy of the frontmatter contract; it is generated from `schema::FIELDS`, and a test asserts a filled-in template lints clean.
+
 `sentinel init` also writes a `CLAUDE.md` into the archive. The README always described this file as "the schema" that you and the LLM co-evolve, but `init` never created one, so a fresh archive had no conventions at all. It is deliberately short and mostly pointers — `sentinel schema --json` is authoritative, and anything restated in that file is something that can go stale.
 
 ## Wikilink resolution

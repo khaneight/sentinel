@@ -268,3 +268,82 @@ fn init_does_not_clobber_an_edited_claude_md() {
 
     assert_eq!(a.read("CLAUDE.md"), "my own conventions");
 }
+
+// ---------------------------------------------------------------------------
+// Artifacts `init` creates must not assert facts nothing maintains
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_article_template_matches_the_published_contract() {
+    // The template was a fourth hand-written copy of the frontmatter fields,
+    // alongside the lint rule, the schema output, and `ingest`'s validation.
+    // Three of those four had already drifted apart.
+    let a = Archive::new();
+    let template = a.read("templates/wiki-article.md");
+    let v = a.json(&["schema"]);
+
+    for field in v["frontmatter"].as_array().unwrap() {
+        let name = field["name"].as_str().unwrap();
+        assert!(
+            template.contains(&format!("{name}:")),
+            "template omits `{name}`, which `sentinel schema` publishes:\n{template}"
+        );
+    }
+
+    let keys: Vec<&str> = template
+        .lines()
+        .filter(|l| !l.starts_with("---") && !l.trim().is_empty())
+        .filter_map(|l| l.split(':').next())
+        .collect();
+    assert_eq!(
+        keys.len(),
+        v["frontmatter"].as_array().unwrap().len(),
+        "template has keys the contract does not: {keys:?}"
+    );
+}
+
+#[test]
+fn a_template_article_passes_lint_once_filled_in() {
+    // The template is only useful if what it produces is valid.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+
+    let filled = a
+        .read("templates/wiki-article.md")
+        .replace("title:", "title: Filled")
+        .replace("domain:", "domain: philosophy")
+        .replace("tags: []", "tags: [t]")
+        .replace("sources: []", "sources: [raw/philosophy/src.md]");
+    a.write("wiki/philosophy/filled.md", &format!("{filled}\nBody.\n"));
+
+    assert_eq!(a.code(&["lint"]), 0, "{}", a.run(&["lint"]));
+}
+
+#[test]
+fn the_front_page_does_not_list_domains_it_will_not_update() {
+    // SUMMARY.md named three domains with descriptions, written once at `init`
+    // and never revisited — so an archive that grew a fourth had a front page
+    // quietly disagreeing with it.
+    let a = Archive::new();
+    a.write("wiki/anthropology/kinship.md", "---\ntitle: Kinship\n---\n");
+
+    let summary = a.read("SUMMARY.md");
+    let schema = a.json(&["schema"]);
+    let present: Vec<&str> = schema["domains"]["present"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    assert!(present.contains(&"anthropology"), "{present:?}");
+
+    assert!(
+        !summary.contains("**Philosophy**"),
+        "the front page asserts a domain list it does not maintain:\n{summary}"
+    );
+    assert!(
+        summary.contains("_by-domain.md") || summary.contains("sentinel schema"),
+        "it should point at the live answer instead:\n{summary}"
+    );
+}

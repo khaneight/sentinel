@@ -27,14 +27,14 @@ struct Schema {
 }
 
 #[derive(Serialize)]
-struct Field {
-    name: &'static str,
-    required: bool,
+pub struct Field {
+    pub name: &'static str,
+    pub required: bool,
     #[serde(rename = "type")]
-    kind: &'static str,
+    pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    values: Option<&'static [&'static str]>,
-    description: &'static str,
+    pub values: Option<&'static [&'static str]>,
+    pub description: &'static str,
 }
 
 #[derive(Serialize)]
@@ -47,7 +47,7 @@ struct Domains {
 
 #[derive(Serialize)]
 struct Directory {
-    name: &'static str,
+    pub name: &'static str,
     purpose: &'static str,
 }
 
@@ -55,10 +55,10 @@ struct Directory {
 struct NextAction {
     priority: u8,
     action: &'static str,
-    description: &'static str,
+    pub description: &'static str,
 }
 
-const FIELDS: &[Field] = &[
+pub const FIELDS: &[Field] = &[
     Field {
         name: "title",
         required: true,
@@ -174,6 +174,27 @@ const NEXT_ACTIONS: &[NextAction] = &[
         description: "Drafts untouched for over 30 days.",
     },
 ];
+
+/// A blank frontmatter block built from the published field list.
+///
+/// The article template used to be a hand-written fourth copy of the contract,
+/// alongside the lint rule, the schema output, and `ingest`'s validation. Three
+/// of those already drifted apart in this codebase (#6, #31); generating the
+/// fourth removes the possibility.
+pub fn blank_frontmatter() -> String {
+    let mut out = String::from("---\n");
+    for field in FIELDS {
+        let default = match (field.kind, field.name) {
+            (_, "origin") => " authored",
+            (_, "status") => " draft",
+            ("string[]", _) => " []",
+            _ => "",
+        };
+        out.push_str(&format!("{}:{default}\n", field.name));
+    }
+    out.push_str("---\n\n");
+    out
+}
 
 pub fn run() -> io::Result<()> {
     let schema = Schema {
