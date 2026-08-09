@@ -60,8 +60,10 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
     // of the colliding files. Refusing it with "destination already exists" is
     // both wrong and confusing, since the named destination does not appear in
     // any listing.
-    let from_path = root.join(&from_key);
-    let to_path = root.join(&to_key);
+    // `from_key` is a manifest key and `to_key` is validated caller input; both
+    // are re-checked here so the rename cannot land outside the archive.
+    let from_path = crate::core::paths::resolve_in_archive(&from_key)?;
+    let to_path = crate::core::paths::resolve_in_archive(&to_key)?;
     if to_path.exists() && !is_same_file(&from_path, &to_path) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -275,14 +277,17 @@ fn is_same_file(a: &Path, b: &Path) -> bool {
 fn destination(from_key: &str, to: &str) -> io::Result<String> {
     let to = to.trim().trim_start_matches("./");
     if !to.contains('/') {
+        let name = crate::core::paths::archive_component("filename", to)?;
         let dir = Path::new(from_key)
             .parent()
             .and_then(|p| p.to_str())
             .unwrap_or("raw");
-        return Ok(format!("{dir}/{to}"));
+        return Ok(format!("{dir}/{name}"));
     }
 
-    let normalized = to.trim_start_matches('/');
+    // `starts_with("raw/")` is a string test, and `raw/../../x.md` passes it.
+    // Normalising first makes the check mean what it reads as.
+    let normalized = crate::core::paths::normalize_within_archive(to)?;
     if !normalized.starts_with("raw/") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
