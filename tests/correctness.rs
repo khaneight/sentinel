@@ -757,3 +757,91 @@ fn a_rebuild_that_changes_something_still_writes_and_logs() {
         "a real change must still be recorded"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A malformed delimiter must not be diagnosed as a missing field
+// ---------------------------------------------------------------------------
+
+/// The measurement this fix is accountable to.
+///
+/// `sentinel lint` reported `missing 'title' in frontmatter` — three findings
+/// per file, one for each required field — on files whose second line reads
+/// `title: T`. `/sentinel-improve` routes `missing-field` to "Add `title`,
+/// `domain`, or `origin`", so an agent following the published guidance would
+/// have appended fields that were already present and left the file broken.
+#[test]
+fn lint_names_the_delimiter_rather_than_inventing_missing_fields() {
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+
+    let fields = "title: T\ndomain: philosophy\norigin: authored\ntags: [a]\n\
+                  sources: [raw/philosophy/s.md]\n";
+    let openings = [
+        ("padded", "--- \n"),
+        ("four-dash", "----\n"),
+        ("blank-first", "\n---\n"),
+        ("bom", "\u{feff}---\n"),
+    ];
+    for (name, opening) in openings {
+        a.write(
+            &format!("wiki/philosophy/{name}.md"),
+            &format!("{opening}{fields}---\nBody\n"),
+        );
+    }
+
+    let v = a.json(&["lint"]);
+    let findings = v["findings"].as_array().unwrap();
+    for (name, _) in openings {
+        let mine: Vec<&serde_json::Value> = findings
+            .iter()
+            .filter(|f| {
+                f["path"]
+                    .as_str()
+                    .is_some_and(|p| p.ends_with(&format!("{name}.md")))
+            })
+            .collect();
+
+        assert!(
+            !mine.iter().any(|f| f["rule"] == "missing-field"),
+            "{name}: lint claims a field is missing from a file that has it: {mine:?}"
+        );
+        let invalid = mine
+            .iter()
+            .find(|f| f["rule"] == "invalid-frontmatter")
+            .unwrap_or_else(|| panic!("{name}: no invalid-frontmatter finding: {mine:?}"));
+        let message = invalid["message"].as_str().unwrap();
+        assert!(
+            message.contains("---") || message.contains("byte-order mark"),
+            "{name}: message must point at the delimiter: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_file_that_genuinely_lacks_frontmatter_still_reports_missing_fields() {
+    // The diagnosis above is only worth having if it is accurate. Prose is not
+    // a broken article.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/prose.md",
+        "# Heading\n\nJust text. Note: a colon.\n",
+    );
+
+    let v = a.json(&["lint"]);
+    let rules: Vec<&str> = v["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["path"].as_str().is_some_and(|p| p.ends_with("prose.md")))
+        .map(|f| f["rule"].as_str().unwrap())
+        .collect();
+
+    assert!(rules.contains(&"missing-field"), "{rules:?}");
+    assert!(
+        !rules.contains(&"invalid-frontmatter"),
+        "a file with no frontmatter is not a file with broken frontmatter: {rules:?}"
+    );
+}

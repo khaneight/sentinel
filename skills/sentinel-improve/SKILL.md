@@ -39,7 +39,7 @@ Every `severity: "error"` finding, in this order — earlier ones can mask later
 
 | Rule | Fix |
 |---|---|
-| `invalid-frontmatter` | Repair the YAML. The message names the parse failure; do not add fields until it parses. |
+| `invalid-frontmatter` | Repair the block. The message names the failure — a padded or mis-dashed `---` delimiter, a fence that never closes, or a YAML parse error. **Do not add fields**; the fields are usually already there and unreadable. |
 | `duplicate-slug` | Rename one file so its stem is unique wiki-wide, then update every `[[wikilink]]` that pointed at it. Search for the old slug before renaming. |
 | `missing-field` | Add `title`, `domain`, or `origin`. Infer from the article's content and location; do not guess `origin` — check whether the source is the user's writing or research. |
 | `invalid-origin` / `invalid-status` | Correct to a value `sentinel schema` lists. |
