@@ -79,7 +79,7 @@ impl Manifest {
     pub fn save(&self) -> io::Result<()> {
         let path = paths::manifest_path();
         let data = serde_json::to_string_pretty(self)?;
-        fs::write(&path, data)
+        super::atomic::write(&path, data)
     }
 
     /// Add or update an entry.

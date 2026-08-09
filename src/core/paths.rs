@@ -246,7 +246,7 @@ impl Config {
         }
         let text = toml::to_string_pretty(self)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        std::fs::write(&path, text)?;
+        super::atomic::write(&path, text)?;
         Ok(path)
     }
 }

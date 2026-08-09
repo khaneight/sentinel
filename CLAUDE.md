@@ -16,6 +16,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these on every push and PR. The tre
 ## Architecture
 
 - `src/main.rs` — clap-derive CLI entry point, defines all subcommands
+- `src/core/atomic.rs` — crash-safe file replacement (temp file, fsync, rename)
 - `src/core/paths.rs` — archive root resolution, derived path helpers, user config file
 - `src/core/manifest.rs` — JSON manifest tracking raw documents and compilation status
 - `src/core/compilation.rs` — derives the raw → wiki mapping from article `sources:` frontmatter
@@ -118,6 +119,16 @@ This is not cosmetic. Before it, the same concept referenced three ways produced
 Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-states` stay distinct — merging needs a stemmer, and a wrong merge silently collapses two real concepts, which is worse than a missed one.
 
 Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
+
+## Durable state is replaced atomically
+
+Everything that persists state goes through `core::atomic::write`: temp sibling, `sync_all`, `rename`. Never `fs::write`.
+
+`fs::write` truncates before writing, so an interruption between the two — crash, full disk, Ctrl-C, OOM killer — leaves the file truncated. For `meta/manifest.json` that state is unrecoverable twice over: it carries `origin` and `ingested_at`, which cannot be derived from disk, and a torn manifest fails to parse so *every* command stops working. There is no self-healing path. `mv` rewrites wiki articles, which are the user's own prose.
+
+The temp file is a hidden sibling specifically so `rename` never crosses a filesystem, and `sync_all` runs before the rename so the rename cannot land ahead of the data.
+
+This makes each individual write crash-safe. It does **not** make concurrent sentinel processes safe — two of them rewriting the manifest still race, last writer wins. That is a known and unaddressed limitation.
 
 ## Partial views must not overwrite durable state
 
@@ -235,6 +246,8 @@ Separating 1 from 2 is what lets a caller tell "your archive has issues" from "s
 `sentinel lint` exits 2 on any error; `--strict` also fails on warnings. Rule ids are stable, so output can be filtered or grouped without matching on prose.
 
 ## Known Limitations
+
+- Concurrent sentinel processes are not coordinated: two rewriting the manifest race, last writer wins. Individual writes are atomic; the read-modify-write cycle around them is not.
 
 - `ingest-repo` is not implemented. It exits non-zero with guidance rather than pretending to succeed.
 - Wikilink slugs are bare filename stems, so two articles whose stems canonicalise the same collide in the link graph. `sentinel lint` reports the collision; it does not resolve it.

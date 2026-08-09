@@ -112,7 +112,7 @@ impl LinkGraph {
     pub fn save(&self) -> io::Result<()> {
         let path = paths::link_graph_path();
         let data = serde_json::to_string_pretty(self)?;
-        fs::write(&path, data)
+        super::atomic::write(&path, data)
     }
 
     /// Rebuild the graph from a set of (slug, linked_slugs) pairs.

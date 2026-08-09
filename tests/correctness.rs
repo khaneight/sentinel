@@ -536,3 +536,98 @@ fn an_absent_graph_is_legitimately_empty_and_reports_nothing() {
     assert!(v["link_graph_error"].is_null(), "{v}");
     assert!(a.json(&["next"])["progress"]["link_graph_error"].is_null());
 }
+
+// ---------------------------------------------------------------------------
+// Durable state is written atomically
+//
+// `fs::write` truncates before writing. An interruption in between leaves the
+// file truncated — and for meta/manifest.json that is unrecoverable: it holds
+// `origin` and `ingested_at`, which #16 established cannot be derived from
+// disk, and a truncated manifest makes every command fail to parse it.
+// ---------------------------------------------------------------------------
+
+fn temp_files_in(dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.contains(".tmp"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_truncated_manifest_is_the_state_atomic_writes_prevent() {
+    // Establishes the stake rather than the mechanism: this is what the archive
+    // looks like if a write is interrupted, and why it must not be reachable.
+    let a = Archive::new();
+    let src = a.path("scratch.md");
+    std::fs::write(&src, "x").unwrap();
+    a.run(&[
+        "ingest",
+        &src.display().to_string(),
+        "-d",
+        "research",
+        "-o",
+        "researched",
+    ]);
+
+    a.write("meta/manifest.json", "{\"entries\":{\"raw/research/scr");
+
+    let output = a.output(&["status"]);
+    assert!(!output.status.success());
+    assert!(
+        !a.output(&["sync"]).status.success(),
+        "a torn manifest is not self-healing; every command fails on it"
+    );
+}
+
+#[test]
+fn commands_that_rewrite_state_leave_no_temp_files() {
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/art.md",
+        &common::article("Art", "philosophy", &["raw/philosophy/src.md"]),
+    );
+    a.run(&["index"]);
+    a.run(&["mv", "raw/philosophy/src.md", "renamed.md"]);
+
+    for dir in ["meta", "index", "wiki/philosophy", "raw/philosophy"] {
+        assert!(
+            temp_files_in(&a.path(dir)).is_empty(),
+            "{dir} has leftover temp files: {:?}",
+            temp_files_in(&a.path(dir))
+        );
+    }
+}
+
+#[test]
+fn the_manifest_survives_a_full_write_cycle_intact() {
+    // End-to-end shape check: the atomic path must produce a manifest that
+    // still parses and still carries the unrecoverable fields.
+    let a = Archive::new();
+    let src = a.path("scratch.md");
+    std::fs::write(&src, "x").unwrap();
+    a.run(&[
+        "ingest",
+        &src.display().to_string(),
+        "-d",
+        "research",
+        "-o",
+        "researched",
+        "-t",
+        "Kept",
+    ]);
+    a.run(&["sync"]);
+    a.run(&["index"]);
+
+    let m: serde_json::Value = serde_json::from_str(&a.read("meta/manifest.json"))
+        .expect("manifest must still parse after every command that rewrites it");
+    let entry = &m["entries"]["raw/research/kept.md"];
+    assert_eq!(entry["origin"], "researched", "{entry}");
+    assert!(entry["ingested_at"].is_string(), "{entry}");
+}

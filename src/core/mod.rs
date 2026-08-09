@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod compilation;
 pub mod frontmatter;
 pub mod links;

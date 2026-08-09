@@ -125,7 +125,7 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
     std::fs::rename(root.join(&from_key), &dest)?;
 
     for (rel_path, content) in &edits {
-        std::fs::write(root.join(rel_path), content)?;
+        crate::core::atomic::write(&root.join(rel_path), content)?;
     }
 
     if let Some(mut entry) = manifest.entries.remove(&from_key) {
