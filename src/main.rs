@@ -199,7 +199,30 @@ enum Commands {
     },
 }
 
+/// Restore the default disposition for `SIGPIPE`.
+///
+/// Rust ignores `SIGPIPE` at startup, so writing to a pipe whose reader has
+/// gone away returns `EPIPE` and `println!` panics. For a CLI that means
+/// `sentinel graph | head` crashes with a backtrace instead of stopping
+/// quietly — and it only shows up once the output exceeds the pipe buffer, so
+/// it is invisible on a small archive and reproducible on a real one.
+///
+/// Restoring the default makes the process die on the signal, which is what
+/// every other command-line tool does and what `head` expects.
+#[cfg(unix)]
+fn restore_sigpipe() {
+    // Safety: `signal` with `SIG_DFL` is async-signal-safe and this runs
+    // before any other thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe() {}
+
 fn main() {
+    restore_sigpipe();
     let cli = Cli::parse();
     // Installed before anything can fail, so even resolution errors honour it.
     output::set_format(if cli.json {

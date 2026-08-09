@@ -216,6 +216,10 @@ Three properties it has to hold:
 
 `--dry-run` reports the move and every article that would be rewritten.
 
+## Output goes to a pipe
+
+`main` restores the default `SIGPIPE` disposition before anything else. Rust ignores `SIGPIPE` at startup, so a write to a pipe whose reader has gone returns `EPIPE` and `println!` panics — `sentinel graph | head` crashed with a backtrace instead of stopping. It only appears once output exceeds the 64 KB pipe buffer, which is why it survived to the first run against a 5000-article archive.
+
 ## Bounded output
 
 Every agent-facing query is bounded, because the consumer has a context window. This was measured, not assumed — on a generated archive of 423 articles and 140 sources:

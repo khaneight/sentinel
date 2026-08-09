@@ -203,3 +203,52 @@ fn unlocked_mutating_commands_are_safe_run_concurrently() {
     }
     assert_eq!(before, snapshot(&a), "concurrent init damaged the archive");
 }
+
+#[test]
+#[cfg(unix)]
+fn output_larger_than_a_pipe_buffer_survives_an_early_reader() {
+    // Rust ignores SIGPIPE at startup, so writing to a pipe whose reader has
+    // gone away returns EPIPE and `println!` panics. `sentinel graph | head`
+    // crashed with a backtrace instead of stopping quietly — and only once the
+    // output exceeded the 64 KB pipe buffer, so it was invisible on a small
+    // archive and reproducible on a real one.
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "x");
+    a.run(&["sync"]);
+    for i in 0..400 {
+        a.write(
+            &format!("wiki/philosophy/a{i:04}.md"),
+            &common::article(&format!("A{i}"), "philosophy", &["raw/philosophy/src.md"])
+                .replace("Body.", &format!("See [[a{:04}]].", (i + 1) % 400)),
+        );
+    }
+    a.run(&["index"]);
+
+    for args in [vec!["graph"], vec!["graph", "--json"]] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_sentinel"))
+            .env("SENTINEL_ARCHIVE", &a.root)
+            .env("SENTINEL_CONFIG", "/nonexistent/sentinel/config.toml")
+            .args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        // Read one small chunk, then drop the pipe — what `head` does.
+        let mut stdout = child.stdout.take().unwrap();
+        let mut buf = [0u8; 64];
+        let _ = stdout.read(&mut buf);
+        drop(stdout);
+
+        let out = child.wait_with_output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !err.contains("Broken pipe") && !err.contains("panicked"),
+            "`sentinel {}` panicked when its reader went away:\n{err}",
+            args.join(" ")
+        );
+    }
+}
