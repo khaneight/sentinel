@@ -150,7 +150,13 @@ lock, or a sync client mid-write — and stop. The same refusal applies to
 sentinel log grow "iteration {n}: {action} — {what you did}"
 ```
 
-Log every iteration, including ones that made no progress. The log is the only durable record of what this loop did to the archive.
+Log every iteration, including ones that made no progress. The log is the only
+durable record of what this loop did to the archive.
+
+Read it back with `sentinel log --json`, which returns recent entries newest
+first and bounded — useful at the start of a run to see what a previous one
+already did, and in the final report to state what changed. Do not read
+`meta/log.md` directly; it grows without bound.
 
 ## Escalate rather than decide
 

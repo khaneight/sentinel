@@ -128,6 +128,7 @@ sentinel lint --summary  # counts per rule instead of every finding
 sentinel mv old.md new.md  # move a source, repointing every citation
 sentinel rm old.md       # delete a source (refuses if articles cite it)
 sentinel log op "detail" # append to activity log (meta/log.md)
+sentinel log             # recent activity, newest first (--limit N)
 ```
 
 ## What next?

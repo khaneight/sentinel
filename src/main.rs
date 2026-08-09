@@ -184,13 +184,18 @@ enum Commands {
         depth: usize,
     },
 
-    /// Append an entry to the activity log
+    /// Append an entry to the activity log, or show recent entries
     Log {
-        /// Operation name (e.g. compile, research, improve, ask)
-        operation: String,
+        /// Operation name (e.g. compile, research, improve, ask).
+        /// Omit both arguments to show recent activity instead.
+        operation: Option<String>,
 
         /// Description of what happened
-        detail: String,
+        detail: Option<String>,
+
+        /// Entries to show when reading
+        #[arg(long, default_value_t = commands::log::DEFAULT_LIMIT)]
+        limit: usize,
     },
 }
 
@@ -305,6 +310,10 @@ fn run(cli: Cli) -> io::Result<i32> {
             matches,
         } => commands::search::run(&query, limit, matches).map(|()| 0),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
-        Commands::Log { operation, detail } => commands::log::run(&operation, &detail).map(|()| 0),
+        Commands::Log {
+            operation,
+            detail,
+            limit,
+        } => commands::log::run(operation.as_deref(), detail.as_deref(), limit).map(|()| 0),
     }
 }

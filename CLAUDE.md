@@ -136,6 +136,10 @@ The same rule applies to rewrites that rewrite nothing. Generated output is dete
 
 `meta/log.md` records what changed the archive. Not what looked at it.
 
+It is also readable: `sentinel log` with no arguments returns recent entries, newest first, bounded at 20 with `--limit` to widen and `entry_count`/`truncated` reporting the true total. Six commands wrote to it and nothing could read it, so consulting it meant reading a file that grows without bound — the problem `search`, `graph`, and `lint` each had.
+
+Details are collapsed to a single line on write. The file documents itself as parseable with `grep "^## \["`, and a detail containing a newline produced continuation lines that grep silently drops — so the recorded text and the text a documented reader sees would have differed.
+
 ## Concurrent commands are serialised
 
 Every mutating command does load → modify → save on the manifest, and nothing ordered them. Measured, two concurrent `ingest` calls lost one entry every time, and twelve lost nine — each reporting success and exiting 0, with the documents left on disk and unregistered. Recovering those through `sync` resets `origin`, which is the unrecoverable loss from #16.
