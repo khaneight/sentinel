@@ -252,3 +252,41 @@ fn output_larger_than_a_pipe_buffer_survives_an_early_reader() {
         );
     }
 }
+
+#[test]
+fn init_stubs_exactly_the_indexes_that_index_regenerates() {
+    // Two hardcoded filename lists in different files — `init` stubs them,
+    // `index` writes them — with nothing comparing the two. A file in one list
+    // and not the other is either a stub nothing ever updates or a generated
+    // file that appears from nowhere on first index.
+    //
+    // Compared by observation rather than by a third list maintained here.
+    let a = Archive::new();
+    let listing = |a: &Archive| -> BTreeSet<String> {
+        std::fs::read_dir(a.path("index"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect()
+    };
+
+    let stubbed = listing(&a);
+    assert!(
+        !stubbed.is_empty(),
+        "init should stub the generated indexes"
+    );
+
+    // Remove them all, then let `index` recreate whatever it owns.
+    for name in &stubbed {
+        std::fs::remove_file(a.path(&format!("index/{name}"))).unwrap();
+    }
+    a.write("raw/philosophy/s.md", "x");
+    a.run(&["sync"]);
+    a.run(&["index"]);
+
+    assert_eq!(
+        stubbed,
+        listing(&a),
+        "the set `init` stubs and the set `index` regenerates disagree"
+    );
+}
