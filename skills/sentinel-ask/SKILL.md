@@ -2,40 +2,64 @@
 name: sentinel-ask
 description: Ask a question against the knowledge base. Use when the user wants to query their wiki for answers, connections, or analysis. Trigger on "ask the wiki", "what does the wiki say about", "find in my knowledge base".
 user-invocable: true
+allowed-tools: Bash(sentinel:*), Read, Write, Edit, Glob, Grep
 ---
 
 # Answer a Question from the Knowledge Base
 
-The user is asking: **$ARGUMENTS**
+Answer **$ARGUMENTS** from the archive.
 
-Your job is to answer this question using the knowledge base as your primary source. Cite specific articles and distinguish between authored knowledge (the user's own ideas) and researched content.
+## Scope
 
-## Step 1: Find relevant articles
+- `$ARGUMENTS` is a question → answer it.
+- `$ARGUMENTS` is empty → ask the user what they want to know. Do not guess.
 
-1. Run: `sentinel search {relevant keywords}`
-2. Read `index/_master.md` to understand the full scope
-3. Read `index/_by-domain.md` if the question is domain-specific
+## Step 1: Find the relevant articles
+
+```
+sentinel search "<key terms>" --json
+```
+
+Returns paths, titles, slugs, and matching lines ranked by match count. Search a few different phrasings — the wiki may name a concept differently than the question does.
+
+**Do not read `index/_master.md`.** It is the whole archive; reading it to answer one question wastes the context you need for the articles that actually matter.
+
+Once you have candidate articles, `sentinel graph --json` shows what links to what, so you can follow connection chains rather than guessing which article is central.
 
 ## Step 2: Read and synthesize
 
-Read all relevant wiki articles thoroughly. Pay attention to:
-- The `origin` field — distinguish the user's own thinking from researched content
-- `[[wikilinks]]` — follow connection chains to find related knowledge
-- `sources` — trace back to raw documents if needed for deeper context
+Read the relevant articles in full. As you do:
 
-## Step 3: Answer the question
+- **Track `origin` on every article you use.** `authored` is the user's own thinking. `researched` is AI-gathered. `hybrid` is both, in separate sections. This distinction is the entire point of the field and it must survive into your answer.
+- Follow `[[wikilinks]]` where they lead somewhere relevant. Note the ones that lead nowhere — an unwritten concept sitting in the middle of the answer is a finding.
+- Check `sources:` and read the raw document when the article's summary is not enough.
 
-Provide a thorough answer that:
-- Draws primarily from the wiki's content
-- Clearly attributes ideas: "In your article on X, you argued..." vs "The research article on Y notes..."
-- Follows connection chains across articles
-- Notes where the wiki has gaps relevant to the question
-- Cites specific articles with `[[wikilinks]]`
+## Step 3: Answer
 
-## Step 4: Optionally file the answer
+- Draw from the wiki first. If you need knowledge the archive does not contain, say so explicitly and mark that part as outside the wiki — do not blend it in silently.
+- **Attribute precisely.** "In your article on X you argued…" versus "The researched article on Y notes…". Never present the user's own idea back to them as if it were a finding.
+- Cite articles as `[[wikilinks]]`.
+- Name the gaps. If the question touches something the wiki has forward-declared but not written, say which concept and that it is unwritten.
+- If two articles disagree, say so rather than silently picking one. A contradiction between articles is worth more to the user than a smooth answer.
 
-If the answer reveals interesting connections or synthesis worth preserving, offer to create a new wiki article capturing the insight. Use `origin: hybrid` if it combines the user's ideas with your synthesis.
+## Step 4: File only a genuine connection
+
+Do **not** file the answer as an article by default. A knowledge base that accumulates answered questions fills up with restatements of what it already contained.
+
+File a new article only when the work established a **connection or synthesis that no existing article records** — for example, that two ideas in different domains are the same argument, or that one article's conclusion undercuts another's premise.
+
+When you do:
+
+- The article is about **the connection**, not about the question. Title it after the idea, not after what was asked.
+- `origin: hybrid` if it joins the user's ideas to your synthesis; `origin: researched` if it is entirely yours.
+- `sources:` must cite the raw documents behind the articles you drew on, so the new article is reachable from the provenance trail.
+- Add `[[wikilinks]]` from the articles it connects, so it is not born an orphan.
+- Follow `sentinel schema`, then run `sentinel index` and `sentinel lint`.
+
+Offer this to the user rather than doing it unprompted, and say what the connection is so they can judge whether it is real.
 
 ## Step 5: Log
 
-Run: `sentinel log ask "{question} — answered from {N} articles{, filed as new-article.md if applicable}"`
+```
+sentinel log ask "{question} — answered from {N} articles{, filed as {slug}.md}"
+```

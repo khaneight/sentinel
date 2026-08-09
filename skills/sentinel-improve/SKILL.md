@@ -2,69 +2,80 @@
 name: sentinel-improve
 description: Review and improve wiki articles — find gaps, strengthen content, fix quality issues. Use when the user wants to enhance the knowledge base quality. Trigger on "improve the wiki", "review articles", "enhance quality", "health check".
 user-invocable: true
+allowed-tools: Bash(sentinel:*), Read, Write, Edit, Glob, Grep
 ---
 
 # Review and Improve the Wiki
 
-You are performing a health check and improvement pass on the knowledge base. If $ARGUMENTS specifies a domain or topic, focus there. Otherwise, review broadly.
+A health check and repair pass.
 
-## Step 1: Assess current state
+## Scope
 
-1. Run: `sentinel status`
-2. Run: `sentinel lint`
-3. Read `index/_master.md` for the full article list
-4. Read `index/_orphans.md` for disconnected articles
+- `$ARGUMENTS` names a domain or topic → focus there.
+- `$ARGUMENTS` is empty → work from what `sentinel next` recommends, then widen if there is room.
 
-## Step 2: Identify improvement opportunities
+## Step 1: Assess
 
-Scan wiki articles looking for:
+```
+sentinel next --json
+sentinel status --json
+sentinel lint --json
+sentinel schema --json
+```
 
-**Structural issues:**
-- Articles with missing or incomplete frontmatter
-- Broken `[[wikilinks]]`
-- Orphan pages (no incoming links)
-- Missing `related` connections between obviously related concepts
+`next` gives the highest-value action plus a `backlog` count for every category. `lint --json` gives findings with a stable `rule` id and a `severity`; group by `rule` rather than working through the list top to bottom, because one root cause usually produces many findings.
 
-**Content quality:**
-- Articles that are too thin (stub-like, could be expanded)
-- Concepts referenced in `[[wikilinks]]` that don't have articles yet
-- Inconsistencies between articles covering related topics
-- Articles stuck in `draft` status that could be promoted to `review`
+**Do not read `index/_master.md`.** Use `sentinel search --json` to reach specific articles.
 
-**Knowledge gaps:**
-- Topics implied by existing articles but not yet covered
-- Cross-domain connections (e.g., philosophy concepts relevant to anthropology articles)
-- Key arguments or counterarguments missing from philosophical pieces
+## Step 2: Fix errors first
 
-## Step 3: Fix straightforward issues
+Every `severity: "error"` finding, in this order — earlier ones can mask later ones:
 
-Immediately fix:
-- Missing frontmatter fields
-- Obvious broken links (typos in wikilink slugs)
-- Add `related` links between clearly connected articles
-- Update `updated` dates on modified articles
+| Rule | Fix |
+|---|---|
+| `invalid-frontmatter` | Repair the YAML. The message names the parse failure; do not add fields until it parses. |
+| `duplicate-slug` | Rename one file so its stem is unique wiki-wide, then update every `[[wikilink]]` that pointed at it. Search for the old slug before renaming. |
+| `missing-field` | Add `title`, `domain`, or `origin`. Infer from the article's content and location; do not guess `origin` — check whether the source is the user's writing or research. |
+| `invalid-origin` / `invalid-status` | Correct to a value `sentinel schema` lists. |
+| `unresolved-source` | The article cites a raw document that does not exist or is ambiguous. Find the real path with `sentinel uncompiled --json` or by looking in `raw/`. If the source is genuinely gone, remove the citation and say so in the report — do not invent one. |
 
-## Step 4: Create improvement suggestions
+Re-run `sentinel lint` after this pass. It should exit 0.
 
-For issues that require judgment or new content:
-- List suggested new articles with brief descriptions
-- Note where existing articles could be expanded
-- Identify promising cross-domain connections
-- Suggest research topics that would enrich the wiki
+## Step 3: Work the warnings that represent real loss
 
-## Step 5: Rebuild
+Not all warnings should be "fixed":
 
-Run: `sentinel index`
-Run: `sentinel lint`
+- **`missing-sources`** — worth fixing. The article's raw document is stranded in the uncompiled queue. Find what it was compiled from and cite it. If it genuinely has no raw source (a pure synthesis article), leave it and note it.
+- **`missing-tags`** — worth fixing, cheaply.
+- **`uncompiled-source`** — do not fix here. That is `/sentinel-compile`'s job; recommend it.
+- **`broken-link`** — **do not fix.** These are the wiki naming its own gaps and are the input to `sentinel next`'s `write` recommendation. Deleting them destroys the signal. The only broken links worth touching are genuine typos, where a near-identical slug already exists — check with `sentinel search` before assuming.
+
+## Step 4: Improve what lint cannot see
+
+- **Orphans.** `sentinel next --json` reports the count; `index/_orphans.md` lists them. An orphan is real knowledge that cannot be reached by following the graph. Find articles that should link to it and add the link where it reads naturally. Do not add a link just to clear the warning — a forced connection is worse than an orphan, because it corrupts the graph everything else reasons over.
+- **Thin articles.** A stub that only restates its title is not knowledge. Either expand it from its `sources:`, or merge it into a fuller article and redirect the links.
+- **Stale drafts.** `status: draft` untouched for months. Read it: if it is finished, promote to `review`. If it is abandoned, say so and ask.
+- **Contradictions.** Two articles asserting incompatible things is the most valuable finding in this whole skill and the only one no tooling can detect. Report it; do not silently resolve it — especially not between `authored` articles, where the disagreement may be the user's own thinking having changed and is theirs to reconcile.
+
+## Step 5: Rebuild and verify
+
+```
+sentinel index
+sentinel lint
+```
+
+Confirm the error count reached 0 and that the warning count moved in the direction you intended. If a fix *increased* findings, say so rather than burying it.
 
 ## Step 6: Log
 
-Run: `sentinel log improve "{N} issues fixed, {M} suggestions: {brief summary}"`
+```
+sentinel log improve "{N} errors fixed, {M} warnings resolved: {summary}"
+```
 
 ## Step 7: Report
 
-Summarize:
-- Issues found and fixed
-- Current wiki health metrics
-- Prioritized list of suggested improvements
-- Suggested new articles or research topics
+- Errors fixed, by rule.
+- Warnings resolved, and **which warnings you deliberately left**, with the reason.
+- Contradictions or quality problems found that need the user's judgement.
+- Before/after counts from `sentinel status`.
+- What you would do next, and why you stopped where you did.

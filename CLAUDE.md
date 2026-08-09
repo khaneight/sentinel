@@ -31,10 +31,13 @@ cargo fmt --check
 Claude Code skill definitions live in `skills/{skill-name}/SKILL.md`. Each skill has YAML frontmatter with `name`, `description`, and `user-invocable: true`.
 
 Skills are prefixed `sentinel-` to avoid namespace collisions:
+- `sentinel-grow` — run the self-maintenance loop (bounded; default 3 iterations)
 - `sentinel-ask` — query the knowledge base
 - `sentinel-compile` — compile raw docs into wiki articles
 - `sentinel-research` — research a topic and add findings
 - `sentinel-improve` — health check and quality improvement
+
+`tests/skills.rs` enforces what can be enforced about a prompt: required frontmatter keys, `name:` matching the directory, that every `sentinel <cmd>` appearing in code actually exists, that none instruct reading `index/_master.md`, that each defines empty-`$ARGUMENTS` behaviour and defers to `sentinel schema`, and that `sentinel-grow` states its budget and stop conditions. Adding a skill means satisfying those.
 
 The archive's `.claude/skills` is a symlink to this repo's `skills/` directory, so changes here are immediately available in the archive context.
 

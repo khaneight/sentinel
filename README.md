@@ -45,6 +45,12 @@ Multiple archives are fine — keep them apart with `--archive`, or with a `SENT
 
 Sentinel ships with agent skills — slash commands that let the LLM operate on your wiki. These are where the real work happens.
 
+### `/sentinel-grow [iterations]`
+
+Runs the loop. Asks `sentinel next` what is most worth doing, does it, re-checks, repeats — fixing errors, compiling sources, then writing the concepts your wiki has linked but not covered. Each article it writes tends to name new gaps, which become the next iteration's work.
+
+Bounded on purpose. It defaults to **3 iterations** and stops early when the backlog empties, when a pass makes no progress, or when it hits something that is your call to make. It never touches `raw/`, never deletes an article, and never stubs out a page to silence a warning. Every iteration is written to `meta/log.md`.
+
 ### `/sentinel-compile`
 
 Process raw documents into wiki articles. The LLM reads each source, identifies key concepts, and creates or updates wiki pages with proper frontmatter and `[[wikilinks]]`. A single source might touch 10-15 pages. Preserves the author's voice for `authored` content — distills and organizes without editorializing.
@@ -55,11 +61,13 @@ Research a topic via web search and add findings to the wiki. Creates a raw rese
 
 ### `/sentinel-ask <question>`
 
-Query the knowledge base. Searches for relevant pages, synthesizes an answer with citations, and distinguishes between your own ideas and researched content. Valuable answers can be filed back into the wiki as new pages — so your explorations compound instead of disappearing into chat history.
+Query the knowledge base. Searches for relevant pages, synthesizes an answer with citations, and keeps your own ideas distinct from researched content. It will offer to file an answer back into the wiki, but only when the work turned up a **connection no article records** — a knowledge base that files every answered question fills with restatements of what it already knew.
 
 ### `/sentinel-improve`
 
 Health check and quality improvement pass. Finds broken links, missing frontmatter, orphan pages, thin articles, stale drafts, and missing cross-references. Fixes straightforward issues immediately, suggests deeper improvements for your review.
+
+All five read the archive through `sentinel --json` rather than by reading generated files, and take the frontmatter contract from `sentinel schema` instead of restating it. That keeps them working as the archive grows past the size where reading the master index is affordable.
 
 ### Installing skills
 
@@ -95,6 +103,9 @@ sentinel sync
 
 # 7. Health check and improve (LLM-driven)
 /sentinel-improve
+
+# 8. Or just let it work the backlog on its own
+/sentinel-grow
 ```
 
 ### CLI commands

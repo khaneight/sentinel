@@ -2,28 +2,38 @@
 name: sentinel-research
 description: Research a topic and add findings to the wiki. Use when the user wants to expand the knowledge base with AI-researched content on a specific topic. Trigger on "research X", "find out about X", "add research on X".
 user-invocable: true
+allowed-tools: Bash(sentinel:*), Read, Write, Edit, Glob, Grep, WebSearch, WebFetch
 ---
 
-# Research a Topic and Add to the Wiki
+# Research a Topic and Add It to the Wiki
 
-You are researching **$ARGUMENTS** and adding findings to the knowledge base. Research content is clearly distinguished from the user's authored content via the `origin: researched` field.
+Research **$ARGUMENTS** and file the findings, clearly marked as researched rather than authored.
 
-## Step 1: Understand existing knowledge
+## Scope
 
-1. Run `sentinel search $ARGUMENTS` to find related wiki articles
-2. Read `index/_master.md` to understand the current knowledge landscape
-3. Read any related wiki articles to understand what's already known
+- `$ARGUMENTS` names a topic → research that.
+- `$ARGUMENTS` is empty → run `sentinel next --json`. If it recommends `write`, the top target is the concept the wiki most wants filled in; research that and say so. If it recommends anything else, report what it recommends and ask the user whether to proceed with research anyway rather than picking a topic yourself.
+
+## Step 1: Learn the contract and what is already known
+
+```
+sentinel schema --json
+sentinel search "<topic>" --json
+```
+
+Read the articles the search surfaces. **Do not read `index/_master.md`** — it grows with the archive and will fill your context before you have researched anything.
+
+Knowing what is already recorded is what keeps this from producing a parallel article restating what the user already wrote. If the topic is well covered, the right output may be enriching one existing article rather than creating anything.
 
 ## Step 2: Research
 
-Use web search and web fetch to gather information on the topic:
-- Look for authoritative sources (academic papers, established references, primary sources)
-- Find multiple perspectives where relevant
-- Note connections to concepts already in the wiki
+Use web search and fetch. Prefer primary sources and established references over summaries of summaries. Where a question is genuinely contested, represent the disagreement rather than picking a side.
 
-## Step 3: Create raw research document
+Track which claim came from which source as you go — you need it in step 3 and reconstructing it afterwards is unreliable.
 
-Create a research source document at `raw/{appropriate-domain}/research-{topic-slug}.md`:
+## Step 3: File the research trail
+
+Create `raw/{domain}/research-{topic-slug}.md` with your notes, findings, and full source list including URLs.
 
 ```yaml
 ---
@@ -34,34 +44,41 @@ ingested: YYYY-MM-DD
 ---
 ```
 
-Include your research notes, sources, and key findings in this raw doc. This preserves the research trail.
+This is the provenance record. Someone reading the wiki article in a year should be able to get from it back to where the claim came from.
 
-Then run: `sentinel sync`
+```
+sentinel sync
+```
 
-## Step 4: Compile into wiki articles
+## Step 4: Compile into articles
 
-For each key concept from the research, create or update wiki articles in `wiki/{domain}/`:
+Create or update articles in `wiki/{domain}/`, following `sentinel schema`.
 
-- Use `origin: researched` for new articles based purely on research
-- Use `origin: hybrid` if updating an existing `authored` article with research findings
-- When updating authored articles, clearly add research in separate sections — don't mix it into the author's original arguments
-- Always cite sources
-- Link to existing wiki articles with `[[wikilinks]]`
+- New article from research alone → `origin: researched`.
+- Existing `authored` article you are enriching → change to `origin: hybrid`, and **put the research in its own clearly headed section**. Do not interleave your findings with the user's argument. Their reasoning must remain legible as theirs; a reader has to be able to tell where their thinking ends and yours begins.
+- Never modify the raw document the authored article was compiled from.
+
+Always cite: `sources:` must include the research document you just created, and any raw document you drew on. Link to existing articles with `[[wikilinks]]`, and forward-declare concepts the research raised that the wiki does not cover yet.
 
 ## Step 5: Rebuild and validate
 
-Run: `sentinel index`
-Run: `sentinel lint`
+```
+sentinel index
+sentinel lint
+```
+
+Fix every **error**. Leave `broken-link` warnings alone — they are the gaps your research just identified, and `sentinel next` will rank them.
 
 ## Step 6: Log
 
-Run: `sentinel log research "{topic}: {N} articles created/updated: {list of filenames}"`
+```
+sentinel log research "{topic}: {N} articles created/updated: {filenames}"
+```
 
 ## Step 7: Report
 
-Summarize:
-- What was researched
-- What new articles were created
-- What existing articles were enriched
-- Key findings and connections discovered
-- Suggestions for further research
+- What you researched and what you found.
+- Articles created vs. enriched, and which were switched to `hybrid`.
+- **Where the sources disagreed**, and how you represented that.
+- What you could not establish, or found only weak sourcing for. Say this plainly — an unmarked gap in a knowledge base is worse than a marked one.
+- Concepts the research surfaced that are now forward-declared and unwritten.
