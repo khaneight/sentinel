@@ -99,6 +99,90 @@ pub fn corrupt_graph_note(error: &io::Error) -> String {
     format!("meta/link-graph.json could not be read ({error}); run `sentinel index` to rebuild it")
 }
 
+/// How the saved graph compares with the articles now on disk.
+///
+/// `index` writes a `forward` entry for every article, links or not, so the key
+/// set is exactly the article set as of the last rebuild. Comparing the two is
+/// enough to know the graph is out of date — and it beats timestamps, which a
+/// checkout, a clock skew, or a `touch` would all defeat.
+#[derive(Debug, Default)]
+pub struct Staleness {
+    /// On disk, unknown to the graph.
+    pub added: Vec<String>,
+    /// In the graph, no longer on disk.
+    pub removed: Vec<String>,
+    /// No graph has been built at all, as opposed to one that has fallen behind.
+    pub never_built: bool,
+}
+
+impl Staleness {
+    pub fn is_stale(&self) -> bool {
+        self.never_built || !self.added.is_empty() || !self.removed.is_empty()
+    }
+
+    /// A sentence naming the disagreement, or `None` when the graph is current.
+    ///
+    /// Separated from `is_stale` because every caller has to say the same thing
+    /// and three of them said something different, or nothing.
+    pub fn note(&self) -> Option<String> {
+        if self.never_built {
+            return Some(
+                "No link graph has been built, so every article looks unlinked. \
+                 Run `sentinel index`."
+                    .to_string(),
+            );
+        }
+        if !self.is_stale() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        if !self.added.is_empty() {
+            parts.push(format!("{} added", self.added.len()));
+        }
+        if !self.removed.is_empty() {
+            parts.push(format!("{} removed", self.removed.len()));
+        }
+        Some(format!(
+            "The link graph is out of date ({}) since the last `sentinel index`; \
+             links and orphan counts below describe the archive as it was.",
+            parts.join(", ")
+        ))
+    }
+}
+
+/// Compare the saved graph with the articles on disk.
+pub fn staleness(graph: &LinkGraph, articles: &[super::wiki::LoadedArticle]) -> Staleness {
+    let on_disk: HashSet<String> = articles.iter().map(|a| a.canonical_slug()).collect();
+    let known: HashSet<&str> = graph.forward.keys().map(String::as_str).collect();
+
+    // A never-built graph is not "every article was added". Callers phrase the
+    // two differently and an agent should be told which one it is looking at.
+    if known.is_empty() {
+        return Staleness {
+            never_built: !on_disk.is_empty(),
+            ..Default::default()
+        };
+    }
+
+    let mut added: Vec<String> = on_disk
+        .iter()
+        .filter(|s| !known.contains(s.as_str()))
+        .cloned()
+        .collect();
+    let mut removed: Vec<String> = known
+        .iter()
+        .filter(|s| !on_disk.contains(**s))
+        .map(|s| s.to_string())
+        .collect();
+    added.sort();
+    removed.sort();
+    Staleness {
+        added,
+        removed,
+        never_built: false,
+    }
+}
+
 impl LinkGraph {
     pub fn load() -> io::Result<Self> {
         let path = paths::link_graph_path();
