@@ -39,6 +39,23 @@ impl LoadedArticle {
             .to_string()
     }
 
+    /// The prose, with the frontmatter block removed, and the file line number
+    /// its first line occupies.
+    ///
+    /// The offset is returned rather than discarded because a caller quoting a
+    /// match has to cite a line the reader can actually open — body-relative
+    /// numbering would point several lines short of the text it quoted.
+    ///
+    /// Link extraction deliberately does *not* use this: wikilinks appear in
+    /// `related:` too, so it reads `content` whole. Searching prose is the
+    /// opposite case — see the comment in `search::score`.
+    pub fn body_with_offset(&self) -> (&str, usize) {
+        match frontmatter::block_end(&self.content) {
+            Some(end) => (&self.content[end..], self.content[..end].lines().count()),
+            None => (&self.content, 0),
+        }
+    }
+
     /// Title from frontmatter, falling back to the path so output is never blank.
     pub fn title(&self) -> &str {
         self.article
