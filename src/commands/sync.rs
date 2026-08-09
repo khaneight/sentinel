@@ -5,7 +5,26 @@ use std::path::Path;
 use colored::Colorize;
 use walkdir::{DirEntry, WalkDir};
 
+use serde::Serialize;
+
 use crate::core::manifest::{self, Manifest, ManifestEntry};
+use crate::core::output;
+
+#[derive(Serialize)]
+struct Reconciliation {
+    added: Vec<String>,
+    moved: Vec<Move>,
+    removed: Vec<String>,
+    /// Entries given a content hash so a future rename can be recognised.
+    hashes_recorded: usize,
+    dry_run: bool,
+}
+
+#[derive(Serialize)]
+struct Move {
+    from: String,
+    to: String,
+}
 use crate::core::paths;
 
 /// Reconcile the manifest with what is actually on disk under `raw/`.
@@ -77,21 +96,28 @@ pub fn run(dry_run: bool) -> io::Result<()> {
         .collect();
     let removed: Vec<String> = removed.into_iter().chain(unmatched).collect();
 
-    for (from, to) in &moved {
-        println!("  {} {from} → {to}", "→".cyan());
+    let report = |backfilled: usize, dry_run: bool| Reconciliation {
+        added: added.iter().map(|(p, _)| p.clone()).collect(),
+        moved: moved
+            .iter()
+            .map(|(from, to)| Move {
+                from: from.clone(),
+                to: to.clone(),
+            })
+            .collect(),
+        removed: removed.clone(),
+        hashes_recorded: backfilled,
+        dry_run,
+    };
+
+    if output::is_json() && dry_run {
+        return output::emit("sync", report(0, true));
     }
-    for (rel_path, _) in &added {
-        println!("  {} {rel_path}", "+".green());
-    }
-    for rel_path in &removed {
-        let entry = &manifest.entries[rel_path];
-        // Say what is being lost. `origin` and `ingested_at` are not derivable
-        // from disk, so a wrong prune is not recoverable by re-syncing.
-        println!(
-            "  {} {rel_path} {}",
-            "-".red(),
-            format!("(origin: {}, ingested {})", entry.origin, entry.ingested_at).dimmed()
-        );
+
+    // Progress lines are the human rendering; under --json the report below is
+    // the whole output, and anything printed here would precede it.
+    if !output::is_json() {
+        print_changes(&moved, &added, &removed, &manifest);
     }
 
     if dry_run {
@@ -161,6 +187,10 @@ pub fn run(dry_run: bool) -> io::Result<()> {
 
     manifest.save()?;
 
+    if output::is_json() {
+        return output::emit("sync", report(backfilled, false));
+    }
+
     if added.is_empty() && removed.is_empty() && moved.is_empty() {
         println!("{}", "Manifest is already in sync.".green());
         if backfilled > 0 {
@@ -178,6 +208,31 @@ pub fn run(dry_run: bool) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+/// The human rendering of what changed.
+fn print_changes(
+    moved: &[(String, String)],
+    added: &[(String, Option<String>)],
+    removed: &[String],
+    manifest: &Manifest,
+) {
+    for (from, to) in moved {
+        println!("  {} {from} → {to}", "→".cyan());
+    }
+    for (rel_path, _) in added {
+        println!("  {} {rel_path}", "+".green());
+    }
+    for rel_path in removed {
+        let entry = &manifest.entries[rel_path];
+        // Say what is being lost. `origin` and `ingested_at` are not derivable
+        // from disk, so a wrong prune is not recoverable by re-syncing.
+        println!(
+            "  {} {rel_path} {}",
+            "-".red(),
+            format!("(origin: {}, ingested {})", entry.origin, entry.ingested_at).dimmed()
+        );
+    }
 }
 
 /// `raw/<domain>/file.md` → `domain`.

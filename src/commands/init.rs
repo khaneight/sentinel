@@ -1,7 +1,18 @@
 use std::fs;
 use std::io;
 
+use serde::Serialize;
+
+use crate::core::output;
 use crate::core::paths::{self, Config, ResolvedRoot, RootSource};
+
+#[derive(Serialize)]
+struct Initialized {
+    archive: String,
+    resolved_via: &'static str,
+    created: bool,
+    set_default: bool,
+}
 
 /// The archive's front page.
 ///
@@ -243,6 +254,18 @@ ingested:
     // reason `lint` stopped logging.
     if created {
         crate::core::log::append("init", "Archive initialized")?;
+    }
+
+    if output::is_json() {
+        return output::emit(
+            "init",
+            Initialized {
+                archive: root.display().to_string(),
+                resolved_via: resolved.source.describe(),
+                created,
+                set_default,
+            },
+        );
     }
 
     println!("Archive initialized at {}", root.display());
