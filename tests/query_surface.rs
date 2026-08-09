@@ -320,3 +320,66 @@ fn by_rule_is_present_even_in_full_output() {
     let v = a.json(&["lint"]);
     assert!(v["by_rule"].is_object(), "{v}");
 }
+
+#[test]
+fn an_unknown_lint_rule_is_rejected_rather_than_reported_clean() {
+    // `--rule brokenlink` for `broken-link` returned zero findings and exit 0,
+    // indistinguishable from the rule having nothing to report.
+    // `/sentinel-improve` tells an agent to work the rules one at a time, so a
+    // typo silently reported a clean archive.
+    let a = Archive::new();
+    a.write(
+        "wiki/philosophy/bad.md",
+        &article("Bad", "philosophy", &["raw/nope.md"]),
+    );
+
+    let output = a.output(&["lint", "--rule", "brokenlink"]);
+    assert!(!output.status.success(), "a typo must not read as clean");
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(err.contains("Unknown lint rule"), "{err}");
+    assert!(
+        err.contains("broken-link"),
+        "must name the valid rules:\n{err}"
+    );
+    assert!(err.contains("sentinel schema"), "{err}");
+}
+
+#[test]
+fn every_published_rule_is_accepted_by_the_filter() {
+    // Derived from what `sentinel schema` publishes, so a rule added to the
+    // registry cannot be rejected by the flag that filters on it.
+    let a = Archive::new();
+    let schema = a.json(&["schema"]);
+    let rules: Vec<String> = schema["lint_rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["rule"].as_str().unwrap().to_string())
+        .collect();
+    assert!(rules.len() >= 10, "{rules:?}");
+
+    for rule in &rules {
+        let code = a.code(&["lint", "--rule", rule]);
+        assert!(
+            code == 0 || code == 2,
+            "`lint --rule {rule}` was rejected, but `sentinel schema` publishes it"
+        );
+    }
+}
+
+#[test]
+fn a_valid_rule_with_no_matches_is_still_success() {
+    // The distinction the fix rests on: "this rule is clean" and "there is no
+    // such rule" must not look the same, and the first must keep working.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "x");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/good.md",
+        &article("Good", "philosophy", &["raw/philosophy/src.md"]),
+    );
+
+    let v = a.json(&["lint", "--rule", "duplicate-slug"]);
+    assert_eq!(v["findings"].as_array().unwrap().len(), 0);
+    assert_eq!(a.code(&["lint", "--rule", "duplicate-slug"]), 0);
+}

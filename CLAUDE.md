@@ -111,6 +111,8 @@ change; adding an optional field is not breaking.
 
 **Lint severity** — `error` means the archive is malformed; `warning` means work
 is unfinished. `lint` exits 2 on errors only; `--strict` also fails on warnings.
+`--rule` is validated against `lint::RULES`: an unknown rule is an error, not
+an empty result, so a typo cannot read as a clean rule.
 A `broken-link` is a **warning**: the compile workflow forward-declares links
 deliberately, so an archive full of them is healthy.
 

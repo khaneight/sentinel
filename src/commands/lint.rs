@@ -52,6 +52,28 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
         entry.count += 1;
     }
 
+    // An unknown rule must not read as a clean one. `--rule brokenlink` for
+    // `broken-link` returned zero findings and exit 0, which is indistinguishable
+    // from the rule having nothing to report — and `/sentinel-improve` tells an
+    // agent to work the rules one at a time, so a typo silently reports clean.
+    // The sibling flag `next --action` already validates; this now matches.
+    if let Some(rule) = rule_filter
+        && !lint::RULES.iter().any(|r| r.rule == rule)
+    {
+        let known = lint::RULES
+            .iter()
+            .map(|r| r.rule)
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Unknown lint rule '{rule}'. Expected one of: {known}.\n\
+                 Run `sentinel schema` for what each rule checks."
+            ),
+        ));
+    }
+
     let findings: Vec<Finding> = match rule_filter {
         Some(rule) => all.iter().filter(|f| f.rule == rule).cloned().collect(),
         None => all.clone(),
