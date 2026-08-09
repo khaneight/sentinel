@@ -6,6 +6,9 @@
 //! not reintroduce the two habits that made the previous versions fragile —
 //! restating the schema in prose, and slurping the master index into context.
 
+mod common;
+
+use common::Archive;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -326,5 +329,38 @@ fn the_archive_conventions_keep_pace_with_the_cli() {
         "archive CLAUDE.md is {} bytes; it is per-session context, keep it a \
          map rather than a manual",
         raw.len()
+    );
+}
+
+#[test]
+fn every_lint_rule_has_a_repair_instruction_somewhere_in_the_skills() {
+    // Adding `invalid-date` to `lint::RULES` updated `sentinel schema`
+    // automatically and the skills not at all. An agent hitting a rule with no
+    // published repair has to invent one, against an archive it is editing.
+    //
+    // Enumerated from the published contract, so the next rule fails here
+    // rather than shipping undocumented.
+    let a = Archive::new();
+    let rules: Vec<String> = a.json(&["schema"])["lint_rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["rule"].as_str().unwrap().to_string())
+        .collect();
+    assert!(rules.len() >= 10, "{rules:?}");
+
+    let skills: String = skill_files()
+        .into_iter()
+        .map(|(_, _, text)| text)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let missing: Vec<&String> = rules
+        .iter()
+        .filter(|r| !skills.contains(&format!("`{r}`")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these lint rules have no repair instruction in any skill: {missing:?}"
     );
 }

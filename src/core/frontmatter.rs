@@ -40,6 +40,20 @@ pub struct WikiArticle {
     pub frontmatter_error: Option<String>,
 }
 
+impl Frontmatter {
+    /// Every date field, paired with its name.
+    ///
+    /// An accessor rather than a list of names, so a rule iterating it cannot
+    /// check one field and miss the other — `updated` was the only one anything
+    /// looked at, and `created` went unvalidated beside it.
+    pub fn dates(&self) -> [(&'static str, Option<&str>); 2] {
+        [
+            ("created", self.created.as_deref()),
+            ("updated", self.updated.as_deref()),
+        ]
+    }
+}
+
 /// The result of splitting a markdown document into frontmatter and body.
 #[derive(Debug, Clone, Default)]
 pub struct ParsedMarkdown {
@@ -64,6 +78,19 @@ pub struct ParsedMarkdown {
 /// document, and a closing `---` on a line of its own. Anything else is treated
 /// as a document with no frontmatter — including a `---` used as a horizontal
 /// rule partway down the page.
+/// The one date format the archive uses. ISO 8601, so lexical order is
+/// chronological order and `_recent.md` can sort without parsing.
+pub const DATE_FORMAT: &str = "%Y-%m-%d";
+
+/// Parse a frontmatter date, or say why it is not one.
+///
+/// Shared so `lint` and `next` cannot disagree about what a date is — they did:
+/// `next` dropped anything unparseable with `.ok()?` and `lint` never looked.
+pub fn parse_date(value: &str) -> Result<chrono::NaiveDate, String> {
+    chrono::NaiveDate::parse_from_str(value.trim(), DATE_FORMAT)
+        .map_err(|_| format!("expected YYYY-MM-DD, got '{value}'"))
+}
+
 pub fn parse_content(content: &str) -> ParsedMarkdown {
     let Some(rest) = strip_opening_fence(content) else {
         return ParsedMarkdown {
