@@ -984,3 +984,121 @@ fn fixing_the_date_makes_the_draft_reachable_by_review() {
     let after = a.json(&["next", "--action", "review"]);
     assert_eq!(after["target_count"], 1, "still unreachable after repair");
 }
+
+// ---------------------------------------------------------------------------
+// sync must not prune what it could not look at
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+fn set_mode(path: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path).unwrap().permissions();
+    perms.set_mode(mode);
+    std::fs::set_permissions(path, perms).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_keeps_an_entry_whose_file_it_could_not_check() {
+    // `Path::exists()` answers false for "not there" and for "could not find
+    // out" alike. An unreadable parent made every entry beneath it look
+    // deleted, and `sync` pruned them while the files sat on disk — taking
+    // `origin` and `ingested_at` with them. A later sync re-registers the file
+    // as `authored`, so a `researched` provenance is lost silently.
+    let a = Archive::new();
+    a.write("raw/philosophy/seneca.md", "text");
+    a.write("raw/coding/rust.md", "text");
+    a.run(&["sync"]);
+
+    let count = |a: &Archive| -> usize {
+        let v: serde_json::Value = serde_json::from_str(&a.read("meta/manifest.json")).unwrap();
+        v["entries"].as_object().unwrap().len()
+    };
+    assert_eq!(count(&a), 2);
+
+    let dir = a.path("raw/philosophy");
+    set_mode(&dir, 0o000);
+    // If this is running as root the mode is ignored and the test proves
+    // nothing; better to fail than to agree quietly.
+    let blocked = std::fs::read_dir(&dir).is_err();
+    let out = a.run(&["sync"]);
+    set_mode(&dir, 0o755);
+
+    assert!(blocked, "fixture still readable — probably running as root");
+    assert_eq!(
+        count(&a),
+        2,
+        "sync pruned an entry it could not verify:\n{out}"
+    );
+    assert!(
+        out.contains("could not be checked"),
+        "and did not say it had skipped one:\n{out}"
+    );
+    assert!(
+        a.path("raw/philosophy/seneca.md").exists(),
+        "the file was there the whole time"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_still_prunes_a_file_that_is_genuinely_gone() {
+    // The conservative branch is only correct if the ordinary one still works;
+    // a sync that never prunes would leave the manifest growing forever.
+    let a = Archive::new();
+    a.write("raw/philosophy/doomed.md", "text");
+    a.run(&["sync"]);
+    std::fs::remove_file(a.path("raw/philosophy/doomed.md")).unwrap();
+
+    let out = a.run(&["sync"]);
+    assert!(out.contains("1 removed"), "{out}");
+    let v: serde_json::Value = serde_json::from_str(&a.read("meta/manifest.json")).unwrap();
+    assert!(
+        !v["entries"]
+            .as_object()
+            .unwrap()
+            .contains_key("raw/philosophy/doomed.md"),
+        "a genuinely deleted file must still be pruned"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unverifiable_entry_keeps_its_provenance_intact() {
+    // The measurement that matters is not the entry count but the field the
+    // comment in sync.rs says cannot be recovered.
+    let a = Archive::new();
+    let src = a.path("outside.md");
+    std::fs::write(&src, "text").unwrap();
+    a.run(&[
+        "ingest",
+        &src.display().to_string(),
+        "-d",
+        "philosophy",
+        "-o",
+        "researched",
+        "-t",
+        "Researched Doc",
+    ]);
+
+    let origin = |a: &Archive| -> String {
+        let v: serde_json::Value = serde_json::from_str(&a.read("meta/manifest.json")).unwrap();
+        v["entries"]["raw/philosophy/researched-doc.md"]["origin"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(origin(&a), "researched");
+
+    let dir = a.path("raw/philosophy");
+    set_mode(&dir, 0o000);
+    a.run(&["sync"]);
+    set_mode(&dir, 0o755);
+    a.run(&["sync"]);
+
+    assert_eq!(
+        origin(&a),
+        "researched",
+        "provenance was reset to the default after an unreadable sync"
+    );
+}
