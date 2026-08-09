@@ -64,6 +64,10 @@ struct Results {
     /// a caller seeing zero results knows the archive is not empty of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     domain: Option<String>,
+    /// Files under wiki/ that could not be searched. "0 results" from an
+    /// unreadable file is as misleading as a wrong answer.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
     results: Vec<SearchResult>,
 }
 
@@ -81,7 +85,9 @@ pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
         ));
     }
 
-    let articles = wiki::load_all()?.articles;
+    let loaded = wiki::load_all()?;
+    let unreadable = loaded.unreadable;
+    let articles = loaded.articles;
     let needle = query.to_lowercase();
 
     let mut results: Vec<SearchResult> = articles
@@ -107,11 +113,13 @@ pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
                 domain: (result_count == 0)
                     .then(|| matching_domain(query))
                     .flatten(),
+                unreadable,
                 results,
             },
         );
     }
 
+    wiki::warn_partial(&unreadable, "they were not searched");
     if results.is_empty() {
         println!("No results for '{query}'.");
         // Searching a domain name used to return every article in that domain,

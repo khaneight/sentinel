@@ -153,6 +153,11 @@ struct Progress {
     /// count describes an older archive".
     #[serde(skip_serializing_if = "Option::is_none")]
     link_graph_stale: Option<String>,
+    /// Files under wiki/ that could not be read. Every count above, and the
+    /// whole ladder below, is computed without them — so a non-zero value means
+    /// the recommendation describes a smaller archive than the one on disk.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
 }
 
 #[derive(Serialize)]
@@ -179,7 +184,12 @@ struct Recommendation {
 }
 
 pub fn run(requested: Option<Action>) -> io::Result<()> {
-    let articles = wiki::load_all().unwrap_or_default().articles;
+    // Not `unwrap_or_default()`. That discarded both the error and the list of
+    // files that could not be read, so `next` ranked the whole archive from
+    // whatever happened to be legible and said nothing about the rest.
+    let loaded = wiki::load_all()?;
+    let unreadable = loaded.unreadable.clone();
+    let articles = loaded.articles;
     let manifest = Manifest::load()?;
 
     let findings = lint::analyze(&articles, &manifest);
@@ -206,6 +216,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
             .count(),
         link_graph_error: graph_error,
         link_graph_stale: graph_stale,
+        unreadable: unreadable.clone(),
     };
 
     let backlog: Vec<BacklogEntry> = [
@@ -473,6 +484,10 @@ fn report_human(rec: &Recommendation) {
     if let Some(note) = &rec.progress.link_graph_stale {
         println!("  {} {note}", "!".yellow());
     }
+    wiki::warn_partial(
+        &rec.progress.unreadable,
+        "this recommendation was ranked without them",
+    );
     if let Some(note) = &rec.progress.link_graph_error {
         println!("  {} {note}", "!".red());
         println!("     orphans could not be counted.\n");

@@ -23,13 +23,20 @@ struct Document {
 struct Queue {
     count: usize,
     documents: Vec<Document>,
+    /// Files under wiki/ that could not be read. A source is "uncompiled"
+    /// because no article cites it — and an article that cannot be read cites
+    /// nothing, so each unreadable file can add a false entry to this list.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
 }
 
 pub fn run() -> io::Result<()> {
     let manifest = Manifest::load()?;
     // Derived from the wiki on every call rather than read from the manifest,
     // so the answer is right whether or not `sentinel index` has been run.
-    let articles = wiki::load_all().unwrap_or_default().articles;
+    let loaded = wiki::load_all()?;
+    let unreadable = loaded.unreadable;
+    let articles = loaded.articles;
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
 
@@ -50,10 +57,15 @@ pub fn run() -> io::Result<()> {
             Queue {
                 count: documents.len(),
                 documents,
+                unreadable,
             },
         );
     }
 
+    wiki::warn_partial(
+        &unreadable,
+        "a source they cite will be listed below as uncompiled",
+    );
     if uncompiled.is_empty() {
         println!("{}", "All raw documents have been compiled.".green());
         return Ok(());

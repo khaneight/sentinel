@@ -66,6 +66,26 @@ impl LoadedArticle {
     }
 }
 
+/// Print the standard partial-view warning, or nothing when the view is whole.
+///
+/// One renderer because three commands each needed to say this and none of them
+/// did. A caller that has to compose the sentence itself is a caller that can
+/// forget to.
+pub fn warn_partial(unreadable: &[Unreadable], consequence: &str) {
+    if unreadable.is_empty() {
+        return;
+    }
+    use colored::Colorize;
+    println!(
+        "\n  {} {} wiki file(s) could not be read; {consequence}:",
+        "!".red(),
+        unreadable.len()
+    );
+    for u in unreadable {
+        println!("      {} — {}", u.path, u.error.dimmed());
+    }
+}
+
 /// A file under `wiki/` that could not be read.
 ///
 /// Reported rather than skipped. A command that rewrites derived state must
