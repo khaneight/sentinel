@@ -124,17 +124,29 @@ pub fn run(flag: Option<&str>) -> io::Result<i32> {
 }
 
 fn emit_json(resolution: &io::Result<paths::ResolvedRoot>, inputs: Inputs) -> io::Result<i32> {
-    // Without a root there is nothing to base directory paths on, and
-    // `output::emit` cannot name the archive either — so report the failure as
-    // a plain JSON error rather than half a report.
+    // Half a report is the right answer here. Only `directories` needs a root;
+    // which inputs were set, which rule was reached, and why it failed are all
+    // knowable without one — and they are the whole reason to run this command.
+    // Emitting a bare error string meant an agent had to parse prose to learn
+    // that SENTINEL_ARCHIVE was unset.
     let Ok(resolved) = resolution else {
         let message = resolution
             .as_ref()
             .err()
             .map(ToString::to_string)
             .unwrap_or_default();
-        output::emit_error(&message);
-        return Ok(1);
+        return output::emit_unrooted(
+            "config",
+            ConfigReport {
+                resolved: false,
+                resolved_via: None,
+                initialized: false,
+                inputs,
+                directories: Vec::new(),
+                error: Some(message),
+            },
+        )
+        .map(|()| 1);
     };
 
     // `config` runs before main installs the root, because it must survive

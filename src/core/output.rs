@@ -48,17 +48,39 @@ pub fn is_json() -> bool {
 struct Envelope<'a, T: Serialize> {
     schema_version: u32,
     command: &'a str,
-    archive: String,
+    /// Absent only when no archive could be resolved, which is a state exactly
+    /// one command can report on rather than die of. See `emit_unrooted`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive: Option<String>,
     #[serde(flatten)]
     data: T,
 }
 
 /// Print `data` as a JSON object on stdout.
 pub fn emit<T: Serialize>(command: &str, data: T) -> io::Result<()> {
+    emit_envelope(
+        command,
+        Some(super::paths::archive_root().display().to_string()),
+        data,
+    )
+}
+
+/// Print a payload for a command running without a resolved archive root.
+///
+/// Only `sentinel config` needs this, and only because its job is to explain
+/// why resolution failed — the one situation where the envelope's `archive`
+/// field is the thing being asked about. It previously emitted a bare error
+/// string instead, so the command an agent runs when nothing works was the
+/// command that told it least.
+pub fn emit_unrooted<T: Serialize>(command: &str, data: T) -> io::Result<()> {
+    emit_envelope(command, None, data)
+}
+
+fn emit_envelope<T: Serialize>(command: &str, archive: Option<String>, data: T) -> io::Result<()> {
     let envelope = Envelope {
         schema_version: SCHEMA_VERSION,
         command,
-        archive: super::paths::archive_root().display().to_string(),
+        archive,
         data,
     };
     let text = serde_json::to_string_pretty(&envelope)?;

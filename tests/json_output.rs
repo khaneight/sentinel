@@ -17,6 +17,8 @@ fn assert_envelope(value: &serde_json::Value, command: &str) {
         value["archive"].as_str().is_some_and(|s| !s.is_empty()),
         "every payload must name the archive it describes:\n{value}"
     );
+    // The one exception is `config` reporting that no archive resolved; it has
+    // its own assertions in `config_json_diagnoses_a_failure_it_cannot_resolve`.
 }
 
 fn populated() -> Archive {
@@ -271,4 +273,91 @@ fn a_missing_archive_exits_one() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
+}
+
+// ---------------------------------------------------------------------------
+// `config` is the command run when nothing else works
+// ---------------------------------------------------------------------------
+
+/// Every way archive resolution can fail, and what `config --json` owes each.
+///
+/// The failure cases are the whole reason this command exists — the successful
+/// one is answerable by any other command's envelope.
+#[test]
+fn config_json_diagnoses_a_failure_it_cannot_resolve() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join("config.toml");
+
+    let cases: [(&str, Option<&str>); 3] = [
+        ("malformed config", Some("archive = \n")),
+        ("config naming a missing key", Some("something_else = 1\n")),
+        ("nothing set anywhere", None),
+    ];
+
+    for (name, contents) in cases {
+        match contents {
+            Some(text) => std::fs::write(&config_path, text).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&config_path);
+            }
+        }
+
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_sentinel"))
+            .args(["config", "--json"])
+            // An empty directory with no archive above it, so discovery fails.
+            .current_dir(dir.path())
+            .env_remove("SENTINEL_ARCHIVE")
+            .env("SENTINEL_CONFIG", &config_path)
+            .output()
+            .unwrap();
+
+        let text = stdout(&out);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("{name}: not JSON ({e}):\n{text}"));
+
+        assert_eq!(v["schema_version"], 1, "{name}: {v}");
+        assert_eq!(v["command"], "config", "{name}: {v}");
+        assert_eq!(v["resolved"], false, "{name}: {v}");
+        assert!(
+            v["error"].as_str().is_some_and(|s| !s.is_empty()),
+            "{name}: must say why:\n{v}"
+        );
+        // The point of the fix: the inputs are knowable without a root, and
+        // they are what tells a caller which rule to correct.
+        assert!(
+            v["inputs"].is_object(),
+            "{name}: must report which inputs were set, not just a message:\n{v}"
+        );
+        assert!(
+            v["inputs"].get("env_archive").is_some(),
+            "{name}: inputs must enumerate every resolution rule:\n{v}"
+        );
+        assert!(
+            !out.status.success(),
+            "{name}: reporting a failure is not succeeding at resolution"
+        );
+    }
+}
+
+#[test]
+fn only_config_may_omit_the_archive_from_its_envelope() {
+    // The envelope contract says every payload names its archive. Making the
+    // field optional to accommodate one command would quietly weaken that for
+    // all of them, so this pins the exception to the case that earned it.
+    let a = populated();
+    for args in [
+        vec!["status"],
+        vec!["lint"],
+        vec!["next"],
+        vec!["search", "stoicism"],
+        vec!["graph"],
+        vec!["config"],
+    ] {
+        let v = a.json(&args);
+        assert!(
+            v["archive"].as_str().is_some_and(|s| !s.is_empty()),
+            "`sentinel {}` dropped the archive from a resolved payload:\n{v}",
+            args.join(" ")
+        );
+    }
 }
