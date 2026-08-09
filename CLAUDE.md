@@ -80,6 +80,10 @@ Reads the whole archive and recommends one action. The priority ladder encodes e
 
 Priority 3 is the self-generating part: an unresolved wikilink is existing knowledge naming what it wants next, and `links::wanted` ranks those by demand. `/sentinel-research <slug>` on the top entry is a loop that grows the wiki from its own gaps.
 
+`next` also returns `progress` — `wiki_articles`, `raw_documents`, `uncompiled`, `errors` — describing what the archive *contains*, alongside `backlog` describing what is left. A loop needs both, from the same call.
+
+**Progress is the archive advancing, not the queue shrinking.** Measured on a real archive, two write iterations moved the total backlog 15 → 14 → 13. An article on a rich concept legitimately fills one gap and opens three, which grows the backlog while making the archive richer — so a loop that halts on "backlog did not shrink" stops right after its most generative work. `/sentinel-grow` therefore measures `progress`, not `backlog`.
+
 A `write` target carries `refs` (a sample of the articles that want it, capped at 5), `ref_count` (the exact total), and `variants` (the spellings actually used). Those are what make the recommendation actionable in one call: the referring articles define what the concept means *in this archive*, and a bare count cannot be read. Any capped list must publish its true total alongside — a truncated list that does not say so reads as complete.
 
 `next` ranks; it does not budget. The ladder is strict priority, which is right for a single question ("what is most valuable now?") and wrong for a loop: a real ingest of eight sources makes `compile` win eight times running, so a three-iteration budget never reaches `write` — the step the archive actually grows by. That was found by ingesting a real corpus, not by inspection.

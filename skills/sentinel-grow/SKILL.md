@@ -25,22 +25,35 @@ Stop and report when **any** of these holds. Do not push past one.
 
 1. **Budget exhausted** — the iteration count is used up.
 2. **Backlog empty** — `sentinel next` returns `action: "none"`.
-3. **No progress** — an iteration finishes and the total `backlog` count has not decreased. This means the loop is not converging, and continuing will churn rather than build. Report what you attempted and why you think it did not land.
+3. **No progress** — an iteration finishes and **nothing in `progress` moved in
+   the right direction**: `wiki_articles` did not increase, `uncompiled` did not
+   decrease, and `errors` did not decrease. That means the iteration produced
+   nothing durable. Report what you attempted and why you think it did not land.
+
+   **Do not measure progress by the size of `backlog`.** Filling a gap that
+   legitimately opens new ones grows the backlog while making the archive
+   substantially richer — an article on *eudaimonia* that raises *oikeiosis*,
+   *kathekon*, and *telos* is the loop working, not failing. Measured on a real
+   archive, two write iterations moved the backlog 15 → 14 → 13; a single
+   generative article would have pushed it back up and halted the loop right
+   after its best work.
 4. **Same target twice** — the top target is one you already worked on this run. You did not actually complete it; investigate rather than retry.
 5. **Judgement required** — the recommended action needs a decision that is the user's to make (see *Escalate* below).
 
-Track the `backlog` totals and the targets you have worked on across iterations. Conditions 3 and 4 depend on it.
+Record `progress` and the targets you have worked on after every iteration.
+Conditions 3 and 4 depend on it. `progress` comes back on the same
+`sentinel next` call you use to decide, so this costs nothing extra.
 
 ## Before the first iteration
 
 ```
 sentinel schema --json
-sentinel status --json
+sentinel next --json
 ```
 
 Read the contract once here rather than re-reading it inside each delegated
-skill, and record the starting counts so the final report can state what the
-run actually changed.
+skill, and record the starting `progress` counts so the final report can state
+what the run actually changed.
 
 ## One iteration
 
@@ -145,7 +158,9 @@ Stop and ask the user when:
 ## Report
 
 Per iteration: the action, the target, whether it was recommended or requested,
-what you wrote or changed, and the backlog count before and after.
+what you wrote or changed, and `progress` before and after. If the backlog grew
+because the work opened new questions, say so explicitly — that is a result, not
+a regression.
 
 Then overall:
 

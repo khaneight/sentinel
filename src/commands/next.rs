@@ -123,6 +123,22 @@ struct BacklogEntry {
     count: usize,
 }
 
+/// Counters describing what the archive *contains*, alongside what is left to
+/// do.
+///
+/// A loop needs both, and needs them from the same call. Measuring iteration
+/// progress by backlog size alone is wrong: an article that fills one gap and
+/// legitimately opens three grows the backlog while making the archive
+/// substantially richer. Progress is the archive advancing, not the queue
+/// shrinking.
+#[derive(Serialize, Clone)]
+struct Progress {
+    wiki_articles: usize,
+    raw_documents: usize,
+    uncompiled: usize,
+    errors: usize,
+}
+
 #[derive(Serialize)]
 struct Recommendation {
     action: Action,
@@ -133,6 +149,9 @@ struct Recommendation {
     suggested_command: Option<String>,
     /// Every category with outstanding work, in priority order.
     backlog: Vec<BacklogEntry>,
+    /// What the archive contains right now. Compare across iterations to tell
+    /// real progress from churn.
+    progress: Progress,
     /// True when the caller asked for this action rather than being recommended
     /// it, so a consumer can tell a scheduling choice from sentinel's advice.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -155,6 +174,13 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
     let orphans = orphan_articles(&articles);
     let stale = stale_drafts(&articles);
 
+    let progress = Progress {
+        wiki_articles: articles.len(),
+        raw_documents: manifest.count(),
+        uncompiled: uncompiled.len(),
+        errors: errors.len(),
+    };
+
     let backlog: Vec<BacklogEntry> = [
         (Action::FixErrors, errors.len()),
         (Action::Compile, uncompiled.len()),
@@ -174,11 +200,15 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
     // which is the step the archive actually grows by.
     let build = |action: Action| -> Option<Recommendation> {
         match action {
-            Action::FixErrors if !errors.is_empty() => Some(fix_errors(&errors, &backlog)),
-            Action::Compile if !uncompiled.is_empty() => Some(compile(&uncompiled, &backlog)),
-            Action::Write if !wanted.is_empty() => Some(write_gap(&wanted, &backlog)),
-            Action::Connect if !orphans.is_empty() => Some(connect(&orphans, &backlog)),
-            Action::Review if !stale.is_empty() => Some(review(&stale, &backlog)),
+            Action::FixErrors if !errors.is_empty() => {
+                Some(fix_errors(&errors, &backlog, &progress))
+            }
+            Action::Compile if !uncompiled.is_empty() => {
+                Some(compile(&uncompiled, &backlog, &progress))
+            }
+            Action::Write if !wanted.is_empty() => Some(write_gap(&wanted, &backlog, &progress)),
+            Action::Connect if !orphans.is_empty() => Some(connect(&orphans, &backlog, &progress)),
+            Action::Review if !stale.is_empty() => Some(review(&stale, &backlog, &progress)),
             _ => None,
         }
     };
@@ -190,6 +220,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
             targets: Vec::new(),
             suggested_command: None,
             backlog: backlog.clone(),
+            progress: progress.clone(),
             requested: true,
         });
         rec.requested = true;
@@ -214,6 +245,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
             targets: Vec::new(),
             suggested_command: None,
             backlog: backlog.clone(),
+            progress: progress.clone(),
             requested: false,
         });
 
@@ -225,7 +257,11 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
     Ok(())
 }
 
-fn fix_errors(errors: &[&lint::Finding], backlog: &[BacklogEntry]) -> Recommendation {
+fn fix_errors(
+    errors: &[&lint::Finding],
+    backlog: &[BacklogEntry],
+    progress: &Progress,
+) -> Recommendation {
     Recommendation {
         action: Action::FixErrors,
         reason: format!(
@@ -245,6 +281,7 @@ fn fix_errors(errors: &[&lint::Finding], backlog: &[BacklogEntry]) -> Recommenda
             .collect(),
         suggested_command: Some("sentinel lint".to_string()),
         backlog: backlog.to_vec(),
+        progress: progress.clone(),
         requested: false,
     }
 }
@@ -252,6 +289,7 @@ fn fix_errors(errors: &[&lint::Finding], backlog: &[BacklogEntry]) -> Recommenda
 fn compile(
     uncompiled: &[&crate::core::manifest::ManifestEntry],
     backlog: &[BacklogEntry],
+    progress: &Progress,
 ) -> Recommendation {
     Recommendation {
         action: Action::Compile,
@@ -274,13 +312,18 @@ fn compile(
             .first()
             .map(|e| format!("/sentinel-compile {}", e.raw_path)),
         backlog: backlog.to_vec(),
+        progress: progress.clone(),
         requested: false,
     }
 }
 
 /// The wiki naming its own gaps: a wikilink with no article behind it is
 /// existing knowledge asking for the next article, ranked by demand.
-fn write_gap(wanted: &[links::WantedArticle], backlog: &[BacklogEntry]) -> Recommendation {
+fn write_gap(
+    wanted: &[links::WantedArticle],
+    backlog: &[BacklogEntry],
+    progress: &Progress,
+) -> Recommendation {
     let top = &wanted[0];
     Recommendation {
         action: Action::Write,
@@ -308,11 +351,16 @@ fn write_gap(wanted: &[links::WantedArticle], backlog: &[BacklogEntry]) -> Recom
             .collect(),
         suggested_command: Some(format!("/sentinel-research {}", top.slug)),
         backlog: backlog.to_vec(),
+        progress: progress.clone(),
         requested: false,
     }
 }
 
-fn connect(orphans: &[&LoadedArticle], backlog: &[BacklogEntry]) -> Recommendation {
+fn connect(
+    orphans: &[&LoadedArticle],
+    backlog: &[BacklogEntry],
+    progress: &Progress,
+) -> Recommendation {
     Recommendation {
         action: Action::Connect,
         reason: format!(
@@ -332,11 +380,16 @@ fn connect(orphans: &[&LoadedArticle], backlog: &[BacklogEntry]) -> Recommendati
             .collect(),
         suggested_command: Some("/sentinel-improve connect orphan pages".to_string()),
         backlog: backlog.to_vec(),
+        progress: progress.clone(),
         requested: false,
     }
 }
 
-fn review(stale: &[(&LoadedArticle, String)], backlog: &[BacklogEntry]) -> Recommendation {
+fn review(
+    stale: &[(&LoadedArticle, String)],
+    backlog: &[BacklogEntry],
+    progress: &Progress,
+) -> Recommendation {
     Recommendation {
         action: Action::Review,
         reason: format!(
@@ -356,6 +409,7 @@ fn review(stale: &[(&LoadedArticle, String)], backlog: &[BacklogEntry]) -> Recom
             .collect(),
         suggested_command: Some("/sentinel-improve promote stale drafts".to_string()),
         backlog: backlog.to_vec(),
+        progress: progress.clone(),
         requested: false,
     }
 }

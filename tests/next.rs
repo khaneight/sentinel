@@ -398,3 +398,87 @@ fn targets_that_have_no_referrers_omit_the_fields_entirely() {
     assert!(target["ref_count"].is_null(), "{target}");
     assert!(target["variants"].is_null(), "{target}");
 }
+
+// ---------------------------------------------------------------------------
+// progress: the archive advancing, not the queue shrinking
+// ---------------------------------------------------------------------------
+
+#[test]
+fn next_reports_what_the_archive_contains() {
+    let a = Archive::new();
+    a.write("raw/philosophy/one.md", "text");
+    a.write("raw/philosophy/two.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/art.md",
+        &article_with("Art", &["raw/philosophy/one.md"], "See [[gap]]."),
+    );
+
+    let p = &a.json(&["next"])["progress"];
+    assert_eq!(p["wiki_articles"], 1);
+    assert_eq!(p["raw_documents"], 2);
+    assert_eq!(p["uncompiled"], 1);
+    assert_eq!(p["errors"], 0);
+}
+
+#[test]
+fn a_generative_article_advances_progress_even_as_the_backlog_grows() {
+    // The defect this pins: `/sentinel-grow` used to stop when the total
+    // backlog failed to shrink. An article that fills one gap and opens three
+    // is the loop working — halting there would end the run right after its
+    // most productive step.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/seed.md",
+        &article_with("Seed", &["raw/philosophy/src.md"], "See [[wanted]]."),
+    );
+
+    let before = a.json(&["next"]);
+    let backlog_before: u64 = before["backlog"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["count"].as_u64().unwrap())
+        .sum();
+
+    // Fill the gap with an article that legitimately raises three more.
+    a.write(
+        "wiki/philosophy/wanted.md",
+        &article_with(
+            "Wanted",
+            &["raw/philosophy/src.md"],
+            "Opens [[alpha]], [[beta]] and [[gamma]].",
+        ),
+    );
+
+    let after = a.json(&["next"]);
+    let backlog_after: u64 = after["backlog"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["count"].as_u64().unwrap())
+        .sum();
+
+    assert!(
+        backlog_after > backlog_before,
+        "precondition: the backlog grew ({backlog_before} → {backlog_after})"
+    );
+    assert!(
+        after["progress"]["wiki_articles"].as_u64().unwrap()
+            > before["progress"]["wiki_articles"].as_u64().unwrap(),
+        "progress must show the archive advanced even though the queue grew"
+    );
+}
+
+#[test]
+fn progress_is_present_on_an_action_query_too() {
+    // The loop decides and measures from one call.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+
+    let v = a.json(&["next", "--action", "compile"]);
+    assert!(v["progress"]["uncompiled"].is_number(), "{v}");
+}
