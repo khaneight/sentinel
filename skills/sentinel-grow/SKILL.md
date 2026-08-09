@@ -48,7 +48,35 @@ run actually changed.
 sentinel next --json
 ```
 
-Note the `action`, `targets`, and the total across `backlog`. Then act:
+Note the `action`, `targets`, and the total across `backlog`.
+
+### Scheduling: do not follow the recommendation blindly
+
+`sentinel next` ranks; it does not budget. Its ladder is strict priority, so a
+large ingest makes `compile` win every iteration — on an eight-source corpus it
+recommends `compile` eight times running, and a three-iteration budget never
+reaches `write` at all. `write` is the step the archive actually grows by, so a
+loop that never reaches it is not a growth loop.
+
+**Rule: do not run the same action more than twice in a row while another
+category has outstanding work in `backlog`.** When you would break that rule,
+ask for a different category explicitly:
+
+```
+sentinel next --action write --json
+```
+
+`--action` accepts `fix-errors`, `compile`, `write`, `connect`, `review`, and
+returns that category's targets regardless of priority. The response is marked
+`requested: true` so the log records that it was your scheduling choice rather
+than sentinel's advice.
+
+The one exception is **`fix-errors`, which is never deferred.** Errors mean the
+archive is malformed, so every later judgement — including which gap is most
+wanted — is made on data you cannot trust. Run it to completion first, however
+many iterations that takes.
+
+Then act:
 
 ### `fix-errors`
 
@@ -108,7 +136,8 @@ Stop and ask the user when:
 
 ## Report
 
-Per iteration: the action, the target, what you wrote or changed, and the backlog count before and after.
+Per iteration: the action, the target, whether it was recommended or requested,
+what you wrote or changed, and the backlog count before and after.
 
 Then overall:
 

@@ -97,7 +97,13 @@ enum Commands {
     Status,
 
     /// Recommend the single most valuable next action
-    Next,
+    Next {
+        /// Report targets for this action instead of the recommendation.
+        /// Lets a caller schedule across categories rather than always
+        /// following strict priority.
+        #[arg(long, value_name = "ACTION")]
+        action: Option<String>,
+    },
 
     /// Print the wiki article contract: frontmatter fields, domains, lint rules
     Schema,
@@ -229,7 +235,13 @@ fn run(cli: Cli) -> io::Result<i32> {
         }
         Commands::Sync { dry_run } => commands::sync::run(dry_run).map(|()| 0),
         Commands::Status => commands::status::run().map(|()| 0),
-        Commands::Next => commands::next::run().map(|()| 0),
+        Commands::Next { action } => {
+            let action = action
+                .map(|a| a.parse())
+                .transpose()
+                .map_err(|e: String| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+            commands::next::run(action).map(|()| 0)
+        }
         Commands::Schema => commands::schema::run().map(|()| 0),
         Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
         Commands::Index => commands::index::run().map(|()| 0),

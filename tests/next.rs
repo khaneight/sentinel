@@ -195,3 +195,100 @@ fn next_works_before_index_has_ever_run() {
     let v = a.json(&["next"]);
     assert_eq!(v["action"], "compile", "{v}");
 }
+
+// ---------------------------------------------------------------------------
+// --action: scheduling across categories
+// ---------------------------------------------------------------------------
+
+/// Several uncompiled sources plus a real gap — the shape a real ingest takes.
+fn ingested_corpus() -> Archive {
+    let a = Archive::new();
+    for i in 0..8 {
+        a.write(&format!("raw/philosophy/source-{i}.md"), "text");
+    }
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/compiled.md",
+        &article_with(
+            "Compiled",
+            &["raw/philosophy/source-0.md"],
+            "See [[a-gap]].",
+        ),
+    );
+    a
+}
+
+#[test]
+fn a_large_ingest_makes_compile_dominate_the_recommendation() {
+    // Not a defect — it is why `--action` has to exist. Pinning it so the
+    // reason for `--action` stays visible if the ladder is ever retuned.
+    let a = ingested_corpus();
+    let v = a.json(&["next"]);
+    assert_eq!(v["action"], "compile", "{v}");
+    let counts: Vec<(&str, u64)> = v["backlog"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| (b["action"].as_str().unwrap(), b["count"].as_u64().unwrap()))
+        .collect();
+    assert!(counts.contains(&("compile", 7)), "{v}");
+    assert!(counts.contains(&("write", 1)), "{v}");
+}
+
+#[test]
+fn action_reaches_a_category_priority_would_starve() {
+    let a = ingested_corpus();
+    let v = a.json(&["next", "--action", "write"]);
+
+    assert_eq!(v["action"], "write");
+    assert_eq!(v["targets"][0]["id"], "a-gap");
+    assert_eq!(
+        v["requested"], true,
+        "a scheduling choice must be distinguishable from sentinel's advice"
+    );
+}
+
+#[test]
+fn action_still_reports_the_whole_backlog() {
+    // So one call is enough to schedule the next step too.
+    let a = ingested_corpus();
+    let v = a.json(&["next", "--action", "write"]);
+    let actions: Vec<&str> = v["backlog"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["action"].as_str().unwrap())
+        .collect();
+    assert!(actions.contains(&"compile"), "{v}");
+}
+
+#[test]
+fn asking_for_an_empty_category_is_not_an_error() {
+    let a = ingested_corpus();
+    let v = a.json(&["next", "--action", "fix-errors"]);
+
+    assert_eq!(v["action"], "none");
+    assert_eq!(v["requested"], true);
+    assert_eq!(v["targets"].as_array().unwrap().len(), 0);
+    assert_eq!(a.code(&["next", "--action", "fix-errors"]), 0);
+}
+
+#[test]
+fn an_unknown_action_is_rejected_with_the_valid_ones_named() {
+    let a = ingested_corpus();
+    let output = a.output(&["next", "--action", "nonsense"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(err.contains("write"), "must list the valid actions:\n{err}");
+}
+
+#[test]
+fn the_recommendation_is_not_marked_as_requested() {
+    let a = ingested_corpus();
+    let v = a.json(&["next"]);
+    assert!(
+        v["requested"].is_null(),
+        "the field is omitted unless the caller asked: {v}"
+    );
+}

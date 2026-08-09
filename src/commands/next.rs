@@ -40,6 +40,23 @@ pub enum Action {
     None,
 }
 
+impl std::str::FromStr for Action {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "fix-errors" => Ok(Action::FixErrors),
+            "compile" => Ok(Action::Compile),
+            "write" => Ok(Action::Write),
+            "connect" => Ok(Action::Connect),
+            "review" => Ok(Action::Review),
+            other => Err(format!(
+                "unknown action '{other}' (expected fix-errors, compile, write, connect, or review)"
+            )),
+        }
+    }
+}
+
 impl Action {
     fn as_str(self) -> &'static str {
         match self {
@@ -61,7 +78,7 @@ struct Target {
     detail: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct BacklogEntry {
     action: Action,
     count: usize,
@@ -77,9 +94,13 @@ struct Recommendation {
     suggested_command: Option<String>,
     /// Every category with outstanding work, in priority order.
     backlog: Vec<BacklogEntry>,
+    /// True when the caller asked for this action rather than being recommended
+    /// it, so a consumer can tell a scheduling choice from sentinel's advice.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    requested: bool,
 }
 
-pub fn run() -> io::Result<()> {
+pub fn run(requested: Option<Action>) -> io::Result<()> {
     let articles = wiki::load_all().unwrap_or_default();
     let manifest = Manifest::load()?;
 
@@ -107,127 +128,55 @@ pub fn run() -> io::Result<()> {
     .map(|(action, count)| BacklogEntry { action, count })
     .collect();
 
+    // Each category is built independently so `--action` can return any of
+    // them. Scheduling across categories belongs to the caller: `next` ranks,
+    // it does not budget. A large ingest makes `compile` win every time, and a
+    // loop that follows the recommendation blindly never reaches `write` —
+    // which is the step the archive actually grows by.
+    let build = |action: Action| -> Option<Recommendation> {
+        match action {
+            Action::FixErrors if !errors.is_empty() => Some(fix_errors(&errors, &backlog)),
+            Action::Compile if !uncompiled.is_empty() => Some(compile(&uncompiled, &backlog)),
+            Action::Write if !wanted.is_empty() => Some(write_gap(&wanted, &backlog)),
+            Action::Connect if !orphans.is_empty() => Some(connect(&orphans, &backlog)),
+            Action::Review if !stale.is_empty() => Some(review(&stale, &backlog)),
+            _ => None,
+        }
+    };
+
+    if let Some(action) = requested {
+        let mut rec = build(action).unwrap_or_else(|| Recommendation {
+            action: Action::None,
+            reason: format!("Nothing outstanding for '{}'.", action.as_str()),
+            targets: Vec::new(),
+            suggested_command: None,
+            backlog: backlog.clone(),
+            requested: true,
+        });
+        rec.requested = true;
+        if output::is_json() {
+            return output::emit("next", rec);
+        }
+        report_human(&rec);
+        return Ok(());
+    }
+
     // Priority order. Errors first because every later judgement is made on
     // data the errors call into question; compile before write because an
     // uncompiled source is knowledge already in hand.
-    let recommendation = if !errors.is_empty() {
-        Recommendation {
-            action: Action::FixErrors,
-            reason: format!(
-                "{} lint error(s) — the archive is malformed and later steps would build on bad data",
-                errors.len()
-            ),
-            targets: errors
-                .iter()
-                .take(MAX_TARGETS)
-                .map(|f| Target {
-                    id: f.path.clone().unwrap_or_else(|| f.rule.to_string()),
-                    label: f.rule.to_string(),
-                    detail: f.message.clone(),
-                })
-                .collect(),
-            suggested_command: Some("sentinel lint".to_string()),
-            backlog,
-        }
-    } else if !uncompiled.is_empty() {
-        Recommendation {
-            action: Action::Compile,
-            reason: format!(
-                "{} raw document(s) that no wiki article cites",
-                uncompiled.len()
-            ),
-            targets: uncompiled
-                .iter()
-                .take(MAX_TARGETS)
-                .map(|e| Target {
-                    id: e.raw_path.clone(),
-                    label: e.title.clone(),
-                    detail: format!("{} · {}", e.domain, e.origin),
-                })
-                .collect(),
-            suggested_command: uncompiled
-                .first()
-                .map(|e| format!("/sentinel-compile {}", e.raw_path)),
-            backlog,
-        }
-    } else if !wanted.is_empty() {
-        // The wiki naming its own gaps: a wikilink with no article behind it is
-        // existing knowledge asking for the next article, ranked by demand.
-        let top = &wanted[0];
-        Recommendation {
-            action: Action::Write,
-            reason: format!(
-                "{} concept(s) linked but not yet written; '{}' is referenced by {} article(s)",
-                wanted.len(),
-                top.slug,
-                top.referrers.len()
-            ),
-            targets: wanted
-                .iter()
-                .take(MAX_TARGETS)
-                .map(|w| Target {
-                    id: w.slug.clone(),
-                    label: w.slug.clone(),
-                    detail: format!(
-                        "referenced by {}",
-                        if w.referrers.len() == 1 {
-                            w.referrers[0].clone()
-                        } else {
-                            format!("{} articles", w.referrers.len())
-                        }
-                    ),
-                })
-                .collect(),
-            suggested_command: Some(format!("/sentinel-research {}", top.slug)),
-            backlog,
-        }
-    } else if !orphans.is_empty() {
-        Recommendation {
-            action: Action::Connect,
-            reason: format!(
-                "{} article(s) that nothing links to — knowledge that cannot be reached by following the graph",
-                orphans.len()
-            ),
-            targets: orphans
-                .iter()
-                .take(MAX_TARGETS)
-                .map(|a| Target {
-                    id: a.rel_path().to_string(),
-                    label: a.title().to_string(),
-                    detail: "no incoming links".to_string(),
-                })
-                .collect(),
-            suggested_command: Some("/sentinel-improve connect orphan pages".to_string()),
-            backlog,
-        }
-    } else if !stale.is_empty() {
-        Recommendation {
-            action: Action::Review,
-            reason: format!(
-                "{} draft(s) untouched for over {STALE_DRAFT_DAYS} days",
-                stale.len()
-            ),
-            targets: stale
-                .iter()
-                .take(MAX_TARGETS)
-                .map(|(a, updated)| Target {
-                    id: a.rel_path().to_string(),
-                    label: a.title().to_string(),
-                    detail: format!("last updated {updated}"),
-                })
-                .collect(),
-            suggested_command: Some("/sentinel-improve promote stale drafts".to_string()),
-            backlog,
-        }
-    } else {
-        Recommendation {
+    let recommendation = build(Action::FixErrors)
+        .or_else(|| build(Action::Compile))
+        .or_else(|| build(Action::Write))
+        .or_else(|| build(Action::Connect))
+        .or_else(|| build(Action::Review))
+        .unwrap_or_else(|| Recommendation {
             action: Action::None,
             reason: "Nothing outstanding. Every source is compiled, every link resolves, and no draft has stalled.".to_string(),
             targets: Vec::new(),
             suggested_command: None,
-            backlog,
-        }
-    };
+            backlog: backlog.clone(),
+            requested: false,
+        });
 
     if output::is_json() {
         return output::emit("next", recommendation);
@@ -235,6 +184,133 @@ pub fn run() -> io::Result<()> {
 
     report_human(&recommendation);
     Ok(())
+}
+
+fn fix_errors(errors: &[&lint::Finding], backlog: &[BacklogEntry]) -> Recommendation {
+    Recommendation {
+        action: Action::FixErrors,
+        reason: format!(
+            "{} lint error(s) — the archive is malformed and later steps would build on bad data",
+            errors.len()
+        ),
+        targets: errors
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|f| Target {
+                id: f.path.clone().unwrap_or_else(|| f.rule.to_string()),
+                label: f.rule.to_string(),
+                detail: f.message.clone(),
+            })
+            .collect(),
+        suggested_command: Some("sentinel lint".to_string()),
+        backlog: backlog.to_vec(),
+        requested: false,
+    }
+}
+
+fn compile(
+    uncompiled: &[&crate::core::manifest::ManifestEntry],
+    backlog: &[BacklogEntry],
+) -> Recommendation {
+    Recommendation {
+        action: Action::Compile,
+        reason: format!(
+            "{} raw document(s) that no wiki article cites",
+            uncompiled.len()
+        ),
+        targets: uncompiled
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|e| Target {
+                id: e.raw_path.clone(),
+                label: e.title.clone(),
+                detail: format!("{} · {}", e.domain, e.origin),
+            })
+            .collect(),
+        suggested_command: uncompiled
+            .first()
+            .map(|e| format!("/sentinel-compile {}", e.raw_path)),
+        backlog: backlog.to_vec(),
+        requested: false,
+    }
+}
+
+/// The wiki naming its own gaps: a wikilink with no article behind it is
+/// existing knowledge asking for the next article, ranked by demand.
+fn write_gap(wanted: &[links::WantedArticle], backlog: &[BacklogEntry]) -> Recommendation {
+    let top = &wanted[0];
+    Recommendation {
+        action: Action::Write,
+        reason: format!(
+            "{} concept(s) linked but not yet written; '{}' is referenced by {} article(s)",
+            wanted.len(),
+            top.slug,
+            top.referrers.len()
+        ),
+        targets: wanted
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|w| Target {
+                id: w.slug.clone(),
+                label: w.slug.clone(),
+                detail: format!(
+                    "referenced by {}",
+                    if w.referrers.len() == 1 {
+                        w.referrers[0].clone()
+                    } else {
+                        format!("{} articles", w.referrers.len())
+                    }
+                ),
+            })
+            .collect(),
+        suggested_command: Some(format!("/sentinel-research {}", top.slug)),
+        backlog: backlog.to_vec(),
+        requested: false,
+    }
+}
+
+fn connect(orphans: &[&LoadedArticle], backlog: &[BacklogEntry]) -> Recommendation {
+    Recommendation {
+        action: Action::Connect,
+        reason: format!(
+            "{} article(s) that nothing links to — knowledge that cannot be reached by following the graph",
+            orphans.len()
+        ),
+        targets: orphans
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|a| Target {
+                id: a.rel_path().to_string(),
+                label: a.title().to_string(),
+                detail: "no incoming links".to_string(),
+            })
+            .collect(),
+        suggested_command: Some("/sentinel-improve connect orphan pages".to_string()),
+        backlog: backlog.to_vec(),
+        requested: false,
+    }
+}
+
+fn review(stale: &[(&LoadedArticle, String)], backlog: &[BacklogEntry]) -> Recommendation {
+    Recommendation {
+        action: Action::Review,
+        reason: format!(
+            "{} draft(s) untouched for over {STALE_DRAFT_DAYS} days",
+            stale.len()
+        ),
+        targets: stale
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|(a, updated)| Target {
+                id: a.rel_path().to_string(),
+                label: a.title().to_string(),
+                detail: format!("last updated {updated}"),
+            })
+            .collect(),
+        suggested_command: Some("/sentinel-improve promote stale drafts".to_string()),
+        backlog: backlog.to_vec(),
+        requested: false,
+    }
 }
 
 fn report_human(rec: &Recommendation) {
