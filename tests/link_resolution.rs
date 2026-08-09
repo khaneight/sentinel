@@ -340,3 +340,79 @@ fn a_case_colliding_ingest_names_the_file_that_actually_exists() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unicode normalisation
+//
+// The same accented character can be one codepoint or a base plus a combining
+// mark. The two render identically in every editor and terminal, so a link
+// written one way against a filename stored the other way reported as broken
+// against an article sitting right there — with nothing on screen to show why.
+// macOS has historically returned decomposed filenames; Linux preserves what
+// was written; this archive's subject matter is full of Greek and accents.
+// ---------------------------------------------------------------------------
+
+const PRECOMPOSED: &str = "\u{e9}tude";
+const DECOMPOSED: &str = "e\u{301}tude";
+
+#[test]
+fn a_link_in_the_other_normalisation_form_still_resolves() {
+    assert_ne!(PRECOMPOSED, DECOMPOSED, "the test is meaningless otherwise");
+
+    let a = archive_with_source();
+    a.write(
+        &format!("wiki/philosophy/{PRECOMPOSED}.md"),
+        &with_body("Etude", "Leaf."),
+    );
+    a.write(
+        "wiki/philosophy/refers.md",
+        &with_body("Refers", &format!("See [[{DECOMPOSED}]].")),
+    );
+
+    let v = a.json(&["lint", "--rule", "broken-link"]);
+    assert_eq!(
+        v["findings"].as_array().unwrap().len(),
+        0,
+        "a link to an existing article reported broken:\n{v}"
+    );
+}
+
+#[test]
+fn demand_does_not_fragment_across_normalisation_forms() {
+    // Same consequence as the capitalisation split in #10: two spellings of one
+    // unwritten concept would rank as two half-wanted gaps, and `next` could
+    // recommend writing an article that already exists.
+    let a = archive_with_source();
+    a.write(
+        "wiki/philosophy/one.md",
+        &with_body("One", &format!("See [[{PRECOMPOSED}]].")),
+    );
+    a.write(
+        "wiki/philosophy/two.md",
+        &with_body("Two", &format!("See [[{DECOMPOSED}]].")),
+    );
+
+    let v = a.json(&["next", "--action", "write"]);
+    assert_eq!(v["target_count"], 1, "one concept, two spellings:\n{v}");
+    assert_eq!(v["targets"][0]["ref_count"], 2);
+}
+
+#[test]
+fn a_greek_link_resolves_across_normalisation_forms() {
+    // Ἠθικά — the corpus this was built against is full of these.
+    let precomposed = "\u{1f28}\u{3b8}\u{3b9}\u{3ba}\u{3ac}";
+    let decomposed = "\u{397}\u{313}\u{3b8}\u{3b9}\u{3ba}\u{3b1}\u{301}";
+    assert_ne!(precomposed, decomposed);
+
+    let a = archive_with_source();
+    a.write(
+        &format!("wiki/philosophy/{precomposed}.md"),
+        &with_body("Ethika", "Leaf."),
+    );
+    a.write(
+        "wiki/philosophy/refers.md",
+        &with_body("Refers", &format!("See [[{decomposed}]].")),
+    );
+
+    assert_eq!(a.code(&["lint"]), 0);
+}

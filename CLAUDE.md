@@ -116,6 +116,8 @@ Every match between a wikilink and an article goes through `core::slug::canonica
 
 This is not cosmetic. Before it, the same concept referenced three ways produced three separate entries in `links::wanted`, each with one referrer — so `sentinel next` could rank a rarely-mentioned gap above a popular one, and could recommend writing an article that already existed under a different capitalisation. `/sentinel-grow` acting on that would have created a duplicate.
 
+It also folds Unicode normalisation forms, via NFC. The same accented character can be one codepoint or a base plus a combining mark, and the two render identically everywhere a human would look — so a link written one way against a filename stored the other way reported as broken against an article sitting right there, with nothing on screen to explain it. macOS has historically returned decomposed filenames while Linux preserves whatever was written, and this archive's subject matter is full of Greek and accented terms.
+
 Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-states` stay distinct — merging needs a stemmer, and a wrong merge silently collapses two real concepts, which is worse than a missed one.
 
 Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
