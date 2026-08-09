@@ -335,6 +335,97 @@ pub fn log_path() -> PathBuf {
 pub const DEFAULT_DOMAINS: &[&str] = &["philosophy", "coding", "research"];
 
 /// Given a domain, return the raw subdirectory.
+/// Normalise an archive-relative path, refusing one that leaves the archive.
+///
+/// Lexical rather than filesystem-based: `std::fs::canonicalize` needs the path
+/// to exist, and these are destinations that do not yet. A `..` is resolved
+/// against the components already gathered, so `raw/a/../b.md` is accepted and
+/// `raw/../../b.md` is not.
+///
+/// `Path::join` is the reason this has to exist: joining an absolute path
+/// discards the base entirely, so `raw_dir().join("/tmp/x")` is `/tmp/x`.
+pub fn normalize_within_archive(rel: &str) -> io::Result<String> {
+    let trimmed = rel.trim();
+    if trimmed.is_empty() {
+        return Err(escape_error(rel, "it is empty"));
+    }
+    if Path::new(trimmed).is_absolute() {
+        return Err(escape_error(rel, "it is an absolute path"));
+    }
+
+    let mut parts: Vec<&str> = Vec::new();
+    for part in trimmed.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err(escape_error(rel, "it rises above the archive root"));
+                }
+            }
+            _ => parts.push(part),
+        }
+    }
+    if parts.is_empty() {
+        return Err(escape_error(rel, "it names no file"));
+    }
+    Ok(parts.join("/"))
+}
+
+/// The absolute path of an archive-relative key, refusing one that escapes.
+///
+/// The manifest is durable state, and a build without the checks above could
+/// have written `raw/../../x.md` into it. Validating only new input would leave
+/// `rm` deleting, and `mv` renaming, a file outside the archive on any archive
+/// that had already been poisoned.
+pub fn resolve_in_archive(rel: &str) -> io::Result<PathBuf> {
+    Ok(archive_root().join(normalize_within_archive(rel)?))
+}
+
+/// Check a single path component — a domain name, a filename — is safe to join.
+///
+/// Separate from `normalize_within_archive` because these arrive as names, not
+/// paths: `--as` and `-d` are not meant to contain a separator at all, and
+/// silently normalising `-d "a/b"` into a nested directory would be its own
+/// surprise.
+pub fn archive_component(kind: &str, value: &str) -> io::Result<String> {
+    let v = value.trim();
+    let bad = if v.is_empty() {
+        Some("it is empty")
+    } else if v.contains('/') || v.contains('\\') {
+        Some("it contains a path separator")
+    } else if v == "." || v == ".." {
+        Some("it names a directory, not a file")
+    } else if v.starts_with('.') {
+        // `sync` skips dotfiles, so an ingested one would never be seen again.
+        Some("it starts with a dot, and the archive ignores hidden files")
+    } else if v.contains('\0') {
+        Some("it contains a null byte")
+    } else {
+        None
+    };
+    match bad {
+        Some(why) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Invalid {kind} '{value}' — {why}.\n\
+                 A {kind} must be a single plain name; everything the archive \
+                 writes has to stay inside it."
+            ),
+        )),
+        None => Ok(v.to_string()),
+    }
+}
+
+fn escape_error(value: &str, why: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "'{value}' would write outside the archive — {why}.\n\
+             Paths are archive-relative and must stay within the archive root."
+        ),
+    )
+}
+
 pub fn raw_domain_dir(domain: &str) -> PathBuf {
     raw_dir().join(domain)
 }
@@ -360,6 +451,58 @@ pub fn rel(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn normalisation_keeps_a_path_inside_the_archive() {
+        for (input, want) in [
+            ("raw/philosophy/a.md", "raw/philosophy/a.md"),
+            ("./raw/a.md", "raw/a.md"),
+            ("raw//a.md", "raw/a.md"),
+            ("raw/coding/../philosophy/a.md", "raw/philosophy/a.md"),
+            ("raw/./a.md", "raw/a.md"),
+        ] {
+            assert_eq!(normalize_within_archive(input).unwrap(), want, "{input}");
+        }
+    }
+
+    #[test]
+    fn normalisation_refuses_anything_that_leaves() {
+        // `..` is counted against what has been gathered, so the check cannot
+        // be defeated by burying the traversal: `raw/a/../../../x` escapes even
+        // though it starts with a legitimate component.
+        for input in [
+            "/etc/passwd",
+            "..",
+            "../x.md",
+            "raw/../../x.md",
+            "raw/a/../../../x.md",
+            "",
+            "   ",
+            ".",
+        ] {
+            let err =
+                normalize_within_archive(input).expect_err(&format!("{input:?} was accepted"));
+            assert!(
+                err.to_string().contains("outside the archive"),
+                "{input:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_component_must_be_a_single_plain_name() {
+        assert_eq!(
+            archive_component("domain", " philosophy ").unwrap(),
+            "philosophy"
+        );
+        for bad in ["", "a/b", "..", ".", "/abs", ".hidden", "a\\b"] {
+            assert!(
+                archive_component("domain", bad).is_err(),
+                "{bad:?} was accepted as a domain"
+            );
+        }
+    }
+
     use super::*;
 
     fn cwd() -> PathBuf {

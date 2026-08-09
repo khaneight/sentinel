@@ -28,7 +28,6 @@ struct Removal {
 /// the caller to mean it.
 pub fn run(target: &str, force: bool, dry_run: bool) -> io::Result<()> {
     let mut manifest = Manifest::load()?;
-    let root = paths::archive_root();
 
     let index = SourceIndex::new(&manifest);
     let key = index.resolve(target).ok_or_else(|| {
@@ -99,7 +98,9 @@ pub fn run(target: &str, force: bool, dry_run: bool) -> io::Result<()> {
     }
 
     // Remove the file first: if it fails, the manifest still describes reality.
-    std::fs::remove_file(root.join(&key))?;
+    // `key` comes from the manifest, which an older build could have written a
+    // traversal into. This deletes a file; it does not get to trust that.
+    std::fs::remove_file(paths::resolve_in_archive(&key)?)?;
     manifest.entries.remove(&key);
     manifest.save()?;
 

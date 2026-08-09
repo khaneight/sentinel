@@ -46,6 +46,12 @@ pub fn run(
         ));
     }
 
+    // Before anything is created. `-d "/tmp/x"` used to write there, because
+    // `Path::join` on an absolute path discards the base; `-d "../.."` wrote
+    // above the archive root; and both recorded the traversal verbatim in the
+    // manifest as `raw/../../x.md`. All three exited 0.
+    let domain = &paths::archive_component("domain", domain)?;
+
     // Ensure domain directory exists
     let domain_dir = paths::raw_domain_dir(domain);
     fs::create_dir_all(&domain_dir)?;
@@ -81,6 +87,7 @@ pub fn run(
         (None, None) => source_name.to_string(),
     };
 
+    let dest_name = paths::archive_component("filename", &dest_name)?;
     let dest = domain_dir.join(&dest_name);
     if dest.exists() {
         // On a case-insensitive filesystem the clashing file may be listed
