@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::io;
 
 use colored::Colorize;
@@ -201,7 +200,7 @@ pub fn run() -> io::Result<()> {
         frontmatter: FIELDS,
         domains: Domains {
             default: paths::DEFAULT_DOMAINS,
-            present: present_domains(),
+            present: paths::present_domains(),
         },
         layout: LAYOUT,
         lint_rules: lint::RULES,
@@ -260,29 +259,6 @@ pub fn run() -> io::Result<()> {
     }
 
     Ok(())
-}
-
-/// Domains that actually exist, as the union of `raw/` and `wiki/` subdirectories.
-///
-/// Reported from disk rather than from a constant so the answer describes this
-/// archive rather than a default the user may have moved past.
-fn present_domains() -> Vec<String> {
-    let mut domains = BTreeSet::new();
-    for dir in [paths::raw_dir(), paths::wiki_dir()] {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.filter_map(Result::ok) {
-            if !entry.file_type().is_ok_and(|t| t.is_dir()) {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !name.starts_with('.') {
-                domains.insert(name);
-            }
-        }
-    }
-    domains.into_iter().collect()
 }
 
 #[cfg(test)]

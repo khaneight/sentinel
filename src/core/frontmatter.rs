@@ -48,9 +48,10 @@ pub struct ParsedMarkdown {
     ///
     /// Part of the parser's contract and asserted on by its tests — they are
     /// what prove the block ends where it should — but no command consumes it
-    /// yet: `search` and the link extractor both want the whole file, including
-    /// `tags:` and `related:`. Kept rather than dropped so the boundary stays
-    /// tested; revisit if a caller appears or the tests are reworked.
+    /// directly. Link extraction wants the whole file, since wikilinks appear
+    /// in `related:` as well as the body. `search` wants prose only, but has to
+    /// report file line numbers with its excerpts, so it goes through
+    /// `LoadedArticle::body_with_offset` and the `block_end` boundary instead.
     #[allow(dead_code)]
     pub body: String,
     /// Set when a delimited block was present but did not parse.

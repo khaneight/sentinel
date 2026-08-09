@@ -174,6 +174,156 @@ fn linked_archive() -> Archive {
     a
 }
 
+// ---------------------------------------------------------------------------
+// search reads prose, not metadata
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_article_is_not_a_match_for_a_word_that_appears_only_in_its_citation() {
+    // `sources:` holds paths. Scanning the frontmatter as body text made those
+    // paths searchable, so an article about the weather that cited
+    // `kant-on-duty.md` was the sole result for `search kant` — and quoted the
+    // YAML line back as its evidence.
+    let a = Archive::new();
+    a.write("raw/philosophy/kant-on-duty.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/weather.md",
+        "---\ntitle: Weather\ndomain: philosophy\norigin: researched\n\
+         tags: [meteorology]\nsources: [raw/philosophy/kant-on-duty.md]\n---\n\n\
+         Rain falls. Nothing here concerns moral philosophy.\n",
+    );
+
+    let v = a.json(&["search", "kant"]);
+    assert_eq!(
+        v["result_count"], 0,
+        "an article that never mentions Kant matched `search kant`: {}",
+        v["results"]
+    );
+}
+
+#[test]
+fn no_frontmatter_key_is_searchable_as_body_text() {
+    // Written against `sources:` alone, this check would have passed while
+    // `origin:`, `status:` and `domain:` stayed searchable — searching a domain
+    // name returned every article in that domain. Enumerate the keys from the
+    // published contract instead of from the one that broke.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/only.md",
+        "---\ntitle: Only\ndomain: philosophy\norigin: researched\nstatus: draft\n\
+         tags: [alpha]\nsources: [raw/philosophy/src.md]\n---\n\nBody prose.\n",
+    );
+
+    let fields = a.json(&["schema"]);
+    let keys: Vec<String> = fields["frontmatter"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(keys.len() >= 5, "{keys:?}");
+
+    for key in &keys {
+        // The key name itself never appears in the prose, so any hit is the
+        // YAML being read as body text.
+        let v = a.json(&["search", key]);
+        for result in v["results"].as_array().unwrap() {
+            for m in result["matches"].as_array().unwrap() {
+                let text = m["text"].as_str().unwrap();
+                assert!(
+                    !text.starts_with(&format!("{key}:")),
+                    "`search {key}` quoted the frontmatter line `{text}`"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_excerpt_cites_the_line_number_it_actually_occupies() {
+    // Numbering the body from 1 would be worse than not reporting a line at
+    // all: it points at real text that is not the text quoted.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    let body_line = "The distinctive claim is stated here.";
+    a.write(
+        "wiki/philosophy/note.md",
+        &format!(
+            "---\ntitle: Note\ndomain: philosophy\norigin: authored\ntags: [t]\n\
+             sources: [raw/philosophy/src.md]\n---\n\n{body_line}\n"
+        ),
+    );
+
+    let v = a.json(&["search", "distinctive"]);
+    let line = v["results"][0]["matches"][0]["line"].as_u64().unwrap() as usize;
+    let actual = a.read("wiki/philosophy/note.md");
+    assert_eq!(
+        actual.lines().nth(line - 1),
+        Some(body_line),
+        "excerpt cites line {line}, which holds something else"
+    );
+}
+
+#[test]
+fn a_domain_name_that_matches_no_prose_says_where_the_answer_is() {
+    // Reading frontmatter as body meant `search philosophy` returned every
+    // article in the domain. It now returns none, which is accurate — but bare
+    // silence reads as "the archive has no philosophy", so it has to point
+    // somewhere. Canonical comparison, so `Philosophy` works too.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/one.md",
+        &common::article("One", "philosophy", &["raw/philosophy/src.md"]),
+    );
+
+    for query in ["philosophy", "Philosophy"] {
+        let v = a.json(&["search", query]);
+        assert_eq!(v["result_count"], 0, "{v}");
+        assert_eq!(v["domain"], "philosophy", "no hint for `{query}`: {v}");
+    }
+
+    let human = a.run(&["search", "philosophy"]);
+    assert!(human.contains("_by-domain.md"), "{human}");
+
+    // A query that is simply absent must not be dressed up as a near miss.
+    let miss = a.json(&["search", "zzzabsent"]);
+    assert!(miss.get("domain").is_none(), "{miss}");
+}
+
+#[test]
+fn an_empty_query_is_refused_rather_than_matching_everything() {
+    // An empty needle is a substring of every line, so this returned the whole
+    // archive ranked by file length, with scores in the thousands. It reads as
+    // a relevance ranking. It is a measure of how long the documents are.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/one.md",
+        &common::article("One", "philosophy", &["raw/philosophy/src.md"]),
+    );
+
+    for query in ["", "   "] {
+        let out = a.output(&["search", query]);
+        assert!(
+            !out.status.success(),
+            "`search {query:?}` succeeded; stdout:\n{}",
+            common::stdout(&out)
+        );
+        let err = common::stderr(&out);
+        assert!(
+            err.contains("index/_by-domain.md") || err.contains("sentinel index"),
+            "the refusal must say how to list the archive instead:\n{err}"
+        );
+    }
+}
+
 #[test]
 fn a_neighbourhood_is_scoped_to_the_requested_depth() {
     let a = linked_archive();

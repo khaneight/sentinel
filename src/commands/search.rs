@@ -60,10 +60,27 @@ struct Results {
     returned: usize,
     /// True when `result_count > returned`.
     truncated: bool,
+    /// Set when the query names a domain but appears in no article's prose, so
+    /// a caller seeing zero results knows the archive is not empty of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<String>,
     results: Vec<SearchResult>,
 }
 
 pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
+    // An empty needle is a substring of every line, so the old behaviour was to
+    // return the whole archive ranked by file length — 27 results with scores
+    // in the thousands, which reads as a relevance ranking and is not one. A
+    // caller interpolating a variable that came out empty deserves to be told.
+    if query.trim().is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "search needs a query. An empty one matches every article and \
+             ranks them by length, which is not a search result. To list the \
+             archive, use `sentinel index` or read `index/_by-domain.md`.",
+        ));
+    }
+
     let articles = wiki::load_all()?.articles;
     let needle = query.to_lowercase();
 
@@ -87,6 +104,9 @@ pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
                 result_count,
                 returned,
                 truncated: result_count > returned,
+                domain: (result_count == 0)
+                    .then(|| matching_domain(query))
+                    .flatten(),
                 results,
             },
         );
@@ -94,6 +114,20 @@ pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
 
     if results.is_empty() {
         println!("No results for '{query}'.");
+        // Searching a domain name used to return every article in that domain,
+        // because each one carries a `domain:` line. Now it correctly returns
+        // nothing — but bare silence reads as "the archive has none of this",
+        // which is the opposite of the truth. Say where the answer actually is.
+        if let Some(domain) = matching_domain(query) {
+            println!(
+                "{}",
+                format!(
+                    "'{domain}' is a domain, not a term in the prose. \
+                     See index/_by-domain.md."
+                )
+                .dimmed()
+            );
+        }
         return Ok(());
     }
 
@@ -140,6 +174,17 @@ pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
     Ok(())
 }
 
+/// The domain this query names, if it names one.
+///
+/// Compared through `slug::canonical` for the same reason wikilinks are: a
+/// caller who types `Philosophy` means the `philosophy/` directory.
+fn matching_domain(query: &str) -> Option<String> {
+    let needle = crate::core::slug::canonical(query);
+    crate::core::paths::present_domains()
+        .into_iter()
+        .find(|d| crate::core::slug::canonical(d) == needle)
+}
+
 /// Score one article, or `None` if it does not match at all.
 fn score(article: &LoadedArticle, needle: &str, max_matches: usize) -> Option<SearchResult> {
     let frontmatter = &article.article.frontmatter;
@@ -160,16 +205,23 @@ fn score(article: &LoadedArticle, needle: &str, max_matches: usize) -> Option<Se
         .count() as u32
         * TAG_HIT;
 
+    // Prose only. The frontmatter has already been scored above, deliberately
+    // weighted — title 1000, slug 500, tag 200. Scanning it a second time as
+    // body text counted the same title twice and, worse, matched the *paths* in
+    // `sources:`: an article about the weather that cited `kant-on-duty.md` was
+    // the sole result for `search kant`, quoting the YAML line back as evidence.
+    // A search that answers "which articles discuss X" must read what they say.
+    let (body, line_offset) = article.body_with_offset();
     let mut match_count = 0;
     let mut matches = Vec::new();
-    for (i, line) in article.content.lines().enumerate() {
+    for (i, line) in body.lines().enumerate() {
         if !line.to_lowercase().contains(needle) {
             continue;
         }
         match_count += 1;
         if matches.len() < max_matches {
             matches.push(Match {
-                line: i + 1,
+                line: line_offset + i + 1,
                 text: text::truncate_chars(line.trim(), MATCH_EXCERPT),
             });
         }
