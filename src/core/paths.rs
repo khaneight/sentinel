@@ -228,7 +228,14 @@ impl Config {
         toml::from_str(&text).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("{}: {e}", path.display()),
+                format!(
+                    "{} is not valid TOML: {e}\n\
+                     It should contain a single line, for example:\n  \
+                     archive = \"/path/to/archive\"\n\
+                     Delete the file to fall back to --archive, {ENV_ARCHIVE}, \
+                     or discovery.",
+                    path.display()
+                ),
             )
         })
     }

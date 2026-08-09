@@ -103,7 +103,7 @@ It exists so skills and agent instructions stop restating the schema in prose. P
 
 Two invariants hold this together, both enforced by tests:
 
-- `core::frontmatter::ORIGINS` and `STATUSES` are the single source for both the lint rule and the schema output, so the checker cannot reject a value the contract advertises.
+- `core::frontmatter::ORIGINS` and `STATUSES` are the single source for the lint rule, the schema output, **and `ingest`'s argument validation**. `ingest` kept a private copy for twenty-four PRs and rejected `hybrid` while `schema` advertised it. The test now covers every command that accepts an origin, not just the linter — a shared constant only helps where it is actually used.
 - `core::lint::RULES` and `core::lint::analyze` are asserted to agree in **both** directions — every documented rule can actually fire, and every emitted rule is documented, with matching severities.
 
 `domains.present` is read from disk (the union of `raw/` and `wiki/` subdirectories); `domains.default` is `DEFAULT_DOMAINS`. Reporting both is deliberate — an archive that has moved past the defaults should say so.

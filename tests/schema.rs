@@ -92,6 +92,68 @@ fn published_enum_values_are_the_ones_lint_actually_accepts() {
 }
 
 #[test]
+fn every_command_that_takes_an_origin_accepts_every_published_value() {
+    // The earlier version of this checked only the linter. `ingest` kept its
+    // own hardcoded list and rejected `hybrid` while `schema` advertised it —
+    // so an agent following the published contract got an error.
+    let a = Archive::new();
+    let v = a.json(&["schema"]);
+    let origins: Vec<String> = v["frontmatter"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "origin")
+        .unwrap()["values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect();
+    assert!(origins.len() >= 3, "{origins:?}");
+
+    for origin in &origins {
+        let src = a.path(&format!("src-{origin}.md"));
+        std::fs::write(&src, "x").unwrap();
+        let output = a.output(&[
+            "ingest",
+            &src.display().to_string(),
+            "-d",
+            "philosophy",
+            "-o",
+            origin,
+            "-t",
+            &format!("Doc {origin}"),
+        ]);
+        assert!(
+            output.status.success(),
+            "`sentinel ingest -o {origin}` was rejected, but `sentinel schema` \
+             advertises it:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn an_unknown_origin_names_the_accepted_values() {
+    let a = Archive::new();
+    let src = a.path("src.md");
+    std::fs::write(&src, "x").unwrap();
+    let output = a.output(&[
+        "ingest",
+        &src.display().to_string(),
+        "-d",
+        "philosophy",
+        "-o",
+        "nonsense",
+    ]);
+
+    assert!(!output.status.success());
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(err.contains("hybrid"), "must list what is accepted:\n{err}");
+    assert!(err.contains("sentinel schema"), "{err}");
+}
+
+#[test]
 fn every_lint_rule_is_published_with_its_severity() {
     let a = Archive::new();
     let v = a.json(&["schema"]);

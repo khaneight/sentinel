@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::core::frontmatter;
 use crate::core::manifest::{self, Manifest, ManifestEntry};
 use crate::core::paths;
 use crate::core::slug;
@@ -15,17 +16,33 @@ pub fn run(
 ) -> io::Result<()> {
     let source = Path::new(path);
     if !source.exists() {
+        // A relative path resolves against the working directory, not the
+        // archive — easy to get wrong when the two are far apart, which is the
+        // normal arrangement once `--set-default` is in use.
+        let resolved = std::env::current_dir()
+            .map(|cwd| cwd.join(path).display().to_string())
+            .unwrap_or_else(|_| path.to_string());
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("File not found: {path}"),
+            format!(
+                "File not found: {path}\n\
+                 Looked in {resolved} — paths are relative to the working \
+                 directory, not to the archive."
+            ),
         ));
     }
 
-    // Validate origin
-    if !["authored", "researched"].contains(&origin) {
+    // Validated against the same constant `sentinel schema` publishes and the
+    // lint rule enforces. A private copy of this list is how `hybrid` came to
+    // be advertised as valid and rejected here.
+    if !frontmatter::ORIGINS.contains(&origin) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Origin must be 'authored' or 'researched'",
+            format!(
+                "Unknown origin '{origin}'. Expected one of: {}.\n\
+                 Run `sentinel schema` for the full frontmatter contract.",
+                frontmatter::ORIGINS.join(", ")
+            ),
         ));
     }
 
