@@ -25,10 +25,7 @@ pub fn run(query: &str) -> io::Result<()> {
     for entry in WalkDir::new(&wiki_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path().extension().is_some_and(|ext| ext == "md")
-        })
+        .filter(|e| e.file_type().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
     {
         let path = entry.path();
         let content = match std::fs::read_to_string(path) {
@@ -44,11 +41,7 @@ pub fn run(query: &str) -> io::Result<()> {
             .collect();
 
         if !matches.is_empty() {
-            let rel_path = path
-                .strip_prefix(paths::archive_root())
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
+            let rel_path = paths::rel(path);
 
             results.push(SearchResult { rel_path, matches });
         }
@@ -84,10 +77,7 @@ pub fn run(query: &str) -> io::Result<()> {
                 println!("    L{line_num}: {display}");
             }
             if result.matches.len() > 3 {
-                println!(
-                    "    ... and {} more",
-                    result.matches.len() - 3
-                );
+                println!("    ... and {} more", result.matches.len() - 3);
             }
             println!();
         }

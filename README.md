@@ -16,6 +16,31 @@ cargo install --path .
 
 This puts `sentinel` in `~/.cargo/bin/`, which should be on your PATH.
 
+## Where your archive lives
+
+Your archive is an ordinary directory of markdown. Create one wherever you keep things:
+
+```bash
+sentinel init ~/Documents/archive --set-default
+```
+
+`--set-default` records the path in `~/.config/sentinel/config.toml`, so every later command finds it from anywhere. Without it, sentinel resolves the archive in this order:
+
+| Precedence | Source |
+|---|---|
+| 1 | `--archive <PATH>` |
+| 2 | `SENTINEL_ARCHIVE` environment variable |
+| 3 | `archive = "..."` in `~/.config/sentinel/config.toml` |
+| 4 | the nearest parent directory containing `meta/manifest.json` |
+
+Rule 4 means that once you `cd` into your archive — or any subdirectory of it — sentinel just works, the way git does. If none of the rules match, sentinel tells you so and lists the fixes rather than writing files somewhere you didn't intend.
+
+```bash
+sentinel config     # which archive am I pointed at, and why?
+```
+
+Multiple archives are fine — keep them apart with `--archive`, or with a `SENTINEL_ARCHIVE` export per shell.
+
 ## Skills
 
 Sentinel ships with agent skills — slash commands that let the LLM operate on your wiki. These are where the real work happens.

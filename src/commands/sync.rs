@@ -26,11 +26,7 @@ pub fn run() -> io::Result<()> {
         .filter(|e| e.file_type().is_file())
     {
         let path = entry.path();
-        let rel_path = path
-            .strip_prefix(paths::archive_root())
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string();
+        let rel_path = paths::rel(path);
 
         // Skip if already in manifest
         if manifest.entries.contains_key(&rel_path) {

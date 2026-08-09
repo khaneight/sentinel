@@ -1,13 +1,29 @@
 mod commands;
 mod core;
 
+use std::io;
+
 use clap::{Parser, Subcommand};
+
+use crate::core::paths;
 
 #[derive(Parser)]
 #[command(name = "sentinel")]
-#[command(about = "CLI tooling for the /archive knowledge base")]
+#[command(about = "CLI tooling for a markdown knowledge base")]
 #[command(version)]
+#[command(after_help = concat!(
+    "The archive root is resolved in this order:\n  \
+     1. --archive <PATH>\n  \
+     2. SENTINEL_ARCHIVE environment variable\n  \
+     3. archive = \"...\" in ~/.config/sentinel/config.toml\n  \
+     4. the nearest parent directory containing meta/manifest.json\n\n\
+     Run `sentinel config` to see which rule is in effect."
+))]
 struct Cli {
+    /// Archive root to operate on (overrides SENTINEL_ARCHIVE and the config file)
+    #[arg(short = 'A', long, global = true, value_name = "PATH")]
+    archive: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -15,7 +31,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize the archive directory structure
-    Init,
+    Init {
+        /// Where to create the archive (defaults to the resolved archive, else the current directory)
+        path: Option<String>,
+
+        /// Record this archive as the default in ~/.config/sentinel/config.toml
+        #[arg(long)]
+        set_default: bool,
+    },
+
+    /// Show the resolved archive root and how it was resolved
+    Config,
 
     /// Ingest a document into raw/
     Ingest {
@@ -84,13 +110,43 @@ enum Commands {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    if let Err(e) = run(Cli::parse()) {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
 
-    let result = match cli.command {
-        Commands::Init => commands::init::run(),
-        Commands::Ingest { path, domain, origin, title } => {
-            commands::ingest::run(&path, &domain, &origin, title.as_deref())
-        }
+fn run(cli: Cli) -> io::Result<()> {
+    // `sentinel config` exists to diagnose resolution problems, so it must not
+    // die on the very failure the user is trying to inspect.
+    if matches!(cli.command, Commands::Config) {
+        return commands::config::run(cli.archive.as_deref());
+    }
+
+    // `init [PATH]` is a second spelling of `--archive PATH`, and wins over it:
+    // the positional argument is the more specific, more local statement of intent.
+    let init_path = match &cli.command {
+        Commands::Init { path, .. } => path.clone(),
+        _ => None,
+    };
+    let requested = init_path.as_deref().or(cli.archive.as_deref());
+
+    // Only `init` may fall back to the working directory — every other command
+    // operating on a directory that merely *looks* like an archive would be a
+    // surprising way to scatter files around the filesystem.
+    let creating = matches!(cli.command, Commands::Init { .. });
+    let resolved = paths::resolve_from_environment(requested, creating)?;
+    paths::set_archive_root(resolved.path.clone());
+
+    match cli.command {
+        Commands::Init { set_default, .. } => commands::init::run(&resolved, set_default),
+        Commands::Config => unreachable!("handled above"),
+        Commands::Ingest {
+            path,
+            domain,
+            origin,
+            title,
+        } => commands::ingest::run(&path, &domain, &origin, title.as_deref()),
         Commands::IngestRepo { path, domain, name } => {
             commands::ingest_repo::run(&path, &domain, name.as_deref())
         }
@@ -102,10 +158,5 @@ fn main() {
         Commands::Search { query } => commands::search::run(&query),
         Commands::Graph => commands::graph::run(),
         Commands::Log { operation, detail } => commands::log::run(&operation, &detail),
-    };
-
-    if let Err(e) = result {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
     }
 }

@@ -13,3 +13,7 @@ walkdir = "2"
 regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 colored = "2"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
