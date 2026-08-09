@@ -77,14 +77,15 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
         let Some(end) = frontmatter::block_end(&article.content) else {
             continue;
         };
-        // Edit only inside the frontmatter block, textually. Round-tripping
-        // through serde would reorder keys and strip comments from a file the
-        // user may also edit by hand.
+        // Edit only inside the frontmatter block, and only whole citation
+        // entries. Round-tripping through serde would reorder keys and strip
+        // comments from a file the user may also edit by hand; blind substring
+        // replacement corrupts neighbours — renaming `a.md` next to a cited
+        // `data.md` turns the latter into `datraw/.../alpha.md`, which then
+        // resolves by basename to the wrong source with lint reporting clean.
         let (block, body) = article.content.split_at(end);
-        let mut block = block.to_string();
-        for written in citing {
-            block = block.replace(written.as_str(), &to_key);
-        }
+        let written: Vec<&str> = citing.iter().map(|s| s.as_str()).collect();
+        let block = repoint_sources(block, &written, &to_key);
         edits.push((article.rel_path().to_string(), format!("{block}{body}")));
     }
 
@@ -104,9 +105,8 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
             println!("  {} {path}", "~".yellow());
         }
         println!(
-            "\n{} {} citation(s) in {} article(s). Nothing written.",
+            "\n{} {} article(s) would be rewritten. Nothing written.",
             "Dry run:".yellow(),
-            edits.len(),
             edits.len()
         );
         return Ok(());
@@ -153,6 +153,94 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
         println!("  (no articles cited it)");
     }
     Ok(())
+}
+
+/// Replace whole citation entries under `sources:` with `to`.
+///
+/// Whole entries, never substrings: a citation is a complete YAML scalar, and
+/// rewriting part of one produces a path that may still resolve — to the wrong
+/// document, silently.
+///
+/// Handles both YAML list forms, since an agent writes either:
+///   sources:
+///     - raw/d/x.md
+///   sources: [raw/d/x.md, raw/d/y.md]
+fn repoint_sources(block: &str, written: &[&str], to: &str) -> String {
+    let mut out = String::with_capacity(block.len());
+    let mut in_sources = false;
+
+    for line in block.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        let indent = trimmed.len() - trimmed.trim_start().len();
+        let content = trimmed.trim_start();
+
+        // A new top-level key ends the sources block.
+        if in_sources && indent == 0 && !content.starts_with('-') {
+            in_sources = false;
+        }
+
+        if let Some(rest) = content.strip_prefix("sources:") {
+            let rest = rest.trim();
+            if let Some(items) = rest.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+                let rebuilt: Vec<String> = items
+                    .split(',')
+                    .map(|item| {
+                        let (prefix, value, suffix) = split_scalar(item);
+                        if written.contains(&value) {
+                            format!("{prefix}{to}{suffix}")
+                        } else {
+                            item.to_string()
+                        }
+                    })
+                    .collect();
+                out.push_str(&trimmed[..indent]);
+                out.push_str("sources: [");
+                out.push_str(&rebuilt.join(","));
+                out.push(']');
+                out.push_str(&line[trimmed.len()..]);
+                continue;
+            }
+            in_sources = true;
+            out.push_str(line);
+            continue;
+        }
+
+        if in_sources && let Some(item) = content.strip_prefix('-') {
+            let (prefix, value, suffix) = split_scalar(item);
+            if written.contains(&value) {
+                out.push_str(&trimmed[..indent]);
+                out.push('-');
+                out.push_str(prefix);
+                out.push_str(to);
+                out.push_str(suffix);
+                out.push_str(&line[trimmed.len()..]);
+                continue;
+            }
+        }
+
+        out.push_str(line);
+    }
+    out
+}
+
+/// Split a YAML scalar so that `prefix + value + suffix` reconstructs the
+/// input, with `value` the bare citation and any quotes landing in the affixes.
+///
+/// Keeping the affixes verbatim is what preserves the author's formatting —
+/// indentation, quoting style, trailing spaces — through a rewrite.
+fn split_scalar(raw: &str) -> (&str, &str, &str) {
+    let mut lo = raw.len() - raw.trim_start().len();
+    let mut hi = raw.trim_end().len();
+
+    let inner = &raw[lo..hi];
+    for quote in ['"', '\''] {
+        if inner.len() >= 2 && inner.starts_with(quote) && inner.ends_with(quote) {
+            lo += quote.len_utf8();
+            hi -= quote.len_utf8();
+            break;
+        }
+    }
+    (&raw[..lo], &raw[lo..hi], &raw[hi..])
 }
 
 /// Resolve the destination against the source's location.

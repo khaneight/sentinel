@@ -124,7 +124,7 @@ Anything that compares a link to an article must use `canonical_slug()`, never `
 Three properties it has to hold:
 
 - **Citations are matched the same way the compile loop matches them** — via `compilation::SourceIndex` — so `./raw/d/x.md`, `d/x.md`, and a bare `x.md` are all repointed, not just the exact spelling.
-- **The edit is textual and scoped to the frontmatter block.** Round-tripping through serde would reorder keys and strip comments from a file the user may also edit by hand. `frontmatter::block_end` gives the boundary; the body is never rewritten, so a path mentioned in prose stays as written.
+- **The edit is textual, scoped to the frontmatter block, and applied to whole citation entries.** Round-tripping through serde would reorder keys and strip comments from a file the user may also edit by hand, so `frontmatter::block_end` gives the boundary and the body is never rewritten. But substring replacement inside that block is not safe either: renaming `a.md` in an article that also cites `data.md` produced `datraw/.../alpha.md`, which still resolved *by basename* to the renamed file — so provenance pointed at the wrong source and lint reported clean. `repoint_sources` rewrites entries under `sources:` only, in both YAML list forms, preserving indentation and quoting.
 - **Destinations must stay under `raw/`.** It is the provenance floor — moving a source out of it would orphan every article compiled from it with no way to repair the link.
 
 `--dry-run` reports the move and every article that would be rewritten.
