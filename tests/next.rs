@@ -482,3 +482,47 @@ fn progress_is_present_on_an_action_query_too() {
     let v = a.json(&["next", "--action", "compile"]);
     assert!(v["progress"]["uncompiled"].is_number(), "{v}");
 }
+
+#[test]
+fn a_truncated_target_list_declares_its_true_length() {
+    // `targets` is capped at MAX_TARGETS. #12 added `ref_count` on the
+    // principle that a truncated list which does not say so reads as complete;
+    // the same list-of-targets in the same file did not follow it.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    let gaps: String = (0..8).map(|i| format!("[[gap-{i}]] ")).collect();
+    a.write(
+        "wiki/philosophy/seed.md",
+        &article_with("Seed", &["raw/philosophy/src.md"], &gaps),
+    );
+
+    let v = a.json(&["next", "--action", "write"]);
+    assert_eq!(v["target_count"], 8, "the true total must be exact:\n{v}");
+    assert_eq!(
+        v["targets"].as_array().unwrap().len(),
+        5,
+        "the sample is capped"
+    );
+
+    let out = a.run(&["next", "--action", "write"]);
+    assert!(
+        out.contains("and 3 more"),
+        "silent truncation reads as complete:\n{out}"
+    );
+}
+
+#[test]
+fn an_untruncated_target_list_says_nothing_extra() {
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "text");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/seed.md",
+        &article_with("Seed", &["raw/philosophy/src.md"], "[[only-gap]]"),
+    );
+
+    let v = a.json(&["next", "--action", "write"]);
+    assert_eq!(v["target_count"], 1);
+    assert!(!a.run(&["next", "--action", "write"]).contains("more"));
+}

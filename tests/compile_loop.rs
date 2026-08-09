@@ -212,3 +212,48 @@ fn generated_indexes_are_stable_across_runs() {
         "generated files must not churn between runs — they live in the user's git repo"
     );
 }
+
+#[test]
+fn the_recent_index_says_when_it_is_showing_a_subset() {
+    // `_recent.md` lists the 50 newest articles. It is a generated file the
+    // user reads directly, and a silently-partial list reads as the whole wiki.
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "notes");
+    a.run(&["sync"]);
+    for i in 0..55 {
+        a.write(
+            &format!("wiki/philosophy/a{i:03}.md"),
+            &article(&format!("A{i}"), "philosophy", &["raw/philosophy/src.md"]),
+        );
+    }
+    a.run(&["index"]);
+
+    let recent = a.read("index/_recent.md");
+    assert!(
+        recent.contains("most recently updated of 55"),
+        "{}",
+        &recent[..200]
+    );
+    assert_eq!(
+        recent.lines().filter(|l| l.starts_with("- ")).count(),
+        50,
+        "the cap itself still applies"
+    );
+}
+
+#[test]
+fn a_small_archive_gets_no_subset_note() {
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "notes");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/one.md",
+        &article("One", "philosophy", &["raw/philosophy/src.md"]),
+    );
+    a.run(&["index"]);
+
+    assert!(
+        !a.read("index/_recent.md")
+            .contains("most recently updated of")
+    );
+}

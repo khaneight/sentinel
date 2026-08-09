@@ -148,6 +148,10 @@ struct Progress {
 struct Recommendation {
     action: Action,
     reason: String,
+    /// Targets in this category, before `MAX_TARGETS` was applied. Present
+    /// because `targets` is a sample: a truncated list that does not say so
+    /// reads as complete, which is the same reason `Target::ref_count` exists.
+    target_count: usize,
     targets: Vec<Target>,
     /// The skill invocation that would act on this, ready to run.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -223,6 +227,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
         let mut rec = build(action).unwrap_or_else(|| Recommendation {
             action: Action::None,
             reason: format!("Nothing outstanding for '{}'.", action.as_str()),
+            target_count: 0,
             targets: Vec::new(),
             suggested_command: None,
             backlog: backlog.clone(),
@@ -248,6 +253,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
         .unwrap_or_else(|| Recommendation {
             action: Action::None,
             reason: "Nothing outstanding. Every source is compiled, every link resolves, and no draft has stalled.".to_string(),
+            target_count: 0,
             targets: Vec::new(),
             suggested_command: None,
             backlog: backlog.clone(),
@@ -274,6 +280,7 @@ fn fix_errors(
             "{} lint error(s) — the archive is malformed and later steps would build on bad data",
             errors.len()
         ),
+        target_count: errors.len(),
         targets: errors
             .iter()
             .take(MAX_TARGETS)
@@ -303,6 +310,7 @@ fn compile(
             "{} raw document(s) that no wiki article cites",
             uncompiled.len()
         ),
+        target_count: uncompiled.len(),
         targets: uncompiled
             .iter()
             .take(MAX_TARGETS)
@@ -339,6 +347,7 @@ fn write_gap(
             top.slug,
             top.referrers.len()
         ),
+        target_count: wanted.len(),
         targets: wanted
             .iter()
             .take(MAX_TARGETS)
@@ -373,6 +382,7 @@ fn connect(
             "{} article(s) that nothing links to — knowledge that cannot be reached by following the graph",
             orphans.len()
         ),
+        target_count: orphans.len(),
         targets: orphans
             .iter()
             .take(MAX_TARGETS)
@@ -402,6 +412,7 @@ fn review(
             "{} draft(s) untouched for over {STALE_DRAFT_DAYS} days",
             stale.len()
         ),
+        target_count: stale.len(),
         targets: stale
             .iter()
             .take(MAX_TARGETS)
@@ -451,6 +462,11 @@ fn report_human(rec: &Recommendation) {
                 println!("    {} {}", "spelled:".dimmed(), target.variants.join(", "));
             }
         }
+    }
+
+    let hidden = rec.target_count.saturating_sub(rec.targets.len());
+    if hidden > 0 {
+        println!("  {}", format!("... and {hidden} more").dimmed());
     }
 
     if let Some(command) = &rec.suggested_command {
