@@ -19,6 +19,10 @@ struct Status {
     unresolved_sources: usize,
     raw_domains: usize,
     wiki_domains: usize,
+    /// Files under wiki/ that could not be read. Every count above is computed
+    /// without them, so a non-zero value means the whole report is partial.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
 }
 
 pub fn run() -> io::Result<()> {
@@ -31,7 +35,8 @@ pub fn run() -> io::Result<()> {
     }
 
     let manifest = Manifest::load()?;
-    let articles = wiki::load_all().unwrap_or_default();
+    let loaded = wiki::load_all().unwrap_or_default();
+    let articles = loaded.articles;
 
     // Compilation status is derived from what the wiki cites, so it stays
     // correct even if `sentinel index` has not been run since the last article
@@ -55,6 +60,7 @@ pub fn run() -> io::Result<()> {
         unresolved_sources: compilation.unresolved.len(),
         raw_domains: count_nonempty_subdirs(&paths::raw_dir()),
         wiki_domains: count_nonempty_subdirs(&paths::wiki_dir()),
+        unreadable: loaded.unreadable,
     };
 
     if output::is_json() {
@@ -75,6 +81,16 @@ pub fn run() -> io::Result<()> {
     println!("  Orphan pages:    {}", format_count(status.orphan_pages));
     println!("  Raw domains:     {}", status.raw_domains);
     println!("  Wiki domains:    {}", status.wiki_domains);
+    if !status.unreadable.is_empty() {
+        println!(
+            "\n  {} {} wiki file(s) could not be read; every count above excludes them:",
+            "!".red(),
+            status.unreadable.len()
+        );
+        for u in &status.unreadable {
+            println!("      {} — {}", u.path, u.error.dimmed());
+        }
+    }
     if status.unresolved_sources > 0 {
         println!(
             "\n  {} {} source citation(s) match no raw document — run `sentinel lint`",

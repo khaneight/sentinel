@@ -117,6 +117,16 @@ Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-st
 
 Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
 
+## Partial views must not overwrite durable state
+
+`wiki::load_all` returns `Loaded { articles, unreadable }` and never silently skips a file it could not read.
+
+The rule that follows: **a command that rewrites derived state calls `require_complete()`; a command that only reads may proceed, but must disclose that the view was partial.**
+
+`index` overwrites five generated files and the manifest's compilation mapping. Rebuilding from a partial view deletes everything the missing files accounted for — and it did: one unreadable article made `index` print "Index rebuilt. Articles indexed: 0", exit 0, wipe the mapping and blank `_master.md`. It now refuses and names the files.
+
+`status` and `lint` carry an `unreadable` list in their JSON and print it. A count of zero articles, or a clean lint, computed over files that could not be opened is not a fact about the archive — it is a fact about what was legible, and the difference has to be visible.
+
 ## What `sync` may and may not throw away
 
 `sync` prunes manifest entries whose file is gone. Two of an entry's fields are **not derivable from disk** — `origin` and `ingested_at` — and `title` is only derivable as the filename stem. Re-registering a document therefore resets `origin` to `authored`, which silently relabels AI-gathered research as the user's own writing. That is the one distinction the whole archive is organised around.

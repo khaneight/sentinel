@@ -61,7 +61,7 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
     }
 
     // Find every citation of the old path, in whatever form it was written.
-    let articles = wiki::load_all().unwrap_or_default();
+    let articles = wiki::load_all().unwrap_or_default().articles;
     let mut edits: Vec<(String, String)> = Vec::new(); // (rel_path, new content)
     for article in &articles {
         let citing: Vec<&String> = article

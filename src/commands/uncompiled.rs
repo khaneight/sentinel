@@ -29,7 +29,7 @@ pub fn run() -> io::Result<()> {
     let manifest = Manifest::load()?;
     // Derived from the wiki on every call rather than read from the manifest,
     // so the answer is right whether or not `sentinel index` has been run.
-    let articles = wiki::load_all().unwrap_or_default();
+    let articles = wiki::load_all().unwrap_or_default().articles;
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
 

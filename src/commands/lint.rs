@@ -21,6 +21,10 @@ struct Report {
     /// default when it usually wants the shape of the problem, not every case.
     #[serde(skip_serializing_if = "Option::is_none")]
     findings: Option<Vec<Finding>>,
+    /// Files that could not be read and were therefore not linted. A clean
+    /// result over a partial view is not a clean archive.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unreadable: Vec<wiki::Unreadable>,
 }
 
 #[derive(Serialize)]
@@ -31,9 +35,10 @@ struct RuleCount {
 
 /// Validate the archive. Returns the process exit code.
 pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result<i32> {
-    let articles = wiki::load_all()?;
+    let loaded = wiki::load_all()?;
+    let articles = &loaded.articles;
     let manifest = Manifest::load()?;
-    let all = lint::analyze(&articles, &manifest);
+    let all = lint::analyze(articles, &manifest);
 
     // Counts always describe the whole archive; a filter narrows what is
     // listed, never what is counted, so `--rule` cannot make a broken archive
@@ -65,12 +70,24 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
                 warnings,
                 by_rule,
                 findings: (!summary).then_some(findings),
+                unreadable: loaded.unreadable.clone(),
             },
         )?;
     } else if summary {
         report_summary(&by_rule, errors, warnings);
     } else {
         report_human(&findings, errors, warnings);
+    }
+
+    if !loaded.unreadable.is_empty() && !output::is_json() {
+        println!(
+            "\n{} {} wiki file(s) could not be read and were not linted:",
+            "!".red(),
+            loaded.unreadable.len()
+        );
+        for u in &loaded.unreadable {
+            println!("    {} — {}", u.path, u.error);
+        }
     }
 
     // Exit non-zero only for things that are actually wrong. An archive with

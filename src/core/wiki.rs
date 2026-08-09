@@ -49,12 +49,60 @@ impl LoadedArticle {
     }
 }
 
+/// A file under `wiki/` that could not be read.
+///
+/// Reported rather than skipped. A command that rewrites derived state must
+/// refuse to run on a partial view; a command that only reads may continue, but
+/// has to say the view was incomplete — "0 results" from an unreadable file is
+/// as misleading as a wrong answer.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Unreadable {
+    pub path: String,
+    pub error: String,
+}
+
+/// The outcome of scanning `wiki/`.
+#[derive(Debug, Clone, Default)]
+pub struct Loaded {
+    pub articles: Vec<LoadedArticle>,
+    pub unreadable: Vec<Unreadable>,
+}
+
+impl Loaded {
+    /// The articles, refusing if any file could not be read.
+    ///
+    /// For callers that overwrite durable state from what they load. Rebuilding
+    /// an index from a partial view silently deletes whatever the missing files
+    /// accounted for.
+    pub fn require_complete(self) -> io::Result<Vec<LoadedArticle>> {
+        if self.unreadable.is_empty() {
+            return Ok(self.articles);
+        }
+        let detail = self
+            .unreadable
+            .iter()
+            .map(|u| format!("  {} — {}", u.path, u.error))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{} wiki file(s) could not be read, so the archive cannot be \
+                 rebuilt from a complete view:\n{detail}\n\n\
+                 Rebuilding now would drop everything those files account for. \
+                 Fix the reads and run again.",
+                self.unreadable.len()
+            ),
+        ))
+    }
+}
+
 /// Load every markdown article under `wiki/`.
 ///
 /// Four commands walked `wiki/` with their own copy of this filter and their
 /// own idea of what counted as an article. Sharing one loader keeps `index`,
 /// `lint`, `status`, and `uncompiled` reasoning about the same set of files.
-pub fn load_all() -> io::Result<Vec<LoadedArticle>> {
+pub fn load_all() -> io::Result<Loaded> {
     let wiki_dir = paths::wiki_dir();
     if !wiki_dir.exists() {
         return Err(io::Error::new(
@@ -64,10 +112,18 @@ pub fn load_all() -> io::Result<Vec<LoadedArticle>> {
     }
 
     let mut loaded = Vec::new();
+    let mut unreadable = Vec::new();
     for path in markdown_files(&wiki_dir) {
         let rel_path = paths::rel(&path);
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            continue;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(e) => {
+                unreadable.push(Unreadable {
+                    path: rel_path,
+                    error: e.to_string(),
+                });
+                continue;
+            }
         };
         let parsed = frontmatter::parse_content(&content);
         loaded.push(LoadedArticle {
@@ -83,7 +139,11 @@ pub fn load_all() -> io::Result<Vec<LoadedArticle>> {
 
     // Stable ordering keeps generated indexes and JSON output diff-friendly.
     loaded.sort_by(|a, b| a.article.rel_path.cmp(&b.article.rel_path));
-    Ok(loaded)
+    unreadable.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(Loaded {
+        articles: loaded,
+        unreadable,
+    })
 }
 
 /// Every `.md` file under `dir`, skipping hidden files and directories.

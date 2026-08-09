@@ -13,7 +13,11 @@ use crate::core::wiki::{self, LoadedArticle};
 /// Rebuild every piece of derived state: the link graph, the four generated
 /// indexes, and the raw → wiki compilation mapping in the manifest.
 pub fn run() -> io::Result<()> {
-    let articles = wiki::load_all()?;
+    // A complete view is a precondition, not a nicety: everything below
+    // overwrites durable state derived from `articles`, so a file skipped for
+    // being unreadable would be silently deleted from the indexes and from the
+    // manifest's compilation mapping.
+    let articles = wiki::load_all()?.require_complete()?;
 
     // Build link graph
     let mut graph = LinkGraph::default();

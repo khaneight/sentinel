@@ -159,7 +159,7 @@ struct Recommendation {
 }
 
 pub fn run(requested: Option<Action>) -> io::Result<()> {
-    let articles = wiki::load_all().unwrap_or_default();
+    let articles = wiki::load_all().unwrap_or_default().articles;
     let manifest = Manifest::load()?;
 
     let findings = lint::analyze(&articles, &manifest);

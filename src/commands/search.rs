@@ -64,7 +64,7 @@ struct Results {
 }
 
 pub fn run(query: &str, limit: usize, max_matches: usize) -> io::Result<()> {
-    let articles = wiki::load_all()?;
+    let articles = wiki::load_all()?.articles;
     let needle = query.to_lowercase();
 
     let mut results: Vec<SearchResult> = articles

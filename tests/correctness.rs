@@ -303,3 +303,130 @@ fn dry_run_reports_moves_separately_from_adds_and_removes() {
     );
     assert_eq!(before, a.read("meta/manifest.json"));
 }
+
+// ---------------------------------------------------------------------------
+// A partial view must not overwrite durable state
+//
+// `wiki::load_all` skipped unreadable files silently. `index` then rebuilt from
+// whatever it could read — reporting "Index rebuilt. Articles indexed: 0" and
+// exit 0 while wiping the manifest's compilation mapping and blanking every
+// generated index, because one file was briefly locked.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+fn make_unreadable(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+}
+
+#[cfg(unix)]
+fn make_readable(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[cfg(unix)]
+fn archive_with_one_article() -> (Archive, std::path::PathBuf) {
+    let a = Archive::new();
+    a.write("raw/philosophy/src.md", "source text");
+    a.run(&["sync"]);
+    let article = a.write(
+        "wiki/philosophy/art.md",
+        &common::article("Article", "philosophy", &["raw/philosophy/src.md"]),
+    );
+    a.run(&["index"]);
+    (a, article)
+}
+
+#[test]
+#[cfg(unix)]
+fn index_refuses_to_rebuild_from_a_partial_view() {
+    let (a, article) = archive_with_one_article();
+    make_unreadable(&article);
+
+    let output = a.output(&["index"]);
+    let code = output.status.code();
+    make_readable(&article);
+
+    assert_eq!(code, Some(1), "index reported success on a partial view");
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(err.contains("could not be read"), "{err}");
+    assert!(
+        err.contains("wiki/philosophy/art.md"),
+        "must name the file:\n{err}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn a_refused_rebuild_leaves_the_previous_state_intact() {
+    let (a, article) = archive_with_one_article();
+    let manifest_before = a.read("meta/manifest.json");
+    let master_before = a.read("index/_master.md");
+
+    make_unreadable(&article);
+    let _ = a.output(&["index"]);
+    make_readable(&article);
+
+    assert_eq!(
+        manifest_before,
+        a.read("meta/manifest.json"),
+        "the compilation mapping was rewritten from an incomplete view"
+    );
+    assert_eq!(
+        master_before,
+        a.read("index/_master.md"),
+        "the generated index was blanked"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn status_says_when_its_counts_exclude_something() {
+    let (a, article) = archive_with_one_article();
+    make_unreadable(&article);
+
+    let v = a.json(&["status"]);
+    let human = a.run(&["status"]);
+    make_readable(&article);
+
+    assert_eq!(v["wiki_articles"], 0, "the count is genuinely partial");
+    assert_eq!(
+        v["unreadable"].as_array().unwrap().len(),
+        1,
+        "and must say so, or the zero reads as a fact:\n{v}"
+    );
+    assert!(human.contains("could not be read"), "{human}");
+}
+
+#[test]
+#[cfg(unix)]
+fn lint_does_not_report_a_partial_archive_as_clean() {
+    let (a, article) = archive_with_one_article();
+    make_unreadable(&article);
+
+    let v = a.json(&["lint"]);
+    let human = a.run(&["lint"]);
+    make_readable(&article);
+
+    assert_eq!(
+        v["unreadable"].as_array().unwrap().len(),
+        1,
+        "a clean result over a partial view is not a clean archive:\n{v}"
+    );
+    assert!(human.contains("were not linted"), "{human}");
+}
+
+#[test]
+#[cfg(unix)]
+fn once_readable_again_index_succeeds_unchanged() {
+    let (a, article) = archive_with_one_article();
+    let before = a.read("index/_master.md");
+
+    make_unreadable(&article);
+    let _ = a.output(&["index"]);
+    make_readable(&article);
+
+    a.run(&["index"]);
+    assert_eq!(before, a.read("index/_master.md"));
+}
