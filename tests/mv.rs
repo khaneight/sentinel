@@ -371,3 +371,49 @@ fn a_matching_string_outside_the_sources_list_is_left_alone() {
     );
     assert!(text.contains("- raw/philosophy/renamed.md"), "{text}");
 }
+
+#[cfg(unix)]
+fn set_mode(path: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn mv_refuses_when_an_article_cannot_be_read() {
+    // `mv` rewrites the articles it can see and moves the file regardless. An
+    // article missed here keeps a citation to a path that no longer exists —
+    // and `mv` reported "(no articles cited it)", which was simply untrue.
+    let a = archive();
+    let hidden = a.path("wiki/philosophy/cites-0.md");
+    set_mode(&hidden, 0o000);
+
+    let output = a.output(&["mv", "raw/philosophy/meditations.md", "marcus.md"]);
+    let code = output.status.code();
+    let err = String::from_utf8_lossy(&output.stderr).into_owned();
+    set_mode(&hidden, 0o644);
+
+    assert_eq!(code, Some(1), "mv reported success on a partial view");
+    assert!(err.contains("could not be read"), "{err}");
+    assert!(
+        a.path("raw/philosophy/meditations.md").is_file(),
+        "the source must not move when its citations cannot all be repointed"
+    );
+    assert!(!a.path("raw/philosophy/marcus.md").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn mv_does_not_claim_nothing_cited_a_source_it_could_not_check() {
+    let a = archive();
+    let hidden = a.path("wiki/philosophy/cites-0.md");
+    set_mode(&hidden, 0o000);
+    let output = a.output(&["mv", "raw/philosophy/meditations.md", "marcus.md"]);
+    set_mode(&hidden, 0o644);
+
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !out.contains("no articles cited it"),
+        "a claim about citations must not be made from an incomplete read:\n{out}"
+    );
+}

@@ -61,7 +61,12 @@ pub fn run(from: &str, to: &str, dry_run: bool) -> io::Result<()> {
     }
 
     // Find every citation of the old path, in whatever form it was written.
-    let articles = wiki::load_all().unwrap_or_default().articles;
+    //
+    // A complete view is required, not preferred: `mv` rewrites the articles it
+    // can see and moves the file regardless. An article missed here keeps a
+    // citation to a path that no longer exists, and `mv` would report "(no
+    // articles cited it)" — a false statement, made confidently.
+    let articles = wiki::load_all()?.require_complete()?;
     let mut edits: Vec<(String, String)> = Vec::new(); // (rel_path, new content)
     for article in &articles {
         let citing: Vec<&String> = article

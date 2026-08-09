@@ -111,9 +111,9 @@ pub fn load_all() -> io::Result<Loaded> {
         ));
     }
 
+    let (paths, mut unreadable) = markdown_files(&wiki_dir);
     let mut loaded = Vec::new();
-    let mut unreadable = Vec::new();
-    for path in markdown_files(&wiki_dir) {
+    for path in paths {
         let rel_path = paths::rel(&path);
         let content = match std::fs::read_to_string(&path) {
             Ok(content) => content,
@@ -146,15 +146,41 @@ pub fn load_all() -> io::Result<Loaded> {
     })
 }
 
-/// Every `.md` file under `dir`, skipping hidden files and directories.
-pub fn markdown_files(dir: &Path) -> Vec<PathBuf> {
-    WalkDir::new(dir)
+/// Every `.md` file under `dir`, plus anything the walk could not traverse.
+///
+/// Walk failures are returned rather than dropped. An unreadable *directory*
+/// hides every article inside it just as effectively as an unreadable file, and
+/// dropping the error made those articles vanish with nothing to indicate the
+/// listing was short.
+pub fn markdown_files(dir: &Path) -> (Vec<PathBuf>, Vec<Unreadable>) {
+    let mut files = Vec::new();
+    let mut unreadable = Vec::new();
+
+    for entry in WalkDir::new(dir)
         .into_iter()
         .filter_entry(|e| !is_hidden(e))
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
-        .map(|e| e.into_path())
-        .collect()
+    {
+        match entry {
+            Ok(entry) => {
+                if entry.file_type().is_file()
+                    && entry.path().extension().is_some_and(|ext| ext == "md")
+                {
+                    files.push(entry.into_path());
+                }
+            }
+            Err(e) => {
+                let path = e
+                    .path()
+                    .map(paths::rel)
+                    .unwrap_or_else(|| dir.display().to_string());
+                unreadable.push(Unreadable {
+                    path,
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+    (files, unreadable)
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {

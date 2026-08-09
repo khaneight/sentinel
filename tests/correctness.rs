@@ -430,3 +430,44 @@ fn once_readable_again_index_succeeds_unchanged() {
     a.run(&["index"]);
     assert_eq!(before, a.read("index/_master.md"));
 }
+
+#[test]
+#[cfg(unix)]
+fn an_unreadable_directory_hides_articles_and_must_be_reported() {
+    // The #17 fix covered unreadable files. A directory that cannot be
+    // traversed hides every article inside it just as effectively, and the
+    // walk error was being dropped — so those articles vanished with nothing
+    // to indicate the listing was short.
+    let (a, _) = archive_with_one_article();
+    std::fs::create_dir_all(a.path("wiki/locked")).unwrap();
+    a.write(
+        "wiki/locked/hidden.md",
+        &common::article("Hidden", "philosophy", &["raw/philosophy/src.md"]),
+    );
+    make_unreadable(&a.path("wiki/locked"));
+
+    let status = a.json(&["status"]);
+    let index = a.output(&["index"]);
+    make_readable(&a.path("wiki/locked"));
+
+    assert_eq!(
+        status["unreadable"].as_array().unwrap().len(),
+        1,
+        "a directory that could not be traversed must be reported:\n{status}"
+    );
+    assert_eq!(
+        index.status.code(),
+        Some(1),
+        "index must not rebuild while a directory is unreadable"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn a_readable_archive_reports_nothing_unreadable() {
+    // Guard against the reporting becoming noisy on healthy archives.
+    let (a, _) = archive_with_one_article();
+    let v = a.json(&["status"]);
+    assert!(v["unreadable"].is_null(), "{v}");
+    assert_eq!(a.code(&["index"]), 0);
+}
