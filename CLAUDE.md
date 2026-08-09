@@ -155,7 +155,10 @@ behaviour and defers to `sentinel schema`, that every mutating command is
 reachable from some skill, and that any skill invoking a command which can
 refuse says what to do about it.
 
-**A new failure mode in the CLI is a change to the skills.**
+**A new failure mode in the CLI is a change to the skills — and to the
+`CLAUDE.md` `init` writes into the archive**, which is the same kind of
+document and drifted the same way. `tests/skills.rs` guards both, including
+that the archive file stays small enough to be per-session context.
 
 ## Testing
 

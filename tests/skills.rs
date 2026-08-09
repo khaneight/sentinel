@@ -280,3 +280,51 @@ fn every_mutating_command_is_reachable_from_some_skill() {
         );
     }
 }
+
+#[test]
+fn the_archive_conventions_keep_pace_with_the_cli() {
+    // `init` writes a CLAUDE.md into every archive. It is the orientation
+    // document for an agent working *in* the archive — the counterpart to the
+    // skills — and it drifted the same way they did: `mv` and `rm` shipped
+    // without it mentioning them, and the refusal behaviour from #17/#18/#20
+    // was added to all five skills and not to this file.
+    //
+    // Same rule as the skills: a command no instruction mentions is one an
+    // agent will never reach for.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("archive");
+    let out = Command::new(env!("CARGO_BIN_EXE_sentinel"))
+        .args(["init", &root.display().to_string()])
+        .env_remove("SENTINEL_ARCHIVE")
+        .env("SENTINEL_CONFIG", "/nonexistent/sentinel/config.toml")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let raw = std::fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+    // Wrapped prose: compare on collapsed whitespace, not on line breaks.
+    let text = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    for phrase in [
+        "sentinel mv",
+        "sentinel rm",
+        "sentinel next --action",
+        "sentinel log --json",
+        "could not be read",
+        "index/_master.md",
+    ] {
+        assert!(
+            text.contains(phrase),
+            "the archive's CLAUDE.md does not mention `{phrase}`:\n{raw}"
+        );
+    }
+
+    // It is loaded every session in the archive, so it must stay small — the
+    // mistake the repo's own CLAUDE.md made by growing to 31 KB.
+    assert!(
+        raw.len() < 6_000,
+        "archive CLAUDE.md is {} bytes; it is per-session context, keep it a \
+         map rather than a manual",
+        raw.len()
+    );
+}
