@@ -29,10 +29,33 @@ pub struct ManifestEntry {
     /// Optional source type: "document", "codebase", "url"
     #[serde(default = "default_source_type")]
     pub source_type: String,
+    /// Hash of the file's bytes, used to recognise a document that has been
+    /// renamed or moved by hand.
+    ///
+    /// Absent on entries written before this field existed; `sync` backfills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
 }
 
 fn default_source_type() -> String {
     "document".to_string()
+}
+
+/// Hash a raw document's bytes.
+///
+/// Not cryptographic, and it does not need to be: it exists only to recognise
+/// the same content under a new name. A collision would carry metadata between
+/// two byte-identical files, which is the same outcome either way.
+pub fn content_hash(bytes: &[u8]) -> String {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Hash a file on disk, or `None` if it cannot be read.
+pub fn hash_file(path: &std::path::Path) -> Option<String> {
+    std::fs::read(path).ok().map(|bytes| content_hash(&bytes))
 }
 
 /// The full manifest: a map from raw_path to ManifestEntry.

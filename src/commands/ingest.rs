@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::core::manifest::{Manifest, ManifestEntry};
+use crate::core::manifest::{self, Manifest, ManifestEntry};
 use crate::core::paths;
 use crate::core::slug;
 
@@ -91,6 +91,7 @@ pub fn run(
         ingested_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         wiki_articles: vec![],
         source_type: "document".to_string(),
+        content_hash: manifest::hash_file(&dest),
     });
     manifest.save()?;
 

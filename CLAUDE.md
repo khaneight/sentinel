@@ -117,6 +117,16 @@ Deliberately *not* folded: plurals and stemming. `derived-state` and `derived-st
 
 Anything that compares a link to an article must use `canonical_slug()`, never `slug()`. `slug()` is for display.
 
+## What `sync` may and may not throw away
+
+`sync` prunes manifest entries whose file is gone. Two of an entry's fields are **not derivable from disk** — `origin` and `ingested_at` — and `title` is only derivable as the filename stem. Re-registering a document therefore resets `origin` to `authored`, which silently relabels AI-gathered research as the user's own writing. That is the one distinction the whole archive is organised around.
+
+A hand-renamed file looks exactly like a deletion plus an addition, so this was reachable by ordinary use. `ManifestEntry.content_hash` closes it: `sync` matches missing entries against new files by content and carries the record across as a move. Genuine deletions still prune, and now print what they discard.
+
+The hash is `DefaultHasher` over the file's bytes — not cryptographic, and it does not need to be. It exists only to recognise the same content under a new name, and a collision would carry metadata between two byte-identical files, which is the same outcome either way.
+
+`sync` backfills the hash on entries that lack one, so archives written before the field are protected from the next rename onward.
+
 ## Moving raw documents
 
 `sentinel mv <from> <to>` moves a raw document and rewrites every `sources:` citation that pointed at it. Reorganising `raw/` is inevitable; doing it by hand turns each citation into an `unresolved-source` error, and the repair was manual and easy to do incompletely.

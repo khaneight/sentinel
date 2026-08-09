@@ -177,6 +177,7 @@ mod tests {
                 ingested_at: "2026-01-01 00:00:00".into(),
                 wiki_articles: vec![],
                 source_type: "document".into(),
+                content_hash: None,
             });
         }
         m
