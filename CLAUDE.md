@@ -77,6 +77,13 @@ requires every subcommand to be classified.
 `ref_count`, `target_count`, `result_count`, `entry_count`, and the header of
 `index/_recent.md`. A truncated list that does not say so reads as complete.
 
+**Derived sets.** Where one list must match another, derive it rather than
+maintaining a second copy: `schema::FIELDS` against the serialised
+`Frontmatter`, the `next` ladder against its progress counters, `lint::RULES`
+against `analyze`, the subcommand classification against `--help`, `init`'s
+index stubs against what `index` regenerates. Four bugs got through guards that
+checked only the case in front of them.
+
 **One source of truth.** `ORIGINS`/`STATUSES` back the lint rule, `sentinel
 schema`, and `ingest`'s validation. `lint::RULES` and `lint::analyze` are
 asserted to agree in both directions. `templates/wiki-article.md` is generated

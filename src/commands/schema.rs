@@ -284,3 +284,65 @@ fn present_domains() -> Vec<String> {
     }
     domains.into_iter().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn the_published_fields_are_exactly_the_frontmatter_struct() {
+        // `FIELDS` is hand-written and `Frontmatter` is the thing agents
+        // actually write. Nothing tied them together: a field added to the
+        // struct would be silently absent from `sentinel schema` and from the
+        // generated template, so an agent following the published contract
+        // would not know it exists — and a field removed from the struct would
+        // leave the contract advertising something the parser ignores.
+        //
+        // Derived from the struct by serialising it, rather than from a second
+        // hand-written list.
+        let value = serde_json::to_value(crate::core::frontmatter::Frontmatter::default())
+            .expect("Frontmatter must serialise");
+        let actual: BTreeSet<&str> = value
+            .as_object()
+            .expect("a struct serialises to an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let published: BTreeSet<&str> = FIELDS.iter().map(|f| f.name).collect();
+
+        let unpublished: Vec<_> = actual.difference(&published).collect();
+        assert!(
+            unpublished.is_empty(),
+            "Frontmatter has field(s) {unpublished:?} that `sentinel schema` does \
+             not publish — agents cannot know they exist"
+        );
+        let phantom: Vec<_> = published.difference(&actual).collect();
+        assert!(
+            phantom.is_empty(),
+            "`sentinel schema` publishes field(s) {phantom:?} that Frontmatter \
+             does not have — the parser would ignore them"
+        );
+    }
+
+    #[test]
+    fn enum_fields_publish_the_shared_constants() {
+        // Not a second copy of the values: the same constants the lint rule and
+        // `ingest` validate against.
+        let by_name = |n: &str| FIELDS.iter().find(|f| f.name == n).unwrap();
+        assert_eq!(by_name("origin").values, Some(frontmatter::ORIGINS));
+        assert_eq!(by_name("status").values, Some(frontmatter::STATUSES));
+    }
+
+    #[test]
+    fn the_blank_template_covers_every_published_field() {
+        let template = blank_frontmatter();
+        for field in FIELDS {
+            assert!(
+                template.contains(&format!("{}:", field.name)),
+                "template omits `{}`:\n{template}",
+                field.name
+            );
+        }
+    }
+}
