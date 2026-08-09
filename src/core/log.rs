@@ -10,10 +10,7 @@ pub fn append(operation: &str, detail: &str) -> io::Result<()> {
     let path = paths::log_path();
     let date = chrono::Local::now().format("%Y-%m-%d");
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
     writeln!(file, "## [{date}] {operation} | {detail}\n")
 }

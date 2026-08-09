@@ -34,8 +34,7 @@ pub fn run() -> io::Result<()> {
     let orphan_count = if graph.forward.is_empty() {
         0
     } else {
-        let all_slugs: std::collections::HashSet<String> =
-            graph.forward.keys().cloned().collect();
+        let all_slugs: std::collections::HashSet<String> = graph.forward.keys().cloned().collect();
         graph.orphans(&all_slugs).len()
     };
 
@@ -58,12 +57,7 @@ fn count_md_files(dir: &std::path::Path) -> usize {
     WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .is_some_and(|ext| ext == "md")
-        })
+        .filter(|e| e.file_type().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
         .count()
 }
 
@@ -76,10 +70,7 @@ fn count_nonempty_subdirs(dir: &std::path::Path) -> usize {
             entries
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-                .filter(|e| {
-                    std::fs::read_dir(e.path())
-                        .is_ok_and(|mut d| d.next().is_some())
-                })
+                .filter(|e| std::fs::read_dir(e.path()).is_ok_and(|mut d| d.next().is_some()))
                 .count()
         })
         .unwrap_or(0)

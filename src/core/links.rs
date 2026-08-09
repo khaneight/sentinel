@@ -51,10 +51,7 @@ impl LinkGraph {
         for (slug, links) in articles {
             self.forward.insert(slug.clone(), links.clone());
             for link in links {
-                self.backlinks
-                    .entry(link)
-                    .or_default()
-                    .push(slug.clone());
+                self.backlinks.entry(link).or_default().push(slug.clone());
             }
         }
     }
