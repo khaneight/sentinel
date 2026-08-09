@@ -6,6 +6,7 @@ pub mod ingest_repo;
 pub mod init;
 pub mod lint;
 pub mod log;
+pub mod next;
 pub mod search;
 pub mod status;
 pub mod sync;

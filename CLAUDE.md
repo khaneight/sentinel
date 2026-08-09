@@ -20,10 +20,10 @@ cargo fmt --check
 - `src/core/wiki.rs` — shared loader for wiki articles
 - `src/core/frontmatter.rs` — YAML frontmatter parsing/rendering for wiki articles
 - `src/core/links.rs` — wikilink extraction and link graph (forward + backlinks)
-- `src/core/lint.rs` — lint finding type, severity model, stable ordering
+- `src/core/lint.rs` — lint rules (`analyze`), finding type, severity model, stable ordering
 - `src/core/output.rs` — output format switch, JSON envelope, exit-code constants
 - `src/core/text.rs` — display helpers (character-safe truncation)
-- `src/commands/` — one module per CLI subcommand: init, config, ingest, ingest-repo, sync, status, uncompiled, index, lint, search, graph
+- `src/commands/` — one module per CLI subcommand: init, config, ingest, ingest-repo, sync, status, next, uncompiled, index, lint, search, graph
 - `tests/` — integration tests that drive the compiled binary against temporary archives
 
 ## Skills
@@ -58,6 +58,23 @@ A raw document is "compiled" when at least one wiki article names it in `sources
 `sentinel index` additionally writes the mapping into `ManifestEntry.wiki_articles` and generates `index/_uncompiled.md`. Both are published projections for external readers (Obsidian, scripts); nothing in sentinel reads them back to make a decision.
 
 Citations are matched leniently — `raw/d/x.md`, `./raw/d/x.md`, `/raw/d/x.md`, `d/x.md`, `[[raw/d/x.md]]`, and a bare `x.md` all resolve — because an agent writes them by hand into YAML. A bare filename matching two raw documents is reported as unresolved rather than guessed.
+
+## `sentinel next`
+
+Reads the whole archive and recommends one action. The priority ladder encodes editorial judgement about what is most worth doing, so it is documented here to be argued with, and pinned by `tests/next.rs` so changing it has to be deliberate:
+
+| Priority | Action | Trigger |
+|---|---|---|
+| 1 | `fix-errors` | any lint **error** — every later judgement would be made on data the errors call into question |
+| 2 | `compile` | raw documents no wiki article cites — knowledge already in hand |
+| 3 | `write` | `[[wikilinks]]` with no article behind them, ranked by how many distinct articles ask for each |
+| 4 | `connect` | articles with no incoming links |
+| 5 | `review` | drafts whose `updated` date is over 30 days old |
+| — | `none` | nothing outstanding |
+
+Priority 3 is the self-generating part: an unresolved wikilink is existing knowledge naming what it wants next, and `links::wanted` ranks those by demand. `/sentinel-research <slug>` on the top entry is a loop that grows the wiki from its own gaps.
+
+`next` is a recommendation, not a constraint — `backlog` reports the count for every category, so a caller that disagrees with the ordering has the same data without a second invocation. The rules come from `core::lint::analyze`, shared with `sentinel lint`, so the two can never drift.
 
 ## Output contract
 

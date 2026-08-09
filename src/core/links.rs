@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::sync::LazyLock;
@@ -16,6 +16,54 @@ pub fn extract_wikilinks(content: &str) -> Vec<String> {
         .captures_iter(content)
         .map(|cap| cap[1].trim().to_string())
         .collect()
+}
+
+/// A concept the wiki refers to but has not written yet.
+///
+/// Every `[[wikilink]]` with no matching article is the archive naming a gap in
+/// itself. Ranked by how many distinct articles point at it, this is a demand
+/// signal: the most-referenced unwritten concept is the one the existing
+/// knowledge most wants filled in.
+#[derive(Debug, Clone, Serialize)]
+pub struct WantedArticle {
+    pub slug: String,
+    /// Articles that link to it, sorted.
+    pub referrers: Vec<String>,
+}
+
+/// Find every wikilink target that has no article, most-wanted first.
+pub fn wanted(articles: &[super::wiki::LoadedArticle]) -> Vec<WantedArticle> {
+    let existing: HashSet<String> = articles.iter().map(|a| a.slug()).collect();
+    let mut demand: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for article in articles {
+        for target in extract_wikilinks(&article.content) {
+            if existing.contains(&target) {
+                continue;
+            }
+            demand
+                .entry(target)
+                .or_default()
+                .insert(article.rel_path().to_string());
+        }
+    }
+
+    let mut wanted: Vec<WantedArticle> = demand
+        .into_iter()
+        .map(|(slug, referrers)| WantedArticle {
+            slug,
+            referrers: referrers.into_iter().collect(),
+        })
+        .collect();
+
+    // Most demand first; slug breaks ties so repeated runs agree.
+    wanted.sort_by(|a, b| {
+        b.referrers
+            .len()
+            .cmp(&a.referrers.len())
+            .then_with(|| a.slug.cmp(&b.slug))
+    });
+    wanted
 }
 
 /// The link graph: maps article slug → set of linked slugs.
@@ -85,5 +133,62 @@ mod tests {
     fn test_no_wikilinks() {
         let links = extract_wikilinks("No links here.");
         assert!(links.is_empty());
+    }
+
+    fn loaded(rel_path: &str, body: &str) -> crate::core::wiki::LoadedArticle {
+        use crate::core::frontmatter::{Frontmatter, WikiArticle};
+        crate::core::wiki::LoadedArticle {
+            article: WikiArticle {
+                frontmatter: Frontmatter::default(),
+                body: body.to_string(),
+                rel_path: rel_path.to_string(),
+                frontmatter_error: None,
+            },
+            path: std::path::PathBuf::from(rel_path),
+            content: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn wanted_ranks_by_how_many_articles_ask_for_it() {
+        let articles = vec![
+            loaded("wiki/a.md", "See [[virtue]] and [[ataraxia]]."),
+            loaded("wiki/b.md", "See [[virtue]]."),
+            loaded("wiki/c.md", "See [[virtue]]."),
+        ];
+        let wanted = wanted(&articles);
+        assert_eq!(wanted[0].slug, "virtue");
+        assert_eq!(wanted[0].referrers.len(), 3);
+        assert_eq!(wanted[1].slug, "ataraxia");
+    }
+
+    #[test]
+    fn wanted_excludes_links_that_resolve() {
+        let articles = vec![
+            loaded("wiki/stoicism.md", "root"),
+            loaded("wiki/a.md", "See [[stoicism]] and [[virtue]]."),
+        ];
+        let wanted = wanted(&articles);
+        assert_eq!(wanted.len(), 1);
+        assert_eq!(wanted[0].slug, "virtue");
+    }
+
+    #[test]
+    fn one_article_linking_twice_counts_once() {
+        let articles = vec![loaded("wiki/a.md", "[[virtue]] and again [[virtue]].")];
+        let wanted = wanted(&articles);
+        assert_eq!(
+            wanted[0].referrers.len(),
+            1,
+            "demand is distinct articles, not raw link count"
+        );
+    }
+
+    #[test]
+    fn ties_break_alphabetically_so_output_is_stable() {
+        let articles = vec![loaded("wiki/a.md", "[[zeta]] [[alpha]]")];
+        let found = wanted(&articles);
+        let slugs: Vec<&str> = found.iter().map(|w| w.slug.as_str()).collect();
+        assert_eq!(slugs, ["alpha", "zeta"]);
     }
 }

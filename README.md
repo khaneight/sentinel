@@ -102,6 +102,7 @@ sentinel sync
 The skills above handle the LLM-driven work. These CLI commands handle the bookkeeping:
 
 ```bash
+sentinel next            # what should I do next?
 sentinel status          # overview of archive health
 sentinel uncompiled      # list raw docs no wiki article cites yet
 sentinel index           # rebuild indexes and link graph
@@ -110,6 +111,29 @@ sentinel search "query"  # full-text search across wiki
 sentinel graph           # print link graph topology
 sentinel log op "detail" # append to activity log (meta/log.md)
 ```
+
+## What next?
+
+```console
+$ sentinel next
+Next: write
+  2 concept(s) linked but not yet written; 'virtue' is referenced by 2 article(s)
+
+  • virtue
+    virtue — referenced by 2 articles
+  • ataraxia
+    ataraxia — referenced by wiki/philosophy/stoicism.md
+
+  run: /sentinel-research virtue
+
+  also pending: 1 connect
+```
+
+One command that reads the whole archive and tells you the most valuable thing to do, in priority order: fix errors → compile uncompiled sources → write the concepts your wiki links to but hasn't covered → connect orphans → revisit stalled drafts.
+
+That third step is where the wiki starts feeding itself. When you write `[[virtue]]` in an article and no such page exists, you've told the archive what it's missing. `sentinel next` ranks those gaps by how many articles ask for each one, so the most-wanted concept surfaces first — and `/sentinel-research virtue` fills it, which usually creates new links, which name the next gap.
+
+`sentinel next --json` gives the same thing with a `backlog` count for every category, if you'd rather make your own call about priority.
 
 ## Driving it from a script or an agent
 
