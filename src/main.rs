@@ -173,6 +173,25 @@ enum Commands {
         matches: usize,
     },
 
+    /// Write the publishable subset of the wiki to a directory
+    ///
+    /// Only articles whose `status` is publishable, with links to unpublished
+    /// articles rendered as plain text. Feed the output to a static site
+    /// generator; this command does not render HTML.
+    Export {
+        /// Where to write. Defaults to <archive>/publish.
+        #[arg(short, long, value_name = "DIR")]
+        out: Option<std::path::PathBuf>,
+        /// Comma-separated statuses to publish. Defaults to `stable`.
+        #[arg(long, value_name = "LIST")]
+        status: Option<String>,
+        /// Include drafts and articles under review as well.
+        #[arg(long)]
+        include_drafts: bool,
+        /// Report what would be written without writing it.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Print the link graph, or one article's neighbourhood
     Graph {
         /// Show only what surrounds this slug, instead of the whole topology
@@ -277,7 +296,10 @@ fn run(cli: Cli) -> io::Result<i32> {
         | Commands::Sync { .. }
         | Commands::Index
         | Commands::Mv { .. }
-        | Commands::Rm { .. } => Some(core::lock::ArchiveLock::acquire(&paths::meta_dir())?),
+        | Commands::Rm { .. }
+        // Reads the whole wiki and writes a tree from it. Without the lock an
+        // `index` running alongside could have it publish a half-rebuilt view.
+        | Commands::Export { .. } => Some(core::lock::ArchiveLock::acquire(&paths::meta_dir())?),
         // Queries and commands that touch no shared state run unserialised.
         _ => None,
     };
@@ -332,6 +354,12 @@ fn run(cli: Cli) -> io::Result<i32> {
             limit,
             matches,
         } => commands::search::run(&query, limit, matches).map(|()| 0),
+        Commands::Export {
+            out,
+            status,
+            include_drafts,
+            dry_run,
+        } => commands::export::run(out.as_deref(), status.as_deref(), dry_run, include_drafts),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log {
             operation,

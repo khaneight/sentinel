@@ -150,6 +150,15 @@ dumps the whole topology and is for humans.
 
 `sentinel log` with no arguments reads recent entries; with arguments it appends.
 
+`sentinel export` writes the publishable subset to a directory: articles whose
+`status` qualifies (`stable` by default), with `[[links]]` to anything not
+published rewritten to plain text so the output has no dead ends. It renders no
+HTML — a static site generator that understands wikilinks takes it from there.
+It refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks.
+Publishing is not recoverable by re-running, so it refuses on a partial view and
+`--dry-run` reports without writing.
+[`docs/publishing.md`](docs/publishing.md) is the workflow.
+
 `sentinel index` regenerates `_master.md`, `_by-domain.md`, `_recent.md`,
 `_orphans.md`, `_uncompiled.md`, `_dashboard.md`, the link graph, and the
 manifest's compilation mapping. `_dashboard.md` is the human-facing page —

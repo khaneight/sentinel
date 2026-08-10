@@ -1,0 +1,228 @@
+//! `sentinel export` — the publishable subset of the wiki.
+//!
+//! Publishing is not copying `wiki/` somewhere. Three things about this archive
+//! are true internally and wrong in public:
+//!
+//! - **Drafts.** `status:` exists precisely to mark what is not finished.
+//! - **Forward-declared links.** `broken-link` is a *warning*, not an error,
+//!   because the compile loop names concepts before writing them — that is the
+//!   growth signal the `write` rung reads. To a reader it is a dead link.
+//! - **Provenance.** `raw/` holds source documents whose licence is the user's
+//!   to know, `meta/` is a working record, and neither belongs on a website.
+//!
+//! So this command decides *what is publishable* and writes only that. It does
+//! not render HTML. A static site generator that already understands wikilinks
+//! — Quartz, Obsidian Publish — takes the output from here.
+
+use std::collections::HashSet;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use colored::Colorize;
+use serde::Serialize;
+
+use crate::core::{output, paths, slug, wiki};
+
+/// Statuses considered finished enough to publish, in the absence of `--status`.
+///
+/// `stable` only. `review` means someone still has to look at it, and the whole
+/// point of the field is that the archive knows the difference.
+const DEFAULT_PUBLISHABLE: &[&str] = &["stable"];
+
+#[derive(Serialize)]
+struct Excluded {
+    path: String,
+    reason: String,
+}
+
+#[derive(Serialize)]
+struct Report {
+    destination: String,
+    /// Articles written.
+    published: usize,
+    /// Articles held back, and why. The true total, not a sample.
+    excluded_count: usize,
+    excluded: Vec<Excluded>,
+    /// Wikilinks pointing outside the published set, rewritten to plain text.
+    links_defused: usize,
+    /// True when nothing was written because `--dry-run` was given.
+    dry_run: bool,
+}
+
+pub fn run(
+    destination: Option<&Path>,
+    statuses: Option<&str>,
+    dry_run: bool,
+    include_drafts: bool,
+) -> io::Result<i32> {
+    // A partial view would silently publish less than the archive holds, and a
+    // reader has no way to tell a missing article from one that was never
+    // written. This writes durable state outside the archive; it gets the same
+    // treatment as the commands that rewrite state inside it.
+    let articles = wiki::load_all()?.require_complete()?;
+
+    let allowed: HashSet<String> = match (statuses, include_drafts) {
+        (Some(list), _) => list.split(',').map(|s| s.trim().to_lowercase()).collect(),
+        (None, true) => ["stable", "review", "draft"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        (None, false) => DEFAULT_PUBLISHABLE.iter().map(|s| s.to_string()).collect(),
+    };
+
+    let destination = destination
+        .map(PathBuf::from)
+        .unwrap_or_else(|| paths::archive_root().join("publish"));
+
+    // Refusing to write into the archive is not fussiness: `wiki/` and `index/`
+    // are rebuilt by `index`, and an export underneath them would be walked as
+    // article content on the next run.
+    if destination.starts_with(paths::archive_root()) {
+        let rel = paths::rel(&destination);
+        if rel.starts_with("wiki/") || rel.starts_with("raw/") || rel.starts_with("index/") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Refusing to export into {rel} — `sentinel index` walks it, \
+                     so the export would be indexed as archive content on the \
+                     next rebuild. Choose a path outside wiki/, raw/, and index/."
+                ),
+            ));
+        }
+    }
+
+    let mut published = Vec::new();
+    let mut excluded = Vec::new();
+    for article in &articles {
+        let status = article
+            .article
+            .frontmatter
+            .status
+            .as_deref()
+            .unwrap_or("unset");
+        if allowed.contains(&status.to_lowercase()) {
+            published.push(article);
+        } else {
+            excluded.push(Excluded {
+                path: article.rel_path().to_string(),
+                reason: format!("status: {status}"),
+            });
+        }
+    }
+
+    // Links are defused against the *published* set, not the archive. An
+    // article that survives the filter can still cite one that did not, and
+    // publishing a link to a page nobody can reach is the same dead end as
+    // publishing a forward declaration.
+    let reachable: HashSet<String> = published.iter().map(|a| a.canonical_slug()).collect();
+
+    let mut links_defused = 0usize;
+    let mut writes: Vec<(PathBuf, String)> = Vec::new();
+    for article in &published {
+        let (text, defused) = defuse_links(&article.content, &reachable);
+        links_defused += defused;
+        writes.push((destination.join(article.rel_path()), text));
+    }
+
+    let report = Report {
+        destination: destination.display().to_string(),
+        published: published.len(),
+        excluded_count: excluded.len(),
+        excluded: excluded.into_iter().take(20).collect(),
+        links_defused,
+        dry_run,
+    };
+
+    if !dry_run {
+        for (path, text) in &writes {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            crate::core::atomic::write(path, text)?;
+        }
+        crate::core::log::append(
+            "export",
+            &format!("{} article(s) to {}", report.published, report.destination),
+        )?;
+    }
+
+    if output::is_json() {
+        output::emit("export", report)?;
+        return Ok(0);
+    }
+
+    if report.published == 0 {
+        println!(
+            "{} No article matched. Publishable statuses: {}.",
+            "Nothing exported.".yellow(),
+            allowed.iter().cloned().collect::<Vec<_>>().join(", ")
+        );
+        println!("  `sentinel status` shows what this archive actually holds.");
+        return Ok(0);
+    }
+
+    println!(
+        "{} {} article(s) → {}",
+        if dry_run {
+            "Would export:"
+        } else {
+            "Exported:"
+        }
+        .green(),
+        report.published,
+        report.destination
+    );
+    if report.excluded_count > 0 {
+        println!("  {} held back (not publishable):", report.excluded_count);
+        for e in report.excluded.iter().take(5) {
+            println!("    {} — {}", e.path, e.reason.dimmed());
+        }
+        if report.excluded_count > 5 {
+            println!("    ... and {} more", report.excluded_count - 5);
+        }
+    }
+    if report.links_defused > 0 {
+        println!(
+            "  {} link(s) pointed outside the published set and were rendered \
+             as plain text.",
+            report.links_defused
+        );
+    }
+    if dry_run {
+        println!("\n{}", "Dry run: nothing written.".yellow());
+    }
+    Ok(0)
+}
+
+/// Rewrite `[[targets]]` that no published article provides into plain text.
+///
+/// Kept as text rather than deleted: the sentence was written to mention the
+/// concept, and removing the words changes what it says. Only the link is
+/// dropped, and `[[alias|Label]]` keeps its label.
+fn defuse_links(content: &str, reachable: &HashSet<String>) -> (String, usize) {
+    let mut out = String::with_capacity(content.len());
+    let mut rest = content;
+    let mut defused = 0;
+
+    while let Some(start) = rest.find("[[") {
+        let Some(end) = rest[start..].find("]]") else {
+            break;
+        };
+        let inner = &rest[start + 2..start + end];
+        out.push_str(&rest[..start]);
+
+        let (target, label) = match inner.split_once('|') {
+            Some((t, l)) => (t, l),
+            None => (inner, inner),
+        };
+        if reachable.contains(&slug::canonical(target)) {
+            out.push_str(&rest[start..start + end + 2]);
+        } else {
+            out.push_str(label);
+            defused += 1;
+        }
+        rest = &rest[start + end + 2..];
+    }
+    out.push_str(rest);
+    (out, defused)
+}

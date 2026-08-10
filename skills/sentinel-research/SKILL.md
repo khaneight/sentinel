@@ -46,9 +46,22 @@ ingested: YYYY-MM-DD
 
 This is the provenance record. Someone reading the wiki article in a year should be able to get from it back to where the claim came from.
 
+Register it with `ingest`, not by writing into `raw/` and running `sync`:
+
 ```
-sentinel sync
+sentinel ingest <path-to-notes> -d {domain} -o researched -t "Research: {Topic}"
 ```
+
+**`-o researched` is the point.** `sync` registers anything it finds under
+`raw/` as `origin: authored`, because that is all it can infer from a file
+appearing on disk. Filing a research trail that way records it as your own
+writing — the one distinction this whole step exists to preserve, lost at the
+moment it is created. `origin` cannot be recovered from the file's contents
+later; `sentinel mv` goes to some trouble to carry it across renames precisely
+because nothing else can reconstruct it.
+
+If the notes are already under `raw/`, `sentinel sync` will register them —
+then fix the origin before continuing, because no later command will.
 
 ## Step 4: Compile into articles
 

@@ -267,19 +267,61 @@ fn skills_that_rebuild_say_what_to_do_when_the_rebuild_refuses() {
 }
 
 #[test]
-fn every_mutating_command_is_reachable_from_some_skill() {
+fn every_command_is_either_reachable_from_a_skill_or_deliberately_not() {
     // A command no skill mentions is one an agent will never choose. `rm`
     // shipped in #20 and no skill knew it existed.
+    //
+    // The list used to be written here by hand, which meant it covered the
+    // commands somebody had remembered. Enumerating from `--help` instead: a
+    // new subcommand fails this test until it is either taught to a skill or
+    // named below with a reason it should not be.
+    const NOT_FOR_AGENTS: &[(&str, &str)] = &[
+        (
+            "init",
+            "creates the archive an agent is already working inside",
+        ),
+        (
+            "config",
+            "diagnoses the caller's own setup, not the archive",
+        ),
+        ("ingest-repo", "unimplemented; exits non-zero with guidance"),
+        (
+            "export",
+            "publishing is the user's decision. An agent that can publish can \
+             publish a draft, and that is not recoverable by re-running it.",
+        ),
+        ("help", "clap builtin"),
+    ];
+
+    let out = Command::new(env!("CARGO_BIN_EXE_sentinel"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let help = String::from_utf8_lossy(&out.stdout);
+    let subcommands: Vec<String> = help
+        .split("Commands:")
+        .nth(1)
+        .and_then(|s| s.split("Options:").next())
+        .expect("--help lists commands")
+        .lines()
+        .filter(|l| l.starts_with("  ") && !l.trim().is_empty())
+        .filter_map(|l| l.split_whitespace().next())
+        .map(str::to_string)
+        .collect();
+    assert!(subcommands.len() >= 10, "{subcommands:?}");
+
     let all: String = skill_files().iter().map(|(_, _, t)| t.clone()).collect();
-    for command in [
-        "sentinel index",
-        "sentinel sync",
-        "sentinel mv",
-        "sentinel rm",
-    ] {
+    let exempt: BTreeSet<&str> = NOT_FOR_AGENTS.iter().map(|(c, _)| *c).collect();
+
+    for command in &subcommands {
+        if exempt.contains(command.as_str()) {
+            continue;
+        }
         assert!(
-            all.contains(command),
-            "no skill mentions `{command}`, so an agent will never reach for it"
+            all.contains(&format!("sentinel {command}")),
+            "no skill mentions `sentinel {command}`, so an agent will never \
+             reach for it. Teach a skill, or add it to NOT_FOR_AGENTS with a \
+             reason."
         );
     }
 }
