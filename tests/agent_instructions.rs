@@ -153,7 +153,9 @@ fn no_instruction_document_tells_an_agent_to_read_the_master_index() {
     // context needed to do the work, and gets worse as the archive grows.
     for doc in documents() {
         for (i, line) in doc.text.lines().enumerate() {
-            if !line.contains("_master.md") {
+            // `_dashboard.md` is capped, but it is still a page of prose where
+            // `sentinel next --json` is a payload. Same rule.
+            if !line.contains("_master.md") && !line.contains("_dashboard.md") {
                 continue;
             }
             let lower = line.to_lowercase();
@@ -162,9 +164,16 @@ fn no_instruction_document_tells_an_agent_to_read_the_master_index() {
             let tells_you_to_read = ["read ", "open ", "consult ", "start with ", "look at "]
                 .iter()
                 .any(|verb| lower.contains(verb));
-            let negated = ["do not", "don't", "never", "rather than", "instead of"]
-                .iter()
-                .any(|neg| lower.contains(neg));
+            let negated = [
+                "do not",
+                "don't",
+                "never",
+                "rather than",
+                "instead of",
+                "not the",
+            ]
+            .iter()
+            .any(|neg| lower.contains(neg));
             assert!(
                 !tells_you_to_read || negated,
                 "{}:{} instructs reading the master index:\n  {line}",

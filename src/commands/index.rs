@@ -184,6 +184,22 @@ pub fn run() -> io::Result<()> {
     }
     wrote |= atomic::write_if_changed(&paths::index_dir().join("_uncompiled.md"), uncompiled_md)?;
 
+    // Last, deliberately. The dashboard reports the link graph and the
+    // compilation mapping, both of which are rewritten above — generated any
+    // earlier it would describe the archive as it was before this very command
+    // ran, which is precisely the staleness it warns the reader about.
+    //
+    // Two things keep it from churning forever. The date carries no time of
+    // day, so regenerating twice in one day with nothing changed produces
+    // identical bytes and no write at all. And the result deliberately does
+    // *not* feed `wrote`: the page reports the activity log, `index` appends to
+    // that log whenever it writes, so counting the dashboard as a change would
+    // make every run log, which would change the next run's page, forever.
+    // A derived view of news is not itself news.
+    let generated_at = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let dashboard = super::dashboard::render(&generated_at)?;
+    atomic::write_if_changed(&paths::index_dir().join("_dashboard.md"), dashboard)?;
+
     // Generated output is deterministic, so an index that changed nothing is a
     // no-op — and logging it would be a change where there was none.
     if wrote || remapped > 0 {

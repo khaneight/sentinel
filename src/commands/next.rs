@@ -57,7 +57,21 @@ impl std::str::FromStr for Action {
 }
 
 impl Action {
-    fn as_str(self) -> &'static str {
+    /// The priority ladder, in order.
+    ///
+    /// One list. `run` walked it as a chain of `or_else`, the backlog built it
+    /// as an array, and the dashboard needed it again — three orderings that
+    /// could disagree. #39 was two of five actions missing from a counter
+    /// written the same way.
+    pub const LADDER: &'static [Action] = &[
+        Action::FixErrors,
+        Action::Compile,
+        Action::Write,
+        Action::Connect,
+        Action::Review,
+    ];
+
+    pub fn as_str(self) -> &'static str {
         match self {
             Action::FixErrors => "fix-errors",
             Action::Compile => "compile",
@@ -75,14 +89,14 @@ const MAX_REFS: usize = 5;
 
 #[derive(Serialize)]
 pub struct Target {
-    id: String,
-    label: String,
+    pub id: String,
+    pub label: String,
     /// Why this target in particular — link demand, source title, age.
-    detail: String,
+    pub detail: String,
     /// Total referrers, when `refs` is a sample of them. A truncated list that
     /// did not say so would read as complete.
     #[serde(skip_serializing_if = "is_zero")]
-    ref_count: usize,
+    pub ref_count: usize,
     /// Articles that reference this target, for `write`.
     ///
     /// Without these the recommendation is not actionable on its own:
@@ -90,12 +104,12 @@ pub struct Target {
     /// because they define what the concept means *here* rather than in
     /// general — and a bare count cannot be read.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    refs: Vec<String>,
+    pub refs: Vec<String>,
     /// Spellings actually used for this target, when they differ from the
     /// canonical slug. Tells the writer what the article will be called and
     /// flags inconsistent naming worth tidying.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    variants: Vec<String>,
+    pub variants: Vec<String>,
 }
 
 impl Target {
@@ -118,8 +132,8 @@ fn is_zero(n: &usize) -> bool {
 
 #[derive(Serialize, Clone)]
 pub struct BacklogEntry {
-    action: Action,
-    count: usize,
+    pub action: Action,
+    pub count: usize,
 }
 
 /// Counters describing what the archive *contains*, alongside what is left to
@@ -132,55 +146,55 @@ pub struct BacklogEntry {
 /// shrinking.
 #[derive(Serialize, Clone)]
 pub struct Progress {
-    wiki_articles: usize,
-    raw_documents: usize,
-    uncompiled: usize,
-    errors: usize,
+    pub wiki_articles: usize,
+    pub raw_documents: usize,
+    pub uncompiled: usize,
+    pub errors: usize,
     /// Articles nothing links to. Moves when `connect` does its work — which
     /// changes no other counter, so without this a correct `connect` iteration
     /// registers as no progress at all.
-    orphans: usize,
+    pub orphans: usize,
     /// Articles still `draft`. Moves when `review` promotes one, for the same
     /// reason.
-    drafts: usize,
+    pub drafts: usize,
     /// Set when the link graph exists but could not be parsed. Orphans could
     /// not be counted, so `connect` is absent from the backlog for that reason
     /// rather than because there is nothing to do.
     #[serde(skip_serializing_if = "Option::is_none")]
-    link_graph_error: Option<String>,
+    pub link_graph_error: Option<String>,
     /// Set when the graph parsed but no longer matches disk. Separate from the
     /// error above so an agent can tell "nothing could be counted" from "this
     /// count describes an older archive".
     #[serde(skip_serializing_if = "Option::is_none")]
-    link_graph_stale: Option<String>,
+    pub link_graph_stale: Option<String>,
     /// Files under wiki/ that could not be read. Every count above, and the
     /// whole ladder below, is computed without them — so a non-zero value means
     /// the recommendation describes a smaller archive than the one on disk.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    unreadable: Vec<wiki::Unreadable>,
+    pub unreadable: Vec<wiki::Unreadable>,
 }
 
 #[derive(Serialize)]
 pub struct Recommendation {
-    action: Action,
-    reason: String,
+    pub action: Action,
+    pub reason: String,
     /// Targets in this category, before `MAX_TARGETS` was applied. Present
     /// because `targets` is a sample: a truncated list that does not say so
     /// reads as complete, which is the same reason `Target::ref_count` exists.
-    target_count: usize,
-    targets: Vec<Target>,
+    pub target_count: usize,
+    pub targets: Vec<Target>,
     /// The skill invocation that would act on this, ready to run.
     #[serde(skip_serializing_if = "Option::is_none")]
-    suggested_command: Option<String>,
+    pub suggested_command: Option<String>,
     /// Every category with outstanding work, in priority order.
-    backlog: Vec<BacklogEntry>,
+    pub backlog: Vec<BacklogEntry>,
     /// What the archive contains right now. Compare across iterations to tell
     /// real progress from churn.
-    progress: Progress,
+    pub progress: Progress,
     /// True when the caller asked for this action rather than being recommended
     /// it, so a consumer can tell a scheduling choice from sentinel's advice.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    requested: bool,
+    pub requested: bool,
 }
 
 pub fn run(requested: Option<Action>) -> io::Result<()> {
