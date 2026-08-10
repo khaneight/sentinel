@@ -480,7 +480,7 @@ fn connect(
                 )
             })
             .collect(),
-        suggested_command: Some("/sentinel-improve connect orphan pages".to_string()),
+        suggested_command: Some("/sentinel-improve orphans".to_string()),
         backlog: backlog.to_vec(),
         progress: progress.clone(),
         requested: false,
@@ -510,7 +510,7 @@ fn review(
                 )
             })
             .collect(),
-        suggested_command: Some("/sentinel-improve promote stale drafts".to_string()),
+        suggested_command: Some("/sentinel-improve stale drafts".to_string()),
         backlog: backlog.to_vec(),
         progress: progress.clone(),
         requested: false,

@@ -172,10 +172,16 @@ from disk.
 ## Skills
 
 `skills/{name}/SKILL.md`, prefixed `sentinel-`, symlinked into the archive's
-`.claude/skills`. `sentinel-grow` runs the maintenance loop; `ask`, `compile`,
+`.claude/skills`. Flat, not `/sentinel <verb>`: a skill loads whole, so a
+dispatcher would cost every caller all five (31 KB) — see
+[`docs/design-notes.md`](docs/design-notes.md).
+A section serving a `next` rung names it, and references between skills are by
+section title, never step number. `sentinel-grow` runs the maintenance loop; `ask`, `compile`,
 `research`, `improve` do one job each.
 
-`tests/skills.rs` enforces what is enforceable: required frontmatter, `name`
+`tests/skill_flows.rs` executes every `sentinel …` line in a skill's fenced
+blocks against a real archive — naming a command that exists is not the same as
+publishing a sequence that runs. `tests/skills.rs` enforces what is enforceable: required frontmatter, `name`
 matching the directory, that every `sentinel <cmd>` in a code block exists, that
 none instruct reading `index/_master.md`, that each defines empty-`$ARGUMENTS`
 behaviour and defers to `sentinel schema`, that every mutating command is

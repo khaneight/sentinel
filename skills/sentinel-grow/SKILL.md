@@ -113,7 +113,7 @@ Then act:
 
 ### `fix-errors`
 
-The archive is malformed. Follow `/sentinel-improve` step 2. Nothing else in the loop is trustworthy until the error count is 0, so this always runs to completion before the loop advances.
+The archive is malformed. Follow `/sentinel-improve` → *Fix errors first*. Nothing else in the loop is trustworthy until the error count is 0, so this always runs to completion before the loop advances.
 
 ### `compile`
 
@@ -139,11 +139,13 @@ Write exactly one article, then re-run `next`. Writing it will usually create ne
 
 ### `connect`
 
-Orphans. Follow `/sentinel-improve` step 4. Only add links that are genuinely warranted — a fabricated connection corrupts the graph this whole loop steers by, and it will keep steering by it after you are gone.
+Orphans. Follow `/sentinel-improve` → *Orphans*. Only add links that are genuinely warranted — a fabricated connection corrupts the graph this whole loop steers by, and it will keep steering by it after you are gone.
 
 ### `review`
 
-Stalled drafts. Read each and either finish it or promote its `status`. If a draft is stalled because it needs the user's input, that is an escalation, not a task.
+Stalled drafts. Follow `/sentinel-improve` → *Stale drafts*. If a draft is stalled because it needs the user's input, that is an escalation, not a task.
+
+This rung was handled inline here while every other one delegated, so the loop and the CLI's own `suggested_command` gave different instructions for the same work.
 
 ### After acting
 

@@ -406,3 +406,131 @@ fn every_lint_rule_has_a_repair_instruction_somewhere_in_the_skills() {
         "these lint rules have no repair instruction in any skill: {missing:?}"
     );
 }
+
+#[test]
+fn every_command_the_cli_suggests_lands_somewhere_a_skill_can_act_on() {
+    // `next` prints a `suggested_command` and an agent runs it verbatim. Two of
+    // them named a skill and then a phrase that appeared nowhere in it:
+    // `/sentinel-improve connect orphan pages` and `/sentinel-improve promote
+    // stale drafts`. The skill existed; the instruction inside it had to be
+    // hunted for, across a step holding five unrelated tasks.
+    //
+    // Every rung is driven, from the ladder `sentinel schema` publishes, so a
+    // rung added later is covered without anyone remembering.
+    let a = Archive::new();
+    let ladder: Vec<String> = a.json(&["schema"])["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["action"].as_str().unwrap().to_string())
+        .collect();
+    assert!(ladder.len() >= 5, "{ladder:?}");
+
+    // An archive with work outstanding in every category.
+    a.write("raw/philosophy/cited.md", "text");
+    a.write("raw/philosophy/stranded.md", "nothing cites this");
+    a.run(&["sync"]);
+    for (slug, extra) in [
+        ("alpha", "status: draft\nupdated: 2020-01-01\n"),
+        ("beta", ""),
+    ] {
+        a.write(
+            &format!("wiki/philosophy/{slug}.md"),
+            &format!(
+                "---\ntitle: {slug}\ndomain: philosophy\norigin: authored\n{extra}\
+                 tags: [t]\nsources: [raw/philosophy/cited.md]\n---\n\nSee [[unwritten]].\n"
+            ),
+        );
+    }
+    a.run(&["index"]);
+
+    let skills: Vec<(String, String)> = skill_files()
+        .into_iter()
+        .map(|(name, _, text)| (name, text.to_lowercase()))
+        .collect();
+
+    let mut checked = 0;
+    for rung in &ladder {
+        let v = a.json(&["next", "--action", rung]);
+        let Some(command) = v["suggested_command"].as_str() else {
+            continue;
+        };
+        let Some(rest) = command.strip_prefix('/') else {
+            // `sentinel lint` and friends are CLI commands, covered elsewhere.
+            continue;
+        };
+        checked += 1;
+
+        let (skill_name, phrase) = rest.split_once(' ').unwrap_or((rest, ""));
+        let (_, body) = skills
+            .iter()
+            .find(|(name, _)| name == skill_name)
+            .unwrap_or_else(|| panic!("`{rung}` suggests `/{skill_name}`, which is not a skill"));
+
+        // A bare `/skill target` is a target, not a phrase to find. Only check
+        // the ones that name a section.
+        let names_a_section = !phrase.is_empty() && !phrase.contains('/');
+        if names_a_section {
+            assert!(
+                body.contains(&phrase.to_lowercase()),
+                "`{rung}` suggests `{command}`, but `/{skill_name}` contains no \
+                 section matching \"{phrase}\" — the agent has to hunt for it"
+            );
+        }
+    }
+    assert!(checked >= 3, "only {checked} rungs suggested a skill");
+}
+
+#[test]
+fn no_skill_points_into_another_by_step_number() {
+    // `/sentinel-grow` said "Follow `/sentinel-improve` step 2" and "step 4".
+    // Renumbering the target silently redirects the caller, and step 4 already
+    // held five unrelated tasks, so "step 4" meant one bullet in five. Sections
+    // are referenced by name now.
+    for (name, _, text) in skill_files() {
+        for (i, line) in text.lines().enumerate() {
+            let lower = line.to_lowercase();
+            if !lower.contains("/sentinel-") {
+                continue;
+            }
+            assert!(
+                !lower.contains("step 1")
+                    && !lower.contains("step 2")
+                    && !lower.contains("step 3")
+                    && !lower.contains("step 4")
+                    && !lower.contains("step 5"),
+                "{name}:{} points into another skill by step number, which \
+                 renumbering breaks silently:\n  {line}",
+                i + 1
+            );
+        }
+    }
+}
+
+#[test]
+fn every_rung_of_the_ladder_is_named_by_some_skill() {
+    // `review` was the only rung `/sentinel-grow` handled inline while every
+    // other one delegated — so the loop and the CLI gave different instructions
+    // for the same work, and nothing noticed.
+    let a = Archive::new();
+    let ladder: Vec<String> = a.json(&["schema"])["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["action"].as_str().unwrap().to_string())
+        .collect();
+
+    let all: String = skill_files()
+        .iter()
+        .map(|(_, _, t)| t.to_lowercase())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for rung in &ladder {
+        assert!(
+            all.contains(&format!("`{rung}`")),
+            "no skill names the `{rung}` rung, so an agent reaching it has no \
+             published instruction"
+        );
+    }
+}
