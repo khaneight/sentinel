@@ -8,6 +8,8 @@
 //! environment. Without that a test could silently pass by operating on the
 //! developer's real archive instead of its own temp directory.
 
+pub mod journey;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 

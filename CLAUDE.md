@@ -191,6 +191,12 @@ that the archive file stays small enough to be per-session context.
 
 - Integration tests drive the compiled binary against temp archives and scrub
   `SENTINEL_ARCHIVE`/`SENTINEL_CONFIG` so they cannot read the developer's own.
+- **`tests/onboarding.rs` tests journeys, not commands.** `tests/common/journey.rs`
+  records every step of a session and asserts over the transcript. Two defects it
+  exists for could not be seen one command at a time: `next` telling a brand-new
+  archive "Nothing outstanding", and `connect` asking a one-article archive for
+  an incoming link forever. Add a step here when a change alters what a user
+  sees *in sequence*.
 - **When a test enumerates, enumerate from the source of truth** — from
   `--help`, from `schema`, from `RULES` — not from the case in front of you.
   Three bugs got through guards that checked only the site being written.
