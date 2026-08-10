@@ -33,7 +33,7 @@ list is tens of kilobytes. Then pull one rule at a time with
 
 **Do not read `index/_master.md`.** Use `sentinel search --json` to reach specific articles.
 
-## Step 2: Fix errors first
+## Step 2: Fix errors first — the `fix-errors` rung
 
 Every `severity: "error"` finding, in this order — earlier ones can mask later ones:
 
@@ -60,14 +60,24 @@ Not all warnings should be "fixed":
 
 ## Step 4: Improve what lint cannot see
 
-- **Orphans.** `sentinel next --json` reports the count; `index/_orphans.md` lists them. An orphan is real knowledge that cannot be reached by following the graph. Find articles that should link to it and add the link where it reads naturally. Do not add a link just to clear the warning — a forced connection is worse than an orphan, because it corrupts the graph everything else reasons over.
-- **Thin articles.** A stub that only restates its title is not knowledge. Either expand it from its `sources:`, or merge it into a fuller article and redirect the links.
-- **Stale drafts.** `status: draft` untouched for months. Read it: if it is finished, promote to `review`. If it is abandoned, say so and ask.
-- **Sources that should not be there.** If a raw document is genuinely obsolete,
+### Orphans — the `connect` rung
+
+`sentinel next --json` reports the count; `index/_orphans.md` lists them. An orphan is real knowledge that cannot be reached by following the graph. Find articles that should link to it and add the link where it reads naturally. Do not add a link just to clear the warning — a forced connection is worse than an orphan, because it corrupts the graph everything else reasons over.
+### Thin articles
+
+A stub that only restates its title is not knowledge. Either expand it from its `sources:`, or merge it into a fuller article and redirect the links.
+### Stale drafts — the `review` rung
+
+`status: draft` untouched for months. Read it: if it is finished, promote to `review`. If it is abandoned, say so and ask.
+### Sources that should not be there
+
+If a raw document is genuinely obsolete,
   `sentinel rm` deletes it — and refuses if any article cites it, naming them,
   because that would sever the provenance trail permanently. Do not pass
   `--force` on your own judgement; deleting cited provenance is the user's call.
-- **Contradictions.** Two articles asserting incompatible things is the most valuable finding in this whole skill and the only one no tooling can detect. Report it; do not silently resolve it — especially not between `authored` articles, where the disagreement may be the user's own thinking having changed and is theirs to reconcile.
+### Contradictions
+
+Two articles asserting incompatible things is the most valuable finding in this whole skill and the only one no tooling can detect. Report it; do not silently resolve it — especially not between `authored` articles, where the disagreement may be the user's own thinking having changed and is theirs to reconcile.
 
 ## Step 5: Rebuild and verify
 

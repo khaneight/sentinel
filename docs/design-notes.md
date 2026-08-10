@@ -220,3 +220,49 @@ plausible-looking result instead of an error.** Not crashes, not wrong
 algorithms — places where a failure was handled by continuing with less
 information and not saying so. Every one had a passing test above it exercising
 the feature working.
+
+## Why the skills are flat, not `/sentinel <verb>`
+
+The obvious tidier arrangement is one skill with subcommands — `/sentinel grow`,
+`/sentinel ask` — instead of five siblings. Measured against the shipped skills,
+it costs more than it saves:
+
+```
+flat   /sentinel-<verb>   loads one skill:      3,958–10,491 bytes
+merged /sentinel <verb>   loads the dispatcher:      31,345 bytes (~7,836 tokens)
+```
+
+Every invocation would carry all five, because a skill is loaded whole. Asking a
+question would cost 7.9× what it costs now. A thin router that says "now read
+`skills/sentinel-grow/SKILL.md`" avoids that and buys two new problems: an extra
+turn before any work starts, and a file that is no longer governed by skill
+frontmatter, so `allowed-tools` stops applying to the instructions that actually
+drive the tools.
+
+The subtler loss is routing. Each skill's `description` is what makes it fire
+without being named — "grow the wiki", "answer from my notes", "compile these
+sources" match different skills today. One skill has one description.
+
+So the arrangement stays flat. The problem worth fixing was never the naming.
+
+## The skills did not match the ladder
+
+`sentinel next` publishes five rungs. The skills covered them unevenly, and two
+of the seams were wrong rather than merely untidy:
+
+- `connect` and `review` both pointed into `/sentinel-improve` **Step 4**, a
+  section holding five unrelated tasks. "Follow step 4" meant one bullet in five,
+  and the reader had to work out which.
+- `/sentinel-grow` referenced `/sentinel-improve` by **step number**. Renumbering
+  the target silently redirects the caller.
+- The CLI emitted `suggested_command: "/sentinel-improve promote stale drafts"`,
+  a phrase appearing nowhere in that skill.
+- `review` was the only rung `grow` handled inline while every other one
+  delegated, so the loop and the CLI gave different instructions for the same
+  work.
+
+Sections that serve a rung now name it (`### Orphans — the \`connect\` rung`),
+every reference is by name, and `tests/skills.rs` drives each rung from the
+published ladder and asserts the suggested command lands on a section that
+exists.
+
