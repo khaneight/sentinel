@@ -20,6 +20,19 @@ pub struct Entry {
 /// continuation lines that grep silently drops — so the recorded text and the
 /// text any documented reader sees would differ.
 pub fn append(operation: &str, detail: &str) -> io::Result<()> {
+    // The log is append-only and never pruned, so a blank entry is permanent
+    // litter — and it reaches further than the file: `sentinel log --json`
+    // returns it as a real entry and the dashboard prints it as a bullet with
+    // nothing in it. An operation nobody named is not an operation.
+    let operation = operation.trim();
+    if operation.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "An operation name is required: `sentinel log <operation> [detail]`. \
+             The log is append-only, so a blank entry cannot be removed later.",
+        ));
+    }
+
     let path = paths::log_path();
     let date = chrono::Local::now().format("%Y-%m-%d");
     let detail = detail.split_whitespace().collect::<Vec<_>>().join(" ");

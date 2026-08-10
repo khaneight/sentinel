@@ -167,9 +167,12 @@ fn it_says_when_it_was_generated() {
 }
 
 #[test]
-fn it_repeats_the_disclosures_the_commands_make() {
-    // A dashboard that describes a partial archive without saying so is the
-    // failure this repo has now fixed five times.
+fn a_freshly_generated_page_does_not_claim_to_be_stale() {
+    // Named for what it checks. The page carries disclosure branches for a
+    // partial view and a stale graph, but `index` refuses on the first and
+    // rebuilds before the second, so neither can fire today — asserting they
+    // do would be asserting nothing. What is checkable is the inverse: the
+    // page must not warn about a graph it was generated from.
     let a = populated();
     // Add an article without reindexing: the graph is now behind disk.
     a.write(
@@ -216,6 +219,48 @@ fn a_lint_finding_is_counted_but_not_reproduced() {
 }
 
 #[test]
+fn the_activity_count_names_the_list_it_is_counting() {
+    // Two ways to get this wrong, and I have written both.
+    //
+    // Counting the filtered list without saying so reads as a total, and
+    // disagrees with `sentinel log`. Counting the *unfiltered* log is more
+    // information and less correct: `index` appends on every rebuild, so the
+    // number changes on a run that altered nothing and the page never settles.
+    //
+    // Naming the filter satisfies both, and this pins it so the next attempt
+    // to "fix" the number has to reckon with the convergence test as well.
+    let a = populated();
+    for _ in 0..3 {
+        a.run(&["index"]);
+    }
+    let text = dashboard(&a);
+    if !text.contains("## Recent activity") {
+        return;
+    }
+    assert!(
+        text.contains("`index` rebuilds omitted"),
+        "the activity count must say which list it counts:\n{text}"
+    );
+
+    let logged = a.json(&["log"])["entry_count"].as_u64().unwrap();
+    let non_index = a.json(&["log"])["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["operation"] != "index")
+        .count();
+    assert!(
+        logged > non_index as u64,
+        "fixture should have index entries for this to mean anything: \
+         {logged} total, {non_index} non-index"
+    );
+    assert!(
+        text.contains(&format!("of {non_index} entries")),
+        "counted against the wrong list; expected {non_index}:\n{text}"
+    );
+}
+
+#[test]
 fn regeneration_converges_instead_of_churning_forever() {
     // The page reports the activity log, and `index` appends to that log
     // whenever it writes — so the first regeneration after a change does
@@ -250,4 +295,62 @@ fn regeneration_converges_instead_of_churning_forever() {
         "identical content was rewritten anyway; `write_if_changed` is being \
          defeated, most likely by a timestamp with a finer grain than a day"
     );
+}
+
+#[test]
+fn status_reports_when_the_page_no_longer_describes_the_archive() {
+    // The page is static and cannot notice this itself, and it is the only
+    // surface here a person reads without running a command.
+    let a = populated();
+    assert!(
+        a.json(&["status"]).get("dashboard_stale").is_none(),
+        "a freshly generated page was called stale"
+    );
+
+    a.write(
+        "wiki/philosophy/late.md",
+        "---\ntitle: Late\ndomain: philosophy\norigin: authored\ntags: [t]\n\
+         sources: [raw/philosophy/cited.md]\n---\n\nBody.\n",
+    );
+    let note = a.json(&["status"])["dashboard_stale"]
+        .as_str()
+        .expect("adding an article must make the page stale")
+        .to_string();
+    assert!(note.contains("sentinel index"), "{note}");
+
+    a.run(&["index"]);
+    assert!(
+        a.json(&["status"]).get("dashboard_stale").is_none(),
+        "the warning did not clear after a rebuild"
+    );
+}
+
+#[test]
+fn touching_a_file_without_changing_anything_is_not_staleness() {
+    // The first version of this compared modification times, and was wrong in a
+    // way that never recovered: `write_if_changed` skips the rewrite when the
+    // content is identical, so an accurate page keeps an old mtime forever and
+    // the check reported stale on every run from then on.
+    let a = populated();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    let path = a.path("wiki/philosophy/first.md");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, text).unwrap();
+
+    assert!(
+        a.json(&["status"]).get("dashboard_stale").is_none(),
+        "a rewrite that changed nothing was reported as staleness"
+    );
+}
+
+#[test]
+fn the_fingerprint_survives_a_regeneration_unchanged() {
+    // It is embedded in the page it describes, so a fingerprint that changed on
+    // every render would defeat the convergence the page depends on.
+    let a = populated();
+    a.run(&["index"]);
+    let first = dashboard(&a);
+    a.run(&["index"]);
+    assert_eq!(first, dashboard(&a));
 }

@@ -37,6 +37,11 @@ pub struct Status {
     /// the error above: the count is real, it just describes an older archive.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link_graph_stale: Option<String>,
+    /// Set when `index/_dashboard.md` predates the newest article. The page
+    /// cannot notice this itself, and it is the only surface here a person
+    /// reads without running a command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dashboard_stale: Option<String>,
 }
 
 pub fn run() -> io::Result<()> {
@@ -110,9 +115,32 @@ pub fn summarize() -> io::Result<Status> {
         unreadable: loaded.unreadable,
         link_graph_error: graph_error,
         link_graph_stale: graph_stale,
+        dashboard_stale: None,
+    };
+
+    // Computed after the rest, because the comparison is against these counts.
+    let status = Status {
+        dashboard_stale: dashboard_staleness(&status),
+        ..status
     };
 
     Ok(status)
+}
+
+/// Whether the generated dashboard still describes this archive.
+///
+/// By comparing the fingerprint the page records with one computed now — not by
+/// modification time. `write_if_changed` skips a rewrite when the content is
+/// identical, so an accurate page keeps an old mtime indefinitely and any
+/// timestamp check calls it stale forever.
+fn dashboard_staleness(current: &Status) -> Option<String> {
+    let page = std::fs::read_to_string(paths::index_dir().join("_dashboard.md")).ok()?;
+    let recorded = super::dashboard::recorded_fingerprint(&page)?;
+    (recorded != super::dashboard::fingerprint(current)).then(|| {
+        "index/_dashboard.md describes an earlier state of this archive. \
+         Run `sentinel index`."
+            .to_string()
+    })
 }
 
 fn report_human(status: &Status) {
@@ -147,6 +175,9 @@ fn report_human(status: &Status) {
         println!("\n  {} {note}", "!".yellow());
     }
     wiki::warn_partial(&status.unreadable, "every count above excludes them");
+    if let Some(note) = &status.dashboard_stale {
+        println!("\n  {} {note}", "!".yellow());
+    }
     if status.unresolved_sources > 0 {
         println!(
             "\n  {} {} source citation(s) match no raw document — run `sentinel lint`",

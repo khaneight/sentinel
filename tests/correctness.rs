@@ -1228,3 +1228,56 @@ fn mv_still_works_when_every_citation_can_be_rewritten() {
     );
     assert_eq!(a.code(&["lint"]), 0, "{}", a.run(&["lint"]));
 }
+
+// ---------------------------------------------------------------------------
+// A blank argument is a mistake, not a request
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_blank_log_operation_is_refused() {
+    // `meta/log.md` is append-only and never pruned, so a blank entry is
+    // permanent. It reached further than the file: `log --json` returned it as
+    // a real entry and the dashboard printed it as an empty bullet.
+    let a = Archive::new();
+    let before = a.json(&["log"])["entry_count"].as_u64().unwrap();
+
+    for blank in ["", "   "] {
+        assert_ne!(a.code(&["log", blank]), 0, "`log {blank:?}` was accepted");
+    }
+    assert_eq!(
+        a.json(&["log"])["entry_count"].as_u64().unwrap(),
+        before,
+        "a blank entry reached the log"
+    );
+
+    assert_eq!(a.code(&["log", "qa", "a real entry"]), 0);
+}
+
+#[test]
+fn a_blank_graph_node_is_refused() {
+    // It canonicalised to the empty slug and returned a one-node neighbourhood
+    // of it — a confident answer about an article nobody asked for. `search`
+    // already refuses the same mistake, so this was an inconsistency too.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "x");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/one.md",
+        &common::article("One", "philosophy", &["raw/philosophy/s.md"]),
+    );
+    a.run(&["index"]);
+
+    for blank in ["", "   "] {
+        let out = a.output(&["graph", "--node", blank]);
+        assert!(!out.status.success(), "`--node {blank:?}` was accepted");
+        assert!(
+            common::stderr(&out).contains("sentinel search"),
+            "the refusal should say how to find the slug:\n{}",
+            common::stderr(&out)
+        );
+    }
+
+    // The two forms that must keep working.
+    assert_eq!(a.code(&["graph"]), 0);
+    assert_eq!(a.code(&["graph", "--node", "one"]), 0);
+}
