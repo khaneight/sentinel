@@ -345,11 +345,22 @@ pub fn analyze(
 
     // Check the raw <-> wiki mapping, derived from what each article cites.
     let compilation = Compilation::derive(articles, manifest);
-    for (article, source) in &compilation.unresolved {
+    for entry in &compilation.unresolved {
+        // A citation that resolves to nothing is where the compile loop stalls,
+        // and "matches no raw document" leaves the reader to guess whether they
+        // mistyped, forgot to ingest, or used the wrong path form. The manifest
+        // knows; say so.
+        let hint = match &entry.suggestion {
+            Some(path) => format!(". Did you mean '{path}'?"),
+            None => ". `sentinel uncompiled --json` lists what is registered.".to_string(),
+        };
         findings.push(Finding::error(
             "unresolved-source",
-            article.clone(),
-            format!("source '{source}' matches no raw document in the manifest"),
+            entry.article.clone(),
+            format!(
+                "source '{}' matches no raw document in the manifest{hint}",
+                entry.source
+            ),
         ));
     }
     for entry in compilation.uncompiled(manifest) {

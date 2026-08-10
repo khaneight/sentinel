@@ -15,7 +15,7 @@ pub struct Compilation {
     /// Manifest raw_path → wiki article paths compiled from it, sorted.
     by_raw: BTreeMap<String, Vec<String>>,
     /// `(wiki article, source as written)` for citations matching no raw document.
-    pub unresolved: Vec<(String, String)>,
+    pub unresolved: Vec<Unresolved>,
 }
 
 impl Compilation {
@@ -35,7 +35,11 @@ impl Compilation {
                             .insert(article.rel_path().to_string());
                     }
                     None => {
-                        unresolved.push((article.rel_path().to_string(), source.clone()));
+                        unresolved.push(Unresolved {
+                            article: article.rel_path().to_string(),
+                            source: source.clone(),
+                            suggestion: index.suggest(source),
+                        });
                     }
                 }
             }
@@ -88,6 +92,32 @@ impl Compilation {
 }
 
 /// Resolves a `sources:` citation to a manifest key.
+/// A `sources:` entry that matched no raw document, and the nearest thing to it.
+#[derive(Debug, Clone)]
+pub struct Unresolved {
+    pub article: String,
+    pub source: String,
+    /// The registered path this most likely meant, when there is an obvious one.
+    pub suggestion: Option<String>,
+}
+
+/// Levenshtein distance, for suggesting what a mistyped citation meant.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        cur[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
 pub struct SourceIndex<'m> {
     by_rel_path: BTreeSet<&'m str>,
     /// Basename → manifest keys. Only unambiguous basenames are usable.
@@ -119,6 +149,44 @@ impl<'m> SourceIndex<'m> {
     /// `/raw/philosophy/x.md`, `[[x]]`. Exact paths are matched first; a bare
     /// filename is accepted only when exactly one raw document has that name,
     /// because guessing between two is worse than reporting the ambiguity.
+    /// The registered path a failed citation most likely meant.
+    ///
+    /// Resolution stays strict — matching `Seneca.txt` to `seneca.txt`
+    /// automatically would invent an identity rule the filesystem does not
+    /// share, and on a case-sensitive volume both can exist. But a citation
+    /// that resolves to nothing is a dead end, and the manifest is right there.
+    ///
+    /// Case first, since that is the near-miss a person actually makes, then a
+    /// small edit distance for typos. Nothing further: a "did you mean" that is
+    /// usually wrong costs more than none at all.
+    pub fn suggest(&self, source: &str) -> Option<String> {
+        let cleaned = normalize(source);
+        let wanted = basename(&cleaned)?.to_lowercase();
+
+        let mut best: Option<(usize, &str)> = None;
+        for (base, paths) in &self.by_basename {
+            let [only] = paths.as_slice() else { continue };
+            let candidate = base.to_lowercase();
+            // Compare against the stem too: `Seneca` for `seneca.txt` is a
+            // citation written from memory, not a typo, and it is the most
+            // common way to get this wrong.
+            let stem = candidate
+                .rsplit_once('.')
+                .map_or(candidate.as_str(), |(s, _)| s);
+            let distance = if candidate == wanted || stem == wanted {
+                0
+            } else {
+                edit_distance(&candidate, &wanted).min(edit_distance(stem, &wanted))
+            };
+            // Two edits on a short filename is most of it; scale with length.
+            let ceiling = (wanted.len() / 4).clamp(1, 3);
+            if distance <= ceiling && best.is_none_or(|(d, _)| distance < d) {
+                best = Some((distance, only));
+            }
+        }
+        best.map(|(_, path)| path.to_string())
+    }
+
     pub fn resolve(&self, source: &str) -> Option<String> {
         let cleaned = normalize(source);
         if cleaned.is_empty() {
@@ -259,10 +327,12 @@ mod tests {
 
         assert!(c.articles_for("raw/philosophy/notes.md").is_empty());
         assert!(c.articles_for("raw/coding/notes.md").is_empty());
-        assert_eq!(
-            c.unresolved,
-            [("wiki/a.md".to_string(), "notes.md".to_string())]
-        );
+        let seen: Vec<(String, String)> = c
+            .unresolved
+            .iter()
+            .map(|u| (u.article.clone(), u.source.clone()))
+            .collect();
+        assert_eq!(seen, [("wiki/a.md".to_string(), "notes.md".to_string())]);
     }
 
     #[test]

@@ -45,7 +45,7 @@ Every `severity: "error"` finding, in this order — earlier ones can mask later
 | `invalid-origin` / `invalid-status` | Correct to a value `sentinel schema` lists. |
 | `invalid-date` | Rewrite `created`/`updated` as `YYYY-MM-DD`. A date the tool cannot read, or one in the future, keeps the article out of the `review` step permanently — so this is worth fixing even though the prose is fine. Use the file's real modification date, not today's. |
 | `missing-raw-document` | The manifest registers a raw document that is not on disk. Do **not** edit the citing articles — they are correct and the file is missing. Restore it (check `git status`, a backup, or an interrupted `sentinel mv`), or `sentinel rm` the entry if it is genuinely gone. |
-| `unresolved-source` | The article cites a raw document that does not exist or is ambiguous. Find the real path with `sentinel uncompiled --json` or by looking in `raw/`. If the source was renamed or moved, use `sentinel mv` from now on — it repoints every citation in one step. If it is genuinely gone, remove the citation and say so in the report; do not invent one. |
+| `unresolved-source` | The article cites a raw document that does not exist or is ambiguous. Find the real path with `sentinel uncompiled --json` or by looking in `raw/`. If the source was renamed or moved, use `sentinel mv` from now on — it repoints every citation in one step. If it is genuinely gone, remove the citation and say so in the report; do not invent one. The message names the nearest registered path when there is one — take it, or run `sentinel uncompiled --json` to see what is registered. |
 
 Re-run `sentinel lint` after this pass. It should exit 0.
 
