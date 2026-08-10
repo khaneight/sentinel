@@ -66,6 +66,24 @@ fn disclosed(v: &serde_json::Value) -> usize {
 /// those owes the caller a disclosure. Enumerating by hand here would have
 /// produced a list of the three I had already fixed.
 fn read_commands() -> Vec<String> {
+    // Intersected with `--help`, because `src/commands/` also holds modules
+    // that are not subcommands — `dashboard` renders a page for `index` and has
+    // no CLI surface of its own to disclose anything through.
+    let help = std::process::Command::new(env!("CARGO_BIN_EXE_sentinel"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let help = String::from_utf8_lossy(&help.stdout);
+    let subcommands: Vec<String> = help
+        .split("Commands:")
+        .nth(1)
+        .and_then(|s| s.split("Options:").next())
+        .expect("--help lists commands")
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .map(str::to_string)
+        .collect();
+
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
     let mut found: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
@@ -82,6 +100,7 @@ fn read_commands() -> Vec<String> {
                 .to_string_lossy()
                 .replace('_', "-")
         })
+        .filter(|name| subcommands.contains(name))
         .collect();
     found.sort();
     assert!(

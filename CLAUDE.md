@@ -151,8 +151,12 @@ dumps the whole topology and is for humans.
 `sentinel log` with no arguments reads recent entries; with arguments it appends.
 
 `sentinel index` regenerates `_master.md`, `_by-domain.md`, `_recent.md`,
-`_orphans.md`, `_uncompiled.md`, the link graph, and the manifest's compilation
-mapping. `paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come
+`_orphans.md`, `_uncompiled.md`, `_dashboard.md`, the link graph, and the
+manifest's compilation mapping. `_dashboard.md` is the human-facing page —
+generated from `next::recommend`, `status::summarize`, `lint::analyze` and
+`schema`, never from a second definition, and capped so it cannot become
+`_master.md` in size. Agents should use `sentinel next --json` instead of
+the page; it carries the same facts without spending the context. `paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come
 from disk.
 
 ## Skills

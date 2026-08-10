@@ -13,30 +13,30 @@ use crate::core::wiki;
 
 #[derive(Serialize)]
 pub struct Status {
-    raw_documents: usize,
-    wiki_articles: usize,
-    uncompiled: usize,
-    orphan_pages: usize,
-    unresolved_sources: usize,
-    raw_domains: usize,
-    wiki_domains: usize,
+    pub raw_documents: usize,
+    pub wiki_articles: usize,
+    pub uncompiled: usize,
+    pub orphan_pages: usize,
+    pub unresolved_sources: usize,
+    pub raw_domains: usize,
+    pub wiki_domains: usize,
     /// Article counts by `status`. Nothing in the tool promotes an article, and
     /// `next` only surfaces a draft once it has gone stale — so an archive can
     /// be complete by every other measure while nothing in it has been
     /// reviewed, and report "nothing outstanding".
-    maturity: BTreeMap<String, usize>,
+    pub maturity: BTreeMap<String, usize>,
     /// Files under wiki/ that could not be read. Every count above is computed
     /// without them, so a non-zero value means the whole report is partial.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    unreadable: Vec<wiki::Unreadable>,
+    pub unreadable: Vec<wiki::Unreadable>,
     /// Set when the link graph exists but could not be parsed, in which case
     /// `orphan_pages` above is 0 because nothing could be counted.
     #[serde(skip_serializing_if = "Option::is_none")]
-    link_graph_error: Option<String>,
+    pub link_graph_error: Option<String>,
     /// Set when the graph parsed fine but no longer matches disk. Distinct from
     /// the error above: the count is real, it just describes an older archive.
     #[serde(skip_serializing_if = "Option::is_none")]
-    link_graph_stale: Option<String>,
+    pub link_graph_stale: Option<String>,
 }
 
 pub fn run() -> io::Result<()> {
