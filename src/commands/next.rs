@@ -231,7 +231,15 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
     let wanted = links::wanted(&articles);
-    let (orphans, graph_error, graph_stale) = orphan_articles(&articles);
+    let (mut orphans, graph_error, graph_stale) = orphan_articles(&articles);
+    // An orphan is a task only if the archive holds something that could link
+    // to it. With one article there is nothing to link *from*, so `connect`
+    // recommended a repair no amount of work could make: the same target on
+    // every run, forever, which is also `sentinel-grow`'s "same target twice"
+    // stop condition firing on the tool's own advice.
+    if articles.len() < 2 {
+        orphans.clear();
+    }
     let stale = stale_drafts(&articles);
 
     let progress = Progress {
@@ -306,7 +314,7 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
         .or_else(|| build(Action::Review))
         .unwrap_or_else(|| Recommendation {
             action: Action::None,
-            reason: nothing_outstanding(&articles),
+            reason: nothing_outstanding(&articles, manifest.count()),
             target_count: 0,
             targets: Vec::new(),
             suggested_command: None,
@@ -322,7 +330,17 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
 /// misleading: an archive where every article is a draft is complete by every
 /// measure the tool takes and has not been reviewed by anyone. Say so rather
 /// than let the silence imply otherwise.
-fn nothing_outstanding(articles: &[LoadedArticle]) -> String {
+fn nothing_outstanding(articles: &[LoadedArticle], raw_documents: usize) -> String {
+    // An archive with nothing in it has not finished; it has not begun. Saying
+    // "nothing outstanding" to somebody who just ran `init` is the worst
+    // available first message, because it reads as "you are done".
+    if articles.is_empty() && raw_documents == 0 {
+        return "This archive is empty. Bring in a source document to start:\n  \
+                sentinel ingest <file> -d <domain> -t \"<title>\"\n\
+                Then `sentinel next` will have something to recommend."
+            .to_string();
+    }
+
     let base = "Nothing outstanding. Every source is compiled, every link resolves, and no draft has stalled.";
     let drafts = articles
         .iter()
@@ -512,7 +530,11 @@ fn report_human(rec: &Recommendation) {
         println!("     orphans could not be counted.\n");
     }
     if rec.action == Action::None {
-        println!("{} {}", "✓".green(), rec.reason);
+        // A tick means "done". An archive nobody has put anything in yet is at
+        // the start, not the end, and the marker is the first thing read.
+        let empty = rec.progress.wiki_articles == 0 && rec.progress.raw_documents == 0;
+        let marker = if empty { "→".cyan() } else { "✓".green() };
+        println!("{marker} {}", rec.reason);
         return;
     }
 
