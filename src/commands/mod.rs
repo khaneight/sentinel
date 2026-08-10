@@ -1,4 +1,6 @@
 pub mod config;
+pub mod dashboard;
+pub mod export;
 pub mod graph;
 pub mod index;
 pub mod ingest;

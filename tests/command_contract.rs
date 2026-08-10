@@ -47,6 +47,9 @@ const COMMANDS: &[(&str, Kind)] = &[
     ("index", Kind::Mutating),
     ("mv", Kind::Mutating),
     ("rm", Kind::Mutating),
+    // Writes a tree outside the archive and appends to the log. Locked because
+    // it reads the whole wiki to decide what goes in it.
+    ("export", Kind::Mutating),
     // `init` only ever creates files that do not exist, so two of them racing
     // write identical content and neither can clobber the other's work. It
     // also runs before `meta/` exists, which is where the lock would live.
