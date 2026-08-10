@@ -48,6 +48,12 @@ pub fn render(generated_at: &str) -> io::Result<String> {
          archive as it was then — regenerate after any change. Do not edit.*\n"
     )
     .ok();
+    // A fingerprint of the numbers below, so `sentinel status` can tell a
+    // reader the page has gone stale. Modification time cannot do this job:
+    // `write_if_changed` correctly skips a rewrite when the content is
+    // identical, so an untouched dashboard keeps an old mtime forever and any
+    // check against it reports stale permanently.
+    writeln!(out, "{}\n", fingerprint_comment(&st)).ok();
 
     // --- 2. What to do next ------------------------------------------------
     writeln!(out, "## Next\n").ok();
@@ -105,9 +111,12 @@ pub fn render(generated_at: &str) -> io::Result<String> {
         writeln!(out, "\nRun `sentinel lint` for the findings themselves.\n").ok();
     }
 
-    // The disclosures the commands make, made here too. A dashboard that
-    // silently describes a partial archive is the failure this repo has fixed
-    // five times over.
+    // These three cannot currently fire: `index` calls `require_complete()`
+    // and refuses on a partial view, and it rebuilds and saves the graph before
+    // rendering this page. They stay because `render` is public and makes no
+    // such assumption — a standalone `sentinel dashboard` command would make
+    // them live the day it is added, and the alternative is a page that
+    // silently describes a partial archive.
     for note in [&st.link_graph_error, &st.link_graph_stale]
         .into_iter()
         .flatten()
@@ -150,9 +159,15 @@ pub fn render(generated_at: &str) -> io::Result<String> {
         .collect();
     if !entries.is_empty() {
         writeln!(out, "## Recent activity\n").ok();
+        // The total is of the list being sampled, and the sentence says which
+        // list that is. Counting against the *unfiltered* log would be more
+        // information and less correct: `index` appends on every rebuild, so
+        // the number would change on a run that altered nothing, and the page
+        // would never settle. Honesty and convergence pull against each other
+        // here; naming the filter satisfies both.
         writeln!(
             out,
-            "{} of {} entries:\n",
+            "{} of {} entries, `index` rebuilds omitted:\n",
             entries.len().min(ENTRY_LIMIT),
             entries.len()
         )
@@ -223,6 +238,40 @@ pub fn render(generated_at: &str) -> io::Result<String> {
     }
 
     Ok(out)
+}
+
+/// A stable summary of every count the page shows.
+///
+/// Covers what `status::summarize` knows, which is the Progress table. A
+/// recommendation that changes while every count stays equal would not be
+/// caught — narrow, and the honest alternative is rendering the whole page from
+/// `status`, which would have it do `next`'s work on every invocation.
+pub fn fingerprint(st: &status::Status) -> String {
+    let maturity: Vec<String> = st
+        .maturity
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
+    format!(
+        "a={} r={} u={} o={} {}",
+        st.wiki_articles,
+        st.raw_documents,
+        st.uncompiled,
+        st.orphan_pages,
+        maturity.join(",")
+    )
+}
+
+fn fingerprint_comment(st: &status::Status) -> String {
+    format!("<!-- sentinel-fingerprint: {} -->", fingerprint(st))
+}
+
+/// The fingerprint recorded in a generated page, if there is one.
+pub fn recorded_fingerprint(page: &str) -> Option<String> {
+    page.lines()
+        .find_map(|l| l.trim().strip_prefix("<!-- sentinel-fingerprint: "))
+        .and_then(|r| r.strip_suffix("-->"))
+        .map(|s| s.trim().to_string())
 }
 
 /// Skills linked into this archive, as (name, first sentence of description).

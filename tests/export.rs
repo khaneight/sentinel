@@ -298,3 +298,124 @@ fn it_refuses_on_a_partial_view() {
     assert!(!result.status.success(), "exported from a partial view");
     assert!(!out.exists(), "wrote a partial site before refusing");
 }
+
+#[test]
+fn an_unpublished_article_is_reported_as_still_readable() {
+    // Export is not incremental. An article unpublished since the last run sits
+    // in the destination, still served — and the likeliest reason to unpublish
+    // something is that it should not be public. Silence here is the dangerous
+    // direction of wrong.
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+    assert!(out.join("wiki/philosophy/beta.md").exists());
+
+    let beta = a.path("wiki/philosophy/beta.md");
+    let text = std::fs::read_to_string(&beta).unwrap();
+    std::fs::write(&beta, text.replace("status: stable", "status: draft")).unwrap();
+    a.run(&["index"]);
+
+    let v = a.json(&["export", "--out", &out.display().to_string()]);
+    assert_eq!(v["published"], 1, "{v}");
+    assert_eq!(
+        v["stale"][0], "wiki/philosophy/beta.md",
+        "the unpublished article was not reported:\n{v}"
+    );
+    assert_eq!(v["stale_removed"], false, "nothing should be deleted:\n{v}");
+    assert!(
+        out.join("wiki/philosophy/beta.md").exists(),
+        "export deleted a file without being asked"
+    );
+
+    let human = a.run(&["export", "--out", &out.display().to_string()]);
+    assert!(
+        human.contains("--clean"),
+        "it must say how to fix it:\n{human}"
+    );
+}
+
+#[test]
+fn clean_removes_exactly_the_stale_files() {
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+
+    let beta = a.path("wiki/philosophy/beta.md");
+    let text = std::fs::read_to_string(&beta).unwrap();
+    std::fs::write(&beta, text.replace("status: stable", "status: draft")).unwrap();
+    a.run(&["index"]);
+
+    a.run(&["export", "--out", &out.display().to_string(), "--clean"]);
+    assert!(
+        !out.join("wiki/philosophy/beta.md").exists(),
+        "--clean left the stale file"
+    );
+    assert!(
+        out.join("wiki/philosophy/alpha.md").exists(),
+        "--clean removed a file that is still published"
+    );
+}
+
+#[test]
+fn dry_run_does_not_clean_either() {
+    // `--dry-run` means nothing happens. A flag combination that deletes during
+    // a rehearsal would be the worst possible surprise.
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+
+    let beta = a.path("wiki/philosophy/beta.md");
+    let text = std::fs::read_to_string(&beta).unwrap();
+    std::fs::write(&beta, text.replace("status: stable", "status: draft")).unwrap();
+    a.run(&["index"]);
+
+    a.run(&[
+        "export",
+        "--out",
+        &out.display().to_string(),
+        "--clean",
+        "--dry-run",
+    ]);
+    assert!(
+        out.join("wiki/philosophy/beta.md").exists(),
+        "--dry-run --clean deleted a file"
+    );
+}
+
+#[test]
+fn a_status_list_that_names_nothing_is_refused() {
+    // `--status ""` selected nothing and reported "Publishable statuses: ." —
+    // indistinguishable from an archive where nothing happens to qualify.
+    let a = archive();
+    let out = a.path("out");
+    let result = a.output(&[
+        "export",
+        "--out",
+        &out.display().to_string(),
+        "--status",
+        "",
+    ]);
+    assert!(!result.status.success(), "empty --status was accepted");
+    let err = common::stderr(&result);
+    assert!(
+        err.contains("stable"),
+        "it must name the valid values:\n{err}"
+    );
+}
+
+#[test]
+fn the_two_status_selectors_cannot_both_be_given() {
+    // `--status` silently won and `--include-drafts` did nothing. A flag that
+    // parses and is ignored is worse than one that does not exist.
+    let a = archive();
+    let out = a.path("out");
+    let result = a.output(&[
+        "export",
+        "--out",
+        &out.display().to_string(),
+        "--status",
+        "stable",
+        "--include-drafts",
+    ]);
+    assert!(!result.status.success(), "both selectors were accepted");
+}

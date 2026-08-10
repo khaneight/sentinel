@@ -58,9 +58,11 @@ Both consume markdown with wikilinks, which is what `export` produces.
 It does not decide whether you may publish `raw/`. It never copies it, and that
 is the only safe default a tool can pick — the licence question is yours.
 
-It is not incremental. Each run writes the current publishable set; it does not
-remove files an earlier run left behind. Export into a fresh directory, or clear
-it first, if articles have since been unpublished.
+It is not incremental by default. Each run writes the current publishable set
+and **reports** anything already in the destination it did not write — an
+article unpublished since the last run is still sitting there, still readable.
+`--clean` removes those; nothing is ever deleted without asking, and `--dry-run`
+does not delete even with `--clean`.
 
 `export` is deliberately not reachable from any skill. An agent that can publish
 can publish a draft, and unlike everything else in this archive that is not

@@ -58,6 +58,17 @@ struct Neighbour {
 }
 
 pub fn run(node: Option<&str>, depth: usize) -> io::Result<()> {
+    // `--node ""` canonicalises to the empty slug, which matches nothing and
+    // produced a one-node neighbourhood of it — a confident answer about an
+    // article nobody asked for. `search` already refuses the same mistake.
+    if node.is_some_and(|n| n.trim().is_empty()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "`--node` needs a slug. Omit it entirely for the whole topology, \
+             or run `sentinel search <term>` to find the slug you meant.",
+        ));
+    }
+
     let graph = LinkGraph::load()?;
 
     // The graph is a cache that only `index` refreshes, so it can disagree with

@@ -45,6 +45,12 @@ struct Report {
     excluded: Vec<Excluded>,
     /// Wikilinks pointing outside the published set, rewritten to plain text.
     links_defused: usize,
+    /// Files already in the destination that this export would not write —
+    /// articles unpublished since a previous run. Still readable until removed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    stale: Vec<String>,
+    /// True when `--clean` removed them.
+    stale_removed: bool,
     /// True when nothing was written because `--dry-run` was given.
     dry_run: bool,
 }
@@ -54,6 +60,7 @@ pub fn run(
     statuses: Option<&str>,
     dry_run: bool,
     include_drafts: bool,
+    clean: bool,
 ) -> io::Result<i32> {
     // A partial view would silently publish less than the archive holds, and a
     // reader has no way to tell a missing article from one that was never
@@ -62,13 +69,31 @@ pub fn run(
     let articles = wiki::load_all()?.require_complete()?;
 
     let allowed: HashSet<String> = match (statuses, include_drafts) {
-        (Some(list), _) => list.split(',').map(|s| s.trim().to_lowercase()).collect(),
+        (Some(list), _) => list
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect(),
         (None, true) => ["stable", "review", "draft"]
             .iter()
             .map(|s| s.to_string())
             .collect(),
         (None, false) => DEFAULT_PUBLISHABLE.iter().map(|s| s.to_string()).collect(),
     };
+
+    // `--status ""` selected nothing and reported "Publishable statuses: ." —
+    // indistinguishable, to a reader of the output, from an archive where
+    // nothing happens to qualify.
+    if allowed.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "`--status` named no status. Give a comma-separated list, for \
+                 example `--status stable,review`. Valid values: {}.",
+                crate::core::frontmatter::STATUSES.join(", ")
+            ),
+        ));
+    }
 
     let destination = destination
         .map(PathBuf::from)
@@ -133,7 +158,26 @@ pub fn run(
         writes.push((destination.join(article.rel_path()), text));
     }
 
+    // An article unpublished since the last run is still sitting in the
+    // destination, still readable. For a publish command that is the dangerous
+    // direction of wrong: the likeliest reason to unpublish something is that
+    // it should not be public. Report it always; remove it only when asked.
+    let intended: HashSet<PathBuf> = writes.iter().map(|(p, _)| p.clone()).collect();
+    let mut stale: Vec<String> = existing_markdown(&destination)
+        .into_iter()
+        .filter(|p| !intended.contains(p))
+        .map(|p| {
+            p.strip_prefix(&destination)
+                .unwrap_or(&p)
+                .display()
+                .to_string()
+        })
+        .collect();
+    stale.sort();
+
     let report = Report {
+        stale: stale.clone(),
+        stale_removed: clean && !dry_run && !stale.is_empty(),
         destination: destination.display().to_string(),
         published: published.len(),
         excluded_count: excluded.len(),
@@ -143,6 +187,11 @@ pub fn run(
     };
 
     if !dry_run {
+        if clean {
+            for rel in &stale {
+                std::fs::remove_file(destination.join(rel))?;
+            }
+        }
         for (path, text) in &writes {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -190,6 +239,25 @@ pub fn run(
             println!("    ... and {} more", report.excluded_count - 5);
         }
     }
+    if !report.stale.is_empty() {
+        if report.stale_removed {
+            println!("  {} stale file(s) removed.", report.stale.len());
+        } else {
+            println!(
+                "  {} {} file(s) in the destination were not written by this \
+                 export and are still readable:",
+                "!".yellow(),
+                report.stale.len()
+            );
+            for rel in report.stale.iter().take(5) {
+                println!("      {rel}");
+            }
+            if report.stale.len() > 5 {
+                println!("      ... and {} more", report.stale.len() - 5);
+            }
+            println!("      Re-run with `--clean` to remove them.");
+        }
+    }
     if report.links_defused > 0 {
         println!(
             "  {} link(s) pointed outside the published set and were rendered \
@@ -201,6 +269,27 @@ pub fn run(
         println!("\n{}", "Dry run: nothing written.".yellow());
     }
     Ok(0)
+}
+
+/// Markdown already in the destination, so an export can see what it is
+/// replacing.
+fn existing_markdown(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.filter_map(Result::ok) {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                out.push(p);
+            }
+        }
+    }
+    out
 }
 
 /// Rewrite `[[targets]]` that no published article provides into plain text.

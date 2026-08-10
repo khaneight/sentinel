@@ -186,8 +186,11 @@ enum Commands {
         #[arg(long, value_name = "LIST")]
         status: Option<String>,
         /// Include drafts and articles under review as well.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "status")]
         include_drafts: bool,
+        /// Remove files in the destination that this export would not write
+        #[arg(long)]
+        clean: bool,
         /// Report what would be written without writing it.
         #[arg(long)]
         dry_run: bool,
@@ -358,8 +361,15 @@ fn run(cli: Cli) -> io::Result<i32> {
             out,
             status,
             include_drafts,
+            clean,
             dry_run,
-        } => commands::export::run(out.as_deref(), status.as_deref(), dry_run, include_drafts),
+        } => commands::export::run(
+            out.as_deref(),
+            status.as_deref(),
+            dry_run,
+            include_drafts,
+            clean,
+        ),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log {
             operation,

@@ -154,7 +154,8 @@ dumps the whole topology and is for humans.
 `status` qualifies (`stable` by default), with `[[links]]` to anything not
 published rewritten to plain text so the output has no dead ends. It renders no
 HTML — a static site generator that understands wikilinks takes it from there.
-It refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks.
+It refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks,
+and reports files a previous export left behind — `--clean` removes them.
 Publishing is not recoverable by re-running, so it refuses on a partial view and
 `--dry-run` reports without writing.
 [`docs/publishing.md`](docs/publishing.md) is the workflow.
