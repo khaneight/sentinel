@@ -354,3 +354,151 @@ fn every_command_a_new_user_meets_survives_an_empty_archive() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// The compile journey
+// ---------------------------------------------------------------------------
+
+/// An archive with three ingested sources and nothing compiled.
+fn three_sources() -> Journey {
+    let mut j = Journey::new();
+    for name in ["epictetus", "marcus", "seneca"] {
+        let f = j.write_scratch(&format!("{name}.txt"), "Discusses virtue and control.\n");
+        j.run(&[
+            "ingest",
+            &f.display().to_string(),
+            "-d",
+            "philosophy",
+            "-o",
+            "researched",
+            "-t",
+            name,
+        ]);
+    }
+    j
+}
+
+#[test]
+fn compiling_each_source_advances_the_queue_rather_than_repeating() {
+    // The compile rung must hand out a different source each time. Repeating
+    // one would be the same stuck-recommendation failure as `connect` on a
+    // one-article archive, and `sentinel-grow` halts on a repeated target.
+    let mut j = three_sources();
+    let mut compiled = Vec::new();
+
+    for _ in 0..3 {
+        let v = j.archive.json(&["next"]);
+        assert_eq!(v["action"], "compile", "{v}");
+        let target = v["targets"][0]["id"].as_str().unwrap().to_string();
+        assert!(
+            !compiled.contains(&target),
+            "`compile` offered {target} twice; the queue is not advancing: {compiled:?}{}",
+            j.transcript()
+        );
+        let slug = target.rsplit('/').next().unwrap().replace(".txt", "");
+        j.write_article(
+            &slug,
+            &[
+                ("title", &slug),
+                ("domain", "philosophy"),
+                ("origin", "researched"),
+                ("tags", "[t]"),
+                ("sources", &format!("[{target}]")),
+            ],
+            "On virtue.",
+        );
+        j.run(&["index"]);
+        compiled.push(target);
+    }
+
+    assert_ne!(
+        j.archive.json(&["next"])["action"],
+        "compile",
+        "every source is compiled and the queue should have moved on{}",
+        j.transcript()
+    );
+}
+
+#[test]
+fn a_mistyped_citation_says_what_was_probably_meant() {
+    // This is where the compile loop stalls, and "matches no raw document" left
+    // the reader to guess whether they mistyped, forgot to ingest, or used the
+    // wrong path form.
+    let j = three_sources();
+
+    for (cite, expected) in [
+        ("raw/philosophy/senca.txt", true),  // typo
+        ("raw/philosophy/Seneca.txt", true), // wrong case
+        ("Seneca", true),                    // from memory, no extension
+        ("raw/philosophy/nothing-like-it.md", false),
+    ] {
+        j.write_article(
+            "probe",
+            &[
+                ("title", "Probe"),
+                ("domain", "philosophy"),
+                ("origin", "authored"),
+                ("tags", "[t]"),
+                ("sources", &format!("[{cite}]")),
+            ],
+            "Body.",
+        );
+        let report = j.archive.json(&["lint"]);
+        let message = report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["rule"] == "unresolved-source")
+            .map(|f| f["message"].as_str().unwrap().to_string())
+            .unwrap_or_else(|| panic!("`{cite}` should not resolve"));
+
+        if expected {
+            assert!(
+                message.contains("Did you mean 'raw/philosophy/seneca.txt'?"),
+                "`{cite}` should suggest the near match:\n{message}"
+            );
+        } else {
+            assert!(
+                !message.contains("Did you mean"),
+                "`{cite}` resembles nothing; a wrong guess is worse than none:\n{message}"
+            );
+            assert!(
+                message.contains("sentinel uncompiled"),
+                "with no suggestion it must say how to list what exists:\n{message}"
+            );
+        }
+        std::fs::remove_file(j.archive.path("wiki/philosophy/probe.md")).unwrap();
+    }
+}
+
+#[test]
+fn the_three_path_forms_a_person_writes_all_resolve() {
+    // `sources:` is written by hand. These are the forms that appear in
+    // practice and all three are unambiguous.
+    let j = three_sources();
+    for cite in [
+        "raw/philosophy/seneca.txt",
+        "philosophy/seneca.txt",
+        "seneca.txt",
+        "./raw/philosophy/seneca.txt",
+    ] {
+        j.write_article(
+            "probe",
+            &[
+                ("title", "Probe"),
+                ("domain", "philosophy"),
+                ("origin", "authored"),
+                ("tags", "[t]"),
+                ("sources", &format!("[{cite}]")),
+            ],
+            "Body.",
+        );
+        let unresolved = j.archive.json(&["lint"])["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["rule"] == "unresolved-source");
+        assert!(!unresolved, "`{cite}` should resolve");
+        std::fs::remove_file(j.archive.path("wiki/philosophy/probe.md")).unwrap();
+    }
+}
