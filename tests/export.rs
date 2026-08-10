@@ -121,13 +121,53 @@ fn a_defused_link_keeps_the_words_it_was_written_with() {
 
     let alpha = std::fs::read_to_string(out.join("wiki/philosophy/alpha.md")).unwrap();
     assert!(
-        alpha.contains("and to secret."),
+        alpha.contains("and to Secret."),
         "the prose lost its words rather than its link:\n{alpha}"
     );
     assert!(
         alpha.contains("[[beta]]"),
         "a link to a published article was defused anyway:\n{alpha}"
     );
+}
+
+#[test]
+fn a_defused_link_reads_as_prose_not_as_a_filename() {
+    // `[[dichotomy-of-control]]` left as "dichotomy-of-control" puts a slug in
+    // a sentence a reader is meant to read. The archive knows the article's
+    // title even when it is not published.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "source");
+    a.run(&["sync"]);
+    a.write(
+        "wiki/philosophy/published.md",
+        "---\ntitle: Published\ndomain: philosophy\norigin: authored\nstatus: stable\n\
+         tags: [t]\nsources: [raw/philosophy/s.md]\n---\n\n\
+         Rests on [[held-back]], and on [[never-written]], and on [[held-back|its own words]].\n",
+    );
+    a.write(
+        "wiki/philosophy/held-back.md",
+        "---\ntitle: Dichotomy of Control\ndomain: philosophy\norigin: authored\n\
+         status: draft\ntags: [t]\nsources: [raw/philosophy/s.md]\n---\n\nDraft.\n",
+    );
+    a.run(&["index"]);
+
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+    let text = std::fs::read_to_string(out.join("wiki/philosophy/published.md")).unwrap();
+
+    assert!(
+        text.contains("Rests on Dichotomy of Control,"),
+        "an unpublished article should be named by its title:\n{text}"
+    );
+    assert!(
+        text.contains("its own words"),
+        "an explicit [[slug|Label]] was written for the reader; keep it:\n{text}"
+    );
+    assert!(
+        text.contains("on never-written,"),
+        "a concept with no article has no title to use; keep the target:\n{text}"
+    );
+    assert!(!text.contains("[["), "no links should survive:\n{text}");
 }
 
 #[test]

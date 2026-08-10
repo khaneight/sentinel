@@ -116,10 +116,19 @@ pub fn run(
     // publishing a forward declaration.
     let reachable: HashSet<String> = published.iter().map(|a| a.canonical_slug()).collect();
 
+    // Titles for every article, published or not, so a defused link can read
+    // as prose. `[[dichotomy-of-control]]` becoming "dichotomy-of-control" puts
+    // a filename in a sentence; the archive knows the article is called
+    // "Dichotomy of Control".
+    let titles: std::collections::HashMap<String, String> = articles
+        .iter()
+        .map(|a| (a.canonical_slug(), a.title().to_string()))
+        .collect();
+
     let mut links_defused = 0usize;
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
     for article in &published {
-        let (text, defused) = defuse_links(&article.content, &reachable);
+        let (text, defused) = defuse_links(&article.content, &reachable, &titles);
         links_defused += defused;
         writes.push((destination.join(article.rel_path()), text));
     }
@@ -199,7 +208,11 @@ pub fn run(
 /// Kept as text rather than deleted: the sentence was written to mention the
 /// concept, and removing the words changes what it says. Only the link is
 /// dropped, and `[[alias|Label]]` keeps its label.
-fn defuse_links(content: &str, reachable: &HashSet<String>) -> (String, usize) {
+fn defuse_links(
+    content: &str,
+    reachable: &HashSet<String>,
+    titles: &std::collections::HashMap<String, String>,
+) -> (String, usize) {
     let mut out = String::with_capacity(content.len());
     let mut rest = content;
     let mut defused = 0;
@@ -215,10 +228,18 @@ fn defuse_links(content: &str, reachable: &HashSet<String>) -> (String, usize) {
             Some((t, l)) => (t, l),
             None => (inner, inner),
         };
-        if reachable.contains(&slug::canonical(target)) {
+        let canonical = slug::canonical(target);
+        if reachable.contains(&canonical) {
             out.push_str(&rest[start..start + end + 2]);
         } else {
-            out.push_str(label);
+            // An explicit `[[slug|Label]]` was written for the reader already;
+            // keep it. Otherwise prefer the article's title over its filename,
+            // and fall back to the raw target when nothing is known about it —
+            // a forward-declared concept that was never written.
+            match (inner.contains('|'), titles.get(&canonical)) {
+                (false, Some(title)) => out.push_str(title),
+                _ => out.push_str(label),
+            }
             defused += 1;
         }
         rest = &rest[start + end + 2..];

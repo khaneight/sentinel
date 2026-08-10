@@ -45,8 +45,9 @@ Both consume markdown with wikilinks, which is what `export` produces.
 - Only articles whose `status` qualifies. `stable` by default; `--status
   draft,review` or `--include-drafts` to widen it, always explicitly.
 - **No dead links.** A `[[target]]` no published article provides is rewritten
-  to its own text — the words stay, the link goes. `[[slug|Label]]` keeps the
-  label.
+  to readable text — the words stay, the link goes. An unpublished article is
+  named by its title, not its filename; `[[slug|Label]]` keeps the label; a
+  concept that was never written keeps the target as written.
 - Nothing under `wiki/`, `raw/`, or `index/`, which `sentinel index` walks; an
   export there would be indexed as archive content on the next rebuild.
 - It refuses on a partial view. A reader cannot tell an article that failed to
