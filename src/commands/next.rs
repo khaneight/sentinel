@@ -74,7 +74,7 @@ impl Action {
 const MAX_REFS: usize = 5;
 
 #[derive(Serialize)]
-struct Target {
+pub struct Target {
     id: String,
     label: String,
     /// Why this target in particular — link demand, source title, age.
@@ -117,7 +117,7 @@ fn is_zero(n: &usize) -> bool {
 }
 
 #[derive(Serialize, Clone)]
-struct BacklogEntry {
+pub struct BacklogEntry {
     action: Action,
     count: usize,
 }
@@ -131,7 +131,7 @@ struct BacklogEntry {
 /// substantially richer. Progress is the archive advancing, not the queue
 /// shrinking.
 #[derive(Serialize, Clone)]
-struct Progress {
+pub struct Progress {
     wiki_articles: usize,
     raw_documents: usize,
     uncompiled: usize,
@@ -161,7 +161,7 @@ struct Progress {
 }
 
 #[derive(Serialize)]
-struct Recommendation {
+pub struct Recommendation {
     action: Action,
     reason: String,
     /// Targets in this category, before `MAX_TARGETS` was applied. Present
@@ -184,6 +184,22 @@ struct Recommendation {
 }
 
 pub fn run(requested: Option<Action>) -> io::Result<()> {
+    let recommendation = recommend(requested)?;
+    if output::is_json() {
+        return output::emit("next", recommendation);
+    }
+    report_human(&recommendation);
+    Ok(())
+}
+
+/// The recommendation, as a value.
+///
+/// Split out from `run` so `sentinel index` can put the same numbers in the
+/// dashboard it generates. A second implementation of "what is worth doing"
+/// would drift from this one, and the dashboard is exactly the surface where a
+/// stale definition would go unnoticed — nobody diffs a generated page against
+/// a command they did not run.
+pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
     // Not `unwrap_or_default()`. That discarded both the error and the list of
     // files that could not be read, so `next` ranked the whole archive from
     // whatever happened to be legible and said nothing about the rest.
@@ -263,17 +279,13 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
             requested: true,
         });
         rec.requested = true;
-        if output::is_json() {
-            return output::emit("next", rec);
-        }
-        report_human(&rec);
-        return Ok(());
+        return Ok(rec);
     }
 
     // Priority order. Errors first because every later judgement is made on
     // data the errors call into question; compile before write because an
     // uncompiled source is knowledge already in hand.
-    let recommendation = build(Action::FixErrors)
+    Ok(build(Action::FixErrors)
         .or_else(|| build(Action::Compile))
         .or_else(|| build(Action::Write))
         .or_else(|| build(Action::Connect))
@@ -287,14 +299,7 @@ pub fn run(requested: Option<Action>) -> io::Result<()> {
             backlog: backlog.clone(),
             progress: progress.clone(),
             requested: false,
-        });
-
-    if output::is_json() {
-        return output::emit("next", recommendation);
-    }
-
-    report_human(&recommendation);
-    Ok(())
+        }))
 }
 
 /// The terminal message.

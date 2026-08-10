@@ -12,7 +12,7 @@ use crate::core::paths;
 use crate::core::wiki;
 
 #[derive(Serialize)]
-struct Status {
+pub struct Status {
     raw_documents: usize,
     wiki_articles: usize,
     uncompiled: usize,
@@ -40,6 +40,20 @@ struct Status {
 }
 
 pub fn run() -> io::Result<()> {
+    let status = summarize()?;
+    if output::is_json() {
+        return output::emit("status", status);
+    }
+    report_human(&status);
+    Ok(())
+}
+
+/// The status report, as a value.
+///
+/// Split out for the same reason as `next::recommend`: `sentinel index` puts
+/// these counts in the dashboard, and computing them a second time is how two
+/// surfaces come to disagree about how many articles an archive has.
+pub fn summarize() -> io::Result<Status> {
     let root = paths::archive_root();
     if !root.exists() {
         return Err(io::Error::new(
@@ -98,10 +112,10 @@ pub fn run() -> io::Result<()> {
         link_graph_stale: graph_stale,
     };
 
-    if output::is_json() {
-        return output::emit("status", status);
-    }
+    Ok(status)
+}
 
+fn report_human(status: &Status) {
     println!("{}", "Archive Status".bold());
     println!("─────────────────────────────");
     println!(
@@ -140,8 +154,6 @@ pub fn run() -> io::Result<()> {
             status.unresolved_sources
         );
     }
-
-    Ok(())
 }
 
 fn count_nonempty_subdirs(dir: &std::path::Path) -> usize {
