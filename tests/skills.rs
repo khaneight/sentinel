@@ -232,6 +232,50 @@ fn the_growth_loop_is_bounded() {
 }
 
 #[test]
+fn readme_documents_every_implemented_command() {
+    // The README went stale on `sentinel export` because nothing compared it
+    // with the CLI. Enumerated from `--help`, so the next command added is
+    // documented on the day it ships rather than the day somebody notices.
+    let readme =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md")).unwrap();
+
+    // Commands a reader has no use for, with the reason.
+    const OMITTED: &[(&str, &str)] = &[
+        ("help", "clap builtin"),
+        ("ingest-repo", "unimplemented; exits non-zero with guidance"),
+    ];
+    let omitted: BTreeSet<&str> = OMITTED.iter().map(|(c, _)| *c).collect();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_sentinel"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let help = String::from_utf8_lossy(&out.stdout);
+    let subcommands: Vec<String> = help
+        .split("Commands:")
+        .nth(1)
+        .and_then(|s| s.split("Options:").next())
+        .expect("--help lists commands")
+        .lines()
+        .filter(|l| l.starts_with("  ") && !l.trim().is_empty())
+        .filter_map(|l| l.split_whitespace().next())
+        .map(str::to_string)
+        .collect();
+    assert!(subcommands.len() >= 10, "{subcommands:?}");
+
+    for command in &subcommands {
+        if omitted.contains(command.as_str()) {
+            continue;
+        }
+        assert!(
+            readme.contains(&format!("sentinel {command}")),
+            "README.md does not document `sentinel {command}`. Document it, or \
+             add it to OMITTED with a reason."
+        );
+    }
+}
+
+#[test]
 fn readme_documents_every_shipped_skill() {
     let readme =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md")).unwrap();
