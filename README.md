@@ -1,219 +1,117 @@
 # Sentinel
 
-CLI tooling for building a personal knowledge base with LLMs.
+CLI tooling for a personal knowledge base that an LLM builds and maintains.
 
-Most people's experience with LLMs and documents is stateless — upload files, get answers, nothing accumulates. Sentinel takes a different approach: the LLM **incrementally builds and maintains a persistent wiki** from your raw sources. When you add a document, the LLM reads it, extracts key ideas, and integrates them into an interconnected wiki — updating entity pages, noting contradictions, strengthening the evolving synthesis. The knowledge compounds over time instead of being re-derived on every query.
+Most work with LLMs and documents is stateless: upload, ask, discard. Sentinel keeps the result. You curate raw sources and ask questions; the agent compiles them into an interconnected wiki of markdown files, and the knowledge compounds instead of being re-derived every time.
 
-You never write the wiki yourself. You curate sources, ask questions, and direct the analysis. The LLM does the summarizing, cross-referencing, filing, and bookkeeping that makes a knowledge base actually useful. Sentinel is the CLI that manages the structure underneath.
+You never write the wiki yourself. Sentinel is the CLI underneath — it tracks provenance, finds the gaps, and tells the agent what is most worth doing next.
 
-Designed for use with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Obsidian](https://obsidian.md), but the wiki is just markdown files in a git repo.
+Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Obsidian](https://obsidian.md), but the archive is just markdown in a git repo.
 
 ## Install
 
 ```bash
-cargo install --path .
-```
-
-This puts `sentinel` in `~/.cargo/bin/`, which should be on your PATH.
-
-## Where your archive lives
-
-Your archive is an ordinary directory of markdown. Create one wherever you keep things:
-
-```bash
+cargo install --path .          # puts `sentinel` in ~/.cargo/bin
 sentinel init ~/Documents/archive --set-default
+ln -s /path/to/sentinel/skills ~/Documents/archive/.claude/skills
 ```
 
-`--set-default` records the path in `~/.config/sentinel/config.toml`, so every later command finds it from anywhere. Without it, sentinel resolves the archive in this order:
-
-| Precedence | Source |
-|---|---|
-| 1 | `--archive <PATH>` |
-| 2 | `SENTINEL_ARCHIVE` environment variable |
-| 3 | `archive = "..."` in `~/.config/sentinel/config.toml` |
-| 4 | the nearest parent directory containing `meta/manifest.json` |
-
-Rule 4 means that once you `cd` into your archive — or any subdirectory of it — sentinel just works, the way git does. If none of the rules match, sentinel tells you so and lists the fixes rather than writing files somewhere you didn't intend.
+## Quick start
 
 ```bash
-sentinel config     # which archive am I pointed at, and why?
+sentinel ingest paper.md -d philosophy -o researched -t "Some Paper"
+sentinel next                   # → compile
 ```
 
-Multiple archives are fine — keep them apart with `--archive`, or with a `SENTINEL_ARCHIVE` export per shell.
+Then, from an agent in the archive:
 
-## Skills
-
-Sentinel ships with agent skills — slash commands that let the LLM operate on your wiki. These are where the real work happens.
-
-### `/sentinel-grow [iterations]`
-
-Runs the loop. Asks `sentinel next` what is most worth doing, does it, re-checks, repeats — fixing errors, compiling sources, then writing the concepts your wiki has linked but not covered. Each article it writes tends to name new gaps, which become the next iteration's work.
-
-Bounded on purpose. It defaults to **3 iterations** and stops early when the backlog empties, when a pass makes no progress, or when it hits something that is your call to make. It never touches `raw/`, never deletes an article, and never stubs out a page to silence a warning. Every iteration is written to `meta/log.md`.
-
-### `/sentinel-compile`
-
-Process raw documents into wiki articles. The LLM reads each source, identifies key concepts, and creates or updates wiki pages with proper frontmatter and `[[wikilinks]]`. A single source might touch 10-15 pages. Preserves the author's voice for `authored` content — distills and organizes without editorializing.
-
-### `/sentinel-research <topic>`
-
-Research a topic via web search and add findings to the wiki. Creates a raw research document for provenance, then compiles into wiki articles marked `origin: researched`. When updating existing authored articles with research, uses `origin: hybrid` and keeps the author's ideas separate.
-
-### `/sentinel-ask <question>`
-
-Query the knowledge base. Searches for relevant pages, synthesizes an answer with citations, and keeps your own ideas distinct from researched content. It will offer to file an answer back into the wiki, but only when the work turned up a **connection no article records** — a knowledge base that files every answered question fills with restatements of what it already knew.
-
-### `/sentinel-improve`
-
-Health check and quality improvement pass. Finds broken links, missing frontmatter, orphan pages, thin articles, stale drafts, and missing cross-references. Fixes straightforward issues immediately, suggests deeper improvements for your review.
-
-All five read the archive through `sentinel --json` rather than by reading generated files, and take the frontmatter contract from `sentinel schema` instead of restating it. That keeps them working as the archive grows past the size where reading the master index is affordable.
-
-### Installing skills
-
-Symlink the skills directory into your archive's Claude Code config:
-
-```bash
-ln -s /path/to/sentinel/skills /path/to/archive/.claude/skills
+```
+/sentinel-grow                  # work the backlog until it empties
 ```
 
-## Usage
+`sentinel next` is the centre of the tool. It reads the whole archive and names the single most valuable thing to do, in priority order:
 
-```bash
-# 1. Initialize the archive directory structure
-#    Give it a path. Bare `sentinel init` only works in an empty directory —
-#    it refuses to scatter an archive across a populated one.
-sentinel init ~/Documents/archive --set-default
-
-# 2. Add your raw documents
-sentinel ingest path/to/essay.md -d philosophy -o authored
-sentinel ingest a/SKILL.md -d coding -t "Skill: compile"   # stored as skill-compile.md
-sentinel ingest path/to/notes.md -d research -o authored
-
-# 3. Or drop files directly into raw/ and register them
-sentinel sync
-
-# Now spin up your agent of choice and use the following skills
-
-# 4. Compile raw docs into wiki articles (LLM-driven)
-/sentinel-compile
-
-# 5. Research a topic and add findings (LLM-driven)
-/sentinel-research "stoic ethics"
-
-# 6. Ask questions against your wiki (LLM-driven)
-/sentinel-ask "what connections exist between stoicism and free will?"
-
-# 7. Health check and improve (LLM-driven)
-/sentinel-improve
-
-# 8. Or just let it work the backlog on its own
-/sentinel-grow
-```
-
-### CLI commands
-
-The skills above handle the LLM-driven work. These CLI commands handle the bookkeeping:
-
-```bash
-sentinel next            # what should I do next?
-sentinel schema          # frontmatter contract, domains, lint rules
-sentinel status          # overview of archive health
-sentinel uncompiled      # list raw docs no wiki article cites yet
-sentinel index           # rebuild indexes and link graph
-sentinel lint            # validate frontmatter, links, structure
-sentinel search "query"  # ranked search (top 20; --limit to widen)
-sentinel graph --node X  # what surrounds one article (--depth N)
-sentinel lint --summary  # counts per rule instead of every finding
-sentinel mv old.md new.md  # move a source, repointing every citation
-sentinel rm old.md       # delete a source (refuses if articles cite it)
-sentinel log op "detail" # append to activity log (meta/log.md)
-sentinel log             # recent activity, newest first (--limit N)
-```
-
-## What next?
+**fix errors → compile uncompiled sources → write concepts the wiki links but hasn't covered → connect orphans → revisit stalled drafts**
 
 ```console
 $ sentinel next
 Next: write
   2 concept(s) linked but not yet written; 'virtue' is referenced by 2 article(s)
 
-  • virtue
-    virtue — referenced by 2 articles
-  • ataraxia
-    ataraxia — referenced by wiki/philosophy/stoicism.md
+  • virtue — referenced by 2 articles
+  • ataraxia — referenced by wiki/philosophy/stoicism.md
 
   run: /sentinel-research virtue
-
-  also pending: 1 connect
 ```
 
-One command that reads the whole archive and tells you the most valuable thing to do, in priority order: fix errors → compile uncompiled sources → write the concepts your wiki links to but hasn't covered → connect orphans → revisit stalled drafts.
+The third rung is where the wiki feeds itself. Writing `[[virtue]]` in an article when no such page exists tells the archive what it is missing; `next` ranks those gaps by how many articles ask for each. Filling one usually creates new links, which name the next gap.
 
-That third step is where the wiki starts feeding itself. When you write `[[virtue]]` in an article and no such page exists, you've told the archive what it's missing. `sentinel next` ranks those gaps by how many articles ask for each one, so the most-wanted concept surfaces first — and `/sentinel-research virtue` fills it, which usually creates new links, which name the next gap.
+It converges rather than running away. On a real corpus, filling five top-ranked gaps took the outstanding count from 8 to 3 and orphans to zero — early articles name concepts that don't exist yet, later ones mostly link to pages already written.
 
-This converges rather than running away. Measured on a real corpus, filling five top-ranked gaps took the outstanding count from 8 to 3 and orphans to zero: early articles name concepts that don't exist yet, later ones mostly link to pages already written. The wiki completes what your sources imply and then stops — which is what keeps every page traceable to something you actually put in.
+## Skills
 
-`sentinel next --json` gives the same thing with a `backlog` count for every category, and `sentinel next --action write` jumps straight to a category the strict priority order would otherwise starve — useful when you have just ingested a pile of sources and want the wiki growing rather than only absorbing.
+Symlinked into the archive's `.claude/skills`, these are where the work happens. All five read the archive through `--json` and take the frontmatter contract from `sentinel schema` rather than restating it, so they keep working as the archive outgrows reading its own index.
 
-## Driving it from a script or an agent
-
-Every read command takes `--json`:
-
-```bash
-sentinel status --json
-sentinel lint --json
-sentinel uncompiled --json
-sentinel search "stoicism" --json
-sentinel graph --json
-sentinel config --json
-```
-
-Each payload carries `schema_version`, the `command` that produced it, and the `archive` it describes. Errors come back as JSON too, on stderr, so there is only ever one thing to parse.
-
-Exit codes distinguish "your archive has problems" from "sentinel broke":
-
-| Code | Meaning |
+| | |
 |---|---|
-| 0 | success |
-| 1 | the command failed |
-| 2 | the command ran and found problems |
+| `/sentinel-grow [n]` | Runs the loop: ask `next`, do it, re-check. **Bounded** — 3 iterations by default, stopping early when the backlog empties, a pass makes no progress, or something needs your judgement. Never touches `raw/`, never deletes an article, never stubs a page to silence a warning. Every iteration lands in `meta/log.md`. |
+| `/sentinel-compile` | Turn raw documents into wiki articles. One source may touch a dozen pages. Preserves the author's voice for `authored` material. |
+| `/sentinel-research <topic>` | Research via web search, file the trail under `raw/` as `origin: researched`, then compile it. |
+| `/sentinel-ask <question>` | Answer from the wiki with citations. Offers to file the answer back **only** when it found a connection no article records — otherwise a knowledge base fills with restatements of what it already knew. |
+| `/sentinel-improve` | Fix errors, work warnings that represent real loss, connect orphans, revisit stale drafts. |
 
-`sentinel lint` exits 2 when it finds **errors** — malformed frontmatter, invalid `origin`/`status`, colliding slugs, a `sources:` entry pointing at nothing. Warnings alone exit 0, because an archive with uncompiled sources and forward-declared `[[wikilinks]]` is a healthy archive mid-workflow, not a broken one. Use `--strict` to fail on warnings too.
+## CLI
 
 ```bash
-sentinel lint --json | jq -r '.findings[] | select(.severity=="error") | "\(.rule)\t\(.path)"'
+sentinel next                 # what to do next  (--json, --action <rung>)
+sentinel status               # counts and health
+sentinel schema               # frontmatter contract, domains, lint rules
+sentinel lint                 # validate frontmatter, links, manifest  (--summary, --strict, --rule X)
+sentinel index                # rebuild indexes, link graph, dashboard
+sentinel search "query"       # ranked, top 20  (--limit, --matches)
+sentinel graph --node X       # one article's neighbourhood  (--depth N)
+sentinel uncompiled           # raw docs no article cites yet
+sentinel ingest F -d D        # register a source  (-o origin, -t title, --as name)
+sentinel sync                 # register files dropped into raw/ by hand
+sentinel mv old new           # move a source, repointing every citation
+sentinel rm target            # delete a source, refusing if articles cite it
+sentinel export --out DIR     # the publishable subset  (see Publishing)
+sentinel log op "detail"      # append to the activity log; bare `log` reads it
+sentinel config               # which archive am I pointed at, and why?
 ```
 
-## Architecture
+## Where the archive lives
 
-Three layers, following the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern:
+Resolved in this order, first match wins:
 
-**Raw sources** — your curated collection of source documents. Articles, papers, notes, transcripts. Immutable — the LLM reads from them but never modifies them. This is your source of truth.
+| | |
+|---|---|
+| 1 | `--archive <PATH>` |
+| 2 | `SENTINEL_ARCHIVE` |
+| 3 | `archive = "…"` in `~/.config/sentinel/config.toml` (what `--set-default` writes) |
+| 4 | nearest parent directory containing `meta/manifest.json` |
 
-**The wiki** — LLM-generated markdown files. Summaries, entity pages, concept pages, comparisons, synthesis. The LLM owns this layer entirely — it creates pages, updates them when new sources arrive, maintains cross-references and wikilinks, and keeps everything consistent. You read it; the LLM writes it.
-
-**The schema** — `sentinel schema` publishes the machine-readable contract: frontmatter fields, accepted enum values, the domains this archive has, every lint rule. `sentinel init` also writes a `CLAUDE.md` into the archive with the conventions and workflow; you and the LLM co-evolve that over time, while `sentinel schema` stays generated from the code so it cannot drift.
+Rule 4 means sentinel works from anywhere inside the archive, the way git does. No match is an error listing the fixes, never a guess. `sentinel config` reports which rule applied.
 
 ```
 archive/
-  raw/          Source documents (immutable, never modified by sentinel)
-  wiki/         Compiled wiki articles (LLM-maintained, structured with frontmatter)
-  index/        Auto-generated indexes (rebuilt by sentinel index)
-  meta/         Machine state: manifest.json, link-graph.json, log.md
-  templates/    Article templates
+  raw/          source documents — immutable, never modified by sentinel
+  wiki/         compiled articles — the agent owns this layer
+  index/        generated: _master, _by-domain, _recent, _orphans, _uncompiled, _dashboard
+  meta/         manifest.json, link-graph.json, log.md
+  templates/    article templates, generated from the frontmatter contract
 ```
 
-## Wiki Article Format
+`index/_dashboard.md` is the one page to read: the current recommendation, every backlog rung, health by rule, progress, recent activity, and what the agent is instructed to do. Regenerated by `sentinel index`, and `sentinel status` tells you when it has fallen behind.
 
-Every wiki article uses YAML frontmatter:
+## Article format
 
 ```yaml
 ---
 title: Article Title
 domain: philosophy
 origin: authored | researched | hybrid
-tags: [topic1, topic2]
+tags: [topic, other]
 sources:
   - raw/philosophy/source-file.md
 related:
@@ -224,11 +122,39 @@ status: draft | review | stable
 ---
 ```
 
-The `sources:` field is what closes the loop. A raw document counts as compiled once at least one wiki article cites it, so `sentinel uncompiled` is a real work queue that empties as the wiki grows. An article with no `sources:` leaves its raw document stranded — `sentinel lint` says so.
+`sources:` closes the loop. A raw document counts as compiled once some article cites it, which makes `sentinel uncompiled` a work queue that empties as the wiki grows. `origin` records whether the content is the user's own writing (`authored`), gathered by research (`researched`), or both (`hybrid`) — it cannot be recovered from the file later, so `ingest -o` is worth getting right.
 
-- **authored** -- distilled from the user's own writings
-- **researched** -- gathered via AI research
-- **hybrid** -- user's ideas enriched with research
+## Publishing
+
+```bash
+sentinel export --out ./content --flat --clean
+```
+
+Writes only articles whose `status` qualifies (`stable` by default), rewrites links to unpublished articles as plain text so the output has no dead ends, and never copies `raw/` or `meta/`. It renders no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks.
+
+[`docs/publishing.md`](docs/publishing.md) has the verified Quartz setup and self-hosting options.
+
+## Scripting
+
+Every read command takes `--json`. Each payload carries `schema_version`, the `command`, and the `archive` it describes. Errors are JSON too, on stderr, so there is one thing to parse.
+
+| Exit | Meaning |
+|---|---|
+| 0 | success |
+| 1 | the command failed |
+| 2 | it ran and found problems |
+
+`lint` exits 2 on **errors** — malformed frontmatter, a missing required field, an invalid `origin`/`status`/date, colliding slugs, a `sources:` entry matching nothing, a manifest entry with no file. Warnings alone exit 0: an archive with uncompiled sources and forward-declared `[[wikilinks]]` is healthy mid-workflow, not broken. `--strict` fails on warnings too.
+
+```bash
+sentinel lint --json | jq -r '.findings[] | select(.severity=="error") | "\(.rule)\t\(.path)"'
+```
+
+## Design
+
+Three layers, following the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: **raw sources** you curate and sentinel never modifies; **the wiki** the agent owns entirely; and **the schema**, published by `sentinel schema` and generated from the code so it cannot drift from what the tool enforces.
+
+[`CLAUDE.md`](CLAUDE.md) states the invariants; [`docs/design-notes.md`](docs/design-notes.md) explains what went wrong to produce each one.
 
 ## License
 
