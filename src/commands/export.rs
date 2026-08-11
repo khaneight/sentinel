@@ -61,6 +61,7 @@ pub fn run(
     dry_run: bool,
     include_drafts: bool,
     clean: bool,
+    flat: bool,
 ) -> io::Result<i32> {
     // A partial view would silently publish less than the archive holds, and a
     // reader has no way to tell a missing article from one that was never
@@ -150,12 +151,33 @@ pub fn run(
         .map(|a| (a.canonical_slug(), a.title().to_string()))
         .collect();
 
+    // A site generator turns directories into URL segments, so `wiki/` would
+    // appear in every URL meaning nothing to a reader. The domain does mean
+    // something, so it stays unless the caller asks for flat.
+    let mut seen: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for article in &published {
+        let out = output_path(article.rel_path(), flat);
+        if let Some(other) = seen.insert(out.clone(), article.rel_path()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "`--flat` would write {} and {other} to the same file ({out}). \
+                     Drop `--flat` to keep them under their domains.",
+                    article.rel_path()
+                ),
+            ));
+        }
+    }
+
     let mut links_defused = 0usize;
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
     for article in &published {
         let (text, defused) = defuse_links(&article.content, &reachable, &titles);
         links_defused += defused;
-        writes.push((destination.join(article.rel_path()), text));
+        writes.push((
+            destination.join(output_path(article.rel_path(), flat)),
+            text,
+        ));
     }
 
     // An article unpublished since the last run is still sitting in the
@@ -269,6 +291,26 @@ pub fn run(
         println!("\n{}", "Dry run: nothing written.".yellow());
     }
     Ok(0)
+}
+
+/// Where an article lands in the export.
+///
+/// The archive stores `wiki/<domain>/<slug>.md`. That `wiki/` prefix is how the
+/// archive separates compiled articles from raw sources, and it means nothing
+/// once only articles are being published — it would just be a segment in every
+/// URL. The domain is kept because it groups the site the way the archive
+/// groups the wiki; `--flat` drops it too, for a site with one subject.
+fn output_path(rel_path: &str, flat: bool) -> String {
+    let without_prefix = rel_path.strip_prefix("wiki/").unwrap_or(rel_path);
+    if flat {
+        without_prefix
+            .rsplit('/')
+            .next()
+            .unwrap_or(without_prefix)
+            .to_string()
+    } else {
+        without_prefix.to_string()
+    }
 }
 
 /// Markdown already in the destination, so an export can see what it is

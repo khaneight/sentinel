@@ -71,7 +71,7 @@ fn only_stable_articles_are_published_by_default() {
 
     assert_eq!(
         exported(&a),
-        vec!["wiki/philosophy/alpha.md", "wiki/philosophy/beta.md"],
+        vec!["philosophy/alpha.md", "philosophy/beta.md"],
         "a draft was published"
     );
 }
@@ -119,7 +119,7 @@ fn a_defused_link_keeps_the_words_it_was_written_with() {
     let out = a.path("out");
     a.run(&["export", "--out", &out.display().to_string()]);
 
-    let alpha = std::fs::read_to_string(out.join("wiki/philosophy/alpha.md")).unwrap();
+    let alpha = std::fs::read_to_string(out.join("philosophy/alpha.md")).unwrap();
     assert!(
         alpha.contains("and to Secret."),
         "the prose lost its words rather than its link:\n{alpha}"
@@ -153,7 +153,7 @@ fn a_defused_link_reads_as_prose_not_as_a_filename() {
 
     let out = a.path("out");
     a.run(&["export", "--out", &out.display().to_string()]);
-    let text = std::fs::read_to_string(out.join("wiki/philosophy/published.md")).unwrap();
+    let text = std::fs::read_to_string(out.join("philosophy/published.md")).unwrap();
 
     assert!(
         text.contains("Rests on Dichotomy of Control,"),
@@ -229,7 +229,7 @@ fn status_selection_is_explicit_and_overridable() {
     ]);
     assert_eq!(
         exported(&a),
-        vec!["wiki/philosophy/secret.md"],
+        vec!["philosophy/secret.md"],
         "--status did not select what was asked for"
     );
 }
@@ -308,7 +308,7 @@ fn an_unpublished_article_is_reported_as_still_readable() {
     let a = archive();
     let out = a.path("out");
     a.run(&["export", "--out", &out.display().to_string()]);
-    assert!(out.join("wiki/philosophy/beta.md").exists());
+    assert!(out.join("philosophy/beta.md").exists());
 
     let beta = a.path("wiki/philosophy/beta.md");
     let text = std::fs::read_to_string(&beta).unwrap();
@@ -318,12 +318,12 @@ fn an_unpublished_article_is_reported_as_still_readable() {
     let v = a.json(&["export", "--out", &out.display().to_string()]);
     assert_eq!(v["published"], 1, "{v}");
     assert_eq!(
-        v["stale"][0], "wiki/philosophy/beta.md",
+        v["stale"][0], "philosophy/beta.md",
         "the unpublished article was not reported:\n{v}"
     );
     assert_eq!(v["stale_removed"], false, "nothing should be deleted:\n{v}");
     assert!(
-        out.join("wiki/philosophy/beta.md").exists(),
+        out.join("philosophy/beta.md").exists(),
         "export deleted a file without being asked"
     );
 
@@ -347,11 +347,11 @@ fn clean_removes_exactly_the_stale_files() {
 
     a.run(&["export", "--out", &out.display().to_string(), "--clean"]);
     assert!(
-        !out.join("wiki/philosophy/beta.md").exists(),
+        !out.join("philosophy/beta.md").exists(),
         "--clean left the stale file"
     );
     assert!(
-        out.join("wiki/philosophy/alpha.md").exists(),
+        out.join("philosophy/alpha.md").exists(),
         "--clean removed a file that is still published"
     );
 }
@@ -377,7 +377,7 @@ fn dry_run_does_not_clean_either() {
         "--dry-run",
     ]);
     assert!(
-        out.join("wiki/philosophy/beta.md").exists(),
+        out.join("philosophy/beta.md").exists(),
         "--dry-run --clean deleted a file"
     );
 }
@@ -418,4 +418,86 @@ fn the_two_status_selectors_cannot_both_be_given() {
         "--include-drafts",
     ]);
     assert!(!result.status.success(), "both selectors were accepted");
+}
+
+#[test]
+fn the_export_drops_the_wiki_prefix_but_keeps_the_domain() {
+    // A site generator turns directories into URL segments. `wiki/` is how the
+    // archive separates articles from raw sources; once only articles are being
+    // published it means nothing, and it appeared in every URL. The domain does
+    // group the site the way it groups the wiki, so it stays.
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+
+    assert!(
+        out.join("philosophy/alpha.md").exists(),
+        "{:?}",
+        exported(&a)
+    );
+    assert!(
+        !out.join("wiki").exists(),
+        "the wiki/ prefix would be a segment in every URL"
+    );
+}
+
+#[test]
+fn flat_drops_the_domain_too() {
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string(), "--flat"]);
+
+    assert_eq!(
+        exported(&a),
+        vec!["alpha.md", "beta.md"],
+        "--flat should write at the top level"
+    );
+}
+
+#[test]
+fn flat_refuses_rather_than_overwriting_a_collision() {
+    // `duplicate-slug` is a lint error, so this should not arise — but "should
+    // not arise" is how an export silently loses an article.
+    let a = Archive::new();
+    a.write("raw/philosophy/s.md", "text");
+    a.run(&["sync"]);
+    for domain in ["philosophy", "coding"] {
+        a.write(
+            &format!("wiki/{domain}/ethics.md"),
+            &format!(
+                "---\ntitle: {domain} ethics\ndomain: {domain}\norigin: authored\n\
+                 status: stable\ntags: [t]\nsources: [raw/philosophy/s.md]\n---\n\nBody.\n"
+            ),
+        );
+    }
+
+    let out = a.path("out");
+    let result = a.output(&["export", "--out", &out.display().to_string(), "--flat"]);
+    assert!(!result.status.success(), "a collision was written anyway");
+    let err = common::stderr(&result);
+    assert!(
+        err.contains("--flat"),
+        "the refusal must name the cause:\n{err}"
+    );
+
+    // Without --flat the two are distinct and both publish.
+    assert_eq!(a.code(&["export", "--out", &out.display().to_string()]), 0);
+    assert_eq!(exported(&a).len(), 2);
+}
+
+#[test]
+fn stale_detection_still_works_with_the_new_shape() {
+    // Stale files are compared against the paths this export *would* write, so
+    // reshaping them is exactly the change that could break it.
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+
+    let beta = a.path("wiki/philosophy/beta.md");
+    let text = std::fs::read_to_string(&beta).unwrap();
+    std::fs::write(&beta, text.replace("status: stable", "status: draft")).unwrap();
+    a.run(&["index"]);
+
+    let v = a.json(&["export", "--out", &out.display().to_string()]);
+    assert_eq!(v["stale"][0], "philosophy/beta.md", "{v}");
 }
