@@ -158,7 +158,10 @@ It refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks,
 and reports files a previous export left behind — `--clean` removes them.
 Publishing is not recoverable by re-running, so it refuses on a partial view and
 `--dry-run` reports without writing.
-[`docs/publishing.md`](docs/publishing.md) is the workflow.
+Articles land at `<domain>/<slug>.md`, or `<slug>.md` with `--flat`; the `wiki/`
+prefix is dropped because a site generator turns directories into URL segments.
+[`docs/publishing.md`](docs/publishing.md) is the workflow, including a verified
+Quartz setup.
 
 `sentinel index` regenerates `_master.md`, `_by-domain.md`, `_recent.md`,
 `_orphans.md`, `_uncompiled.md`, `_dashboard.md`, the link graph, and the

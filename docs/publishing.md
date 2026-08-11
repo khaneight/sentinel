@@ -31,14 +31,58 @@ sentinel export --dry-run        # what would go, and what is held back
 sentinel export --out ./publish
 ```
 
-Then point a generator at `./publish`:
+Then point a generator at `./publish`. Two that consume markdown with wikilinks:
 
-- **[Quartz](https://quartz.jzhao.xyz)** — built for Obsidian vaults, understands
-  wikilinks and renders a graph. Free, static output, hosts anywhere.
+- **[Quartz](https://quartz.jzhao.xyz)** — built for Obsidian vaults, renders a
+  graph, search and backlinks. Free, static output, hosts anywhere. Setup below.
 - **Obsidian Publish** — no build step, paid, and it publishes from the vault
   rather than from an export, so you would be choosing pages by hand instead.
 
-Both consume markdown with wikilinks, which is what `export` produces.
+## Quartz, end to end
+
+Verified against the 26-article corpus on Quartz **v5.0.0**. It needs Node ≥22
+and npm ≥10.9.2.
+
+```
+git clone --depth 1 https://github.com/jackyzha0/quartz.git
+cd quartz && npm i
+npx quartz plugin install --from-config
+
+sentinel export --out ./content --flat --clean
+npx quartz build --serve          # http://localhost:8080
+```
+
+`--flat` writes every article at the top level, which is what Quartz's `content/`
+expects; without it you get `/<domain>/<slug>`, which is the better shape once
+the archive covers more than one subject. `--clean` removes articles you have
+since unpublished — without it they stay on the site.
+
+What that produced here:
+
+```
+Parsed 26 Markdown files in 129ms · Emitted 130 files in 3s
+39 HTML pages · 0 unresolved internal links
+graph, search and backlinks all present
+1.8 MB of static output
+```
+
+`node_modules` is ~240 MB but is build-time only; nothing in it ships.
+
+## Self-hosting the built site
+
+`quartz build` writes plain static files to `public/`. Anything that serves a
+directory will do:
+
+| | |
+|---|---|
+| **Caddy** | `caddy file-server --root public --domain wiki.example.com` — automatic HTTPS, single binary |
+| **nginx / Apache** | point `root` at `public/` |
+| **Docker** | `nginx:alpine` plus `COPY public /usr/share/nginx/html`, ~25 MB image |
+| **Tailscale** | bind any of the above to the tailnet for a private wiki |
+| **Pages hosts** | GitHub, Cloudflare, Netlify, Vercel — not self-hosting, but `npx quartz sync` pushes |
+
+The Tailscale route is worth considering while the `raw/` licensing question is
+open: nothing is publicly reachable, so the question does not arise yet.
 
 ## What it guarantees
 

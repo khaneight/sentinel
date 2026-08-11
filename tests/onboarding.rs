@@ -298,9 +298,7 @@ fn the_whole_loop_runs_from_empty_to_published() {
     let (code, text) = (step.code, step.output());
     assert_eq!(code, 0, "{text}");
     assert_eq!(
-        std::fs::read_dir(site.join("wiki/philosophy"))
-            .unwrap()
-            .count(),
+        std::fs::read_dir(site.join("philosophy")).unwrap().count(),
         2,
         "both stable articles should publish{}",
         j.transcript()

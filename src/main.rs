@@ -191,6 +191,9 @@ enum Commands {
         /// Remove files in the destination that this export would not write
         #[arg(long)]
         clean: bool,
+        /// Write every article at the top level instead of under its domain
+        #[arg(long)]
+        flat: bool,
         /// Report what would be written without writing it.
         #[arg(long)]
         dry_run: bool,
@@ -362,6 +365,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             status,
             include_drafts,
             clean,
+            flat,
             dry_run,
         } => commands::export::run(
             out.as_deref(),
@@ -369,6 +373,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             dry_run,
             include_drafts,
             clean,
+            flat,
         ),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log {
