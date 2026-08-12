@@ -501,3 +501,118 @@ fn stale_detection_still_works_with_the_new_shape() {
     let v = a.json(&["export", "--out", &out.display().to_string()]);
     assert_eq!(v["stale"][0], "philosophy/beta.md", "{v}");
 }
+
+// ---------------------------------------------------------------------------
+// The data bundle a front end consumes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_bundle_describes_only_what_was_published() {
+    // The graph is served beside the site. An edge to an article nobody can
+    // open is not a connection a reader can follow, and a node for a draft
+    // would leak its existence.
+    let a = archive();
+    let out = a.path("out");
+    let data = a.path("data.json");
+    a.run(&[
+        "export",
+        "--out",
+        &out.display().to_string(),
+        "--data",
+        &data.display().to_string(),
+    ]);
+
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&data).unwrap()).unwrap();
+    let slugs: Vec<&str> = v["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["slug"].as_str().unwrap())
+        .collect();
+    assert_eq!(slugs, vec!["alpha", "beta"], "a draft reached the bundle");
+
+    for e in v["edges"].as_array().unwrap() {
+        for end in ["from", "to"] {
+            assert!(
+                slugs.contains(&e[end].as_str().unwrap()),
+                "edge {end} points outside the published set: {e}"
+            );
+        }
+    }
+    assert!(v["nodes"][0]["inbound"].is_number(), "{v}");
+}
+
+#[test]
+fn the_bundle_carries_the_progress_history() {
+    let a = archive();
+    a.run(&["index"]);
+    let out = a.path("out");
+    let data = a.path("data.json");
+    a.run(&[
+        "export",
+        "--out",
+        &out.display().to_string(),
+        "--data",
+        &data.display().to_string(),
+    ]);
+
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&data).unwrap()).unwrap();
+    let progress = v["progress"].as_array().unwrap();
+    assert!(
+        !progress.is_empty(),
+        "index should have recorded a snapshot"
+    );
+    for field in ["at", "wiki_articles", "links", "wanted", "orphans"] {
+        assert!(progress[0].get(field).is_some(), "missing {field}: {v}");
+    }
+    assert_eq!(v["unreadable_snapshots"], 0);
+}
+
+#[test]
+fn no_bundle_is_written_without_the_flag_or_during_a_dry_run() {
+    let a = archive();
+    let out = a.path("out");
+    let data = a.path("data.json");
+
+    a.run(&["export", "--out", &out.display().to_string()]);
+    assert!(!data.exists(), "a bundle appeared without --data");
+
+    a.run(&[
+        "export",
+        "--out",
+        &out.display().to_string(),
+        "--data",
+        &data.display().to_string(),
+        "--dry-run",
+    ]);
+    assert!(!data.exists(), "--dry-run wrote a bundle");
+}
+
+#[test]
+fn a_rebuild_that_changes_nothing_adds_no_history() {
+    // Otherwise the file records how often `index` ran rather than what the
+    // archive did — the same rule as `write_if_changed`.
+    let a = archive();
+    a.run(&["index"]);
+    let path = a.path("meta/progress.jsonl");
+    let lines = |p: &std::path::Path| std::fs::read_to_string(p).unwrap().lines().count();
+    let before = lines(&path);
+
+    a.run(&["index"]);
+    a.run(&["index"]);
+    assert_eq!(
+        lines(&path),
+        before,
+        "an unchanged rebuild added a snapshot"
+    );
+
+    a.write(
+        "wiki/philosophy/late.md",
+        "---\ntitle: Late\ndomain: philosophy\norigin: authored\nstatus: stable\n\
+         tags: [t]\nsources: [raw/philosophy/s.md]\n---\n\nBody.\n",
+    );
+    a.run(&["index"]);
+    assert_eq!(lines(&path), before + 1, "a real change was not recorded");
+}

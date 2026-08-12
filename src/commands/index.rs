@@ -200,6 +200,23 @@ pub fn run() -> io::Result<()> {
     let dashboard = super::dashboard::render(&generated_at)?;
     atomic::write_if_changed(&paths::index_dir().join("_dashboard.md"), dashboard)?;
 
+    // A measurement of the archive, after every derived thing is current.
+    // Appended only when the counts differ from the last one, so the file is a
+    // history of the archive rather than of how often `index` ran.
+    let findings = crate::core::lint::analyze(&articles, &manifest, &paths::archive_root());
+    let snapshot = crate::core::history::Snapshot {
+        at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+        wiki_articles: sorted.len(),
+        raw_documents: manifest.count(),
+        uncompiled,
+        orphans: orphans.len(),
+        errors: crate::core::lint::count(&findings, crate::core::lint::Severity::Error),
+        warnings: crate::core::lint::count(&findings, crate::core::lint::Severity::Warning),
+        wanted: links::wanted(&articles).len(),
+        links: graph.forward.values().map(Vec::len).sum(),
+    };
+    crate::core::history::record(&snapshot)?;
+
     // Generated output is deterministic, so an index that changed nothing is a
     // no-op — and logging it would be a change where there was none.
     if wrote || remapped > 0 {

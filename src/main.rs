@@ -194,6 +194,9 @@ enum Commands {
         /// Write every article at the top level instead of under its domain
         #[arg(long)]
         flat: bool,
+        /// Also write a JSON bundle for a front end: graph, metadata, history
+        #[arg(long, value_name = "FILE")]
+        data: Option<std::path::PathBuf>,
         /// Report what would be written without writing it.
         #[arg(long)]
         dry_run: bool,
@@ -366,6 +369,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             include_drafts,
             clean,
             flat,
+            data,
             dry_run,
         } => commands::export::run(
             out.as_deref(),
@@ -374,6 +378,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             include_drafts,
             clean,
             flat,
+            data.as_deref(),
         ),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log {

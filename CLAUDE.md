@@ -156,6 +156,10 @@ published rewritten to plain text so the output has no dead ends. It renders no
 HTML — a static site generator that understands wikilinks takes it from there.
 It refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks,
 and reports files a previous export left behind — `--clean` removes them.
+`--data <file>` also emits a JSON bundle for a front end: published nodes and
+edges, and the progress history. `meta/progress.jsonl` is that history — one
+snapshot per `index` **that changed something**, so it records the archive
+rather than how often a command ran.
 Publishing is not recoverable by re-running, so it refuses on a partial view and
 `--dry-run` reports without writing.
 Articles land at `<domain>/<slug>.md`, or `<slug>.md` with `--flat`; the `wiki/`
