@@ -51,6 +51,8 @@ struct Report {
     stale: Vec<String>,
     /// True when `--clean` removed them.
     stale_removed: bool,
+    /// True when the destination had no landing page and one was scaffolded.
+    wrote_landing: bool,
     /// True when nothing was written because `--dry-run` was given.
     dry_run: bool,
 }
@@ -185,10 +187,25 @@ pub fn run(
     // destination, still readable. For a publish command that is the dangerous
     // direction of wrong: the likeliest reason to unpublish something is that
     // it should not be public. Report it always; remove it only when asked.
+    // Only files this tool plausibly wrote are candidates. `--clean` used to
+    // remove any markdown it had not just written, which deleted the site
+    // generator's own landing page and would have taken a hand-written
+    // `about.md` with it — the documented workflow produced a site whose home
+    // page was "Not Found".
+    //
+    // No bookkeeping needed to tell them apart: a file whose stem matches an
+    // article in this archive is one an export produced. Anything else belongs
+    // to whoever put it there.
+    let known: HashSet<String> = articles.iter().map(|a| a.canonical_slug()).collect();
     let intended: HashSet<PathBuf> = writes.iter().map(|(p, _)| p.clone()).collect();
     let mut stale: Vec<String> = existing_markdown(&destination)
         .into_iter()
         .filter(|p| !intended.contains(p))
+        .filter(|p| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|stem| known.contains(&slug::canonical(stem)))
+        })
         .map(|p| {
             p.strip_prefix(&destination)
                 .unwrap_or(&p)
@@ -209,7 +226,15 @@ pub fn run(
         crate::core::atomic::write(data_path, serde_json::to_string_pretty(&payload)?)?;
     }
 
+    // A site with no landing page serves a 404 at its root. Written only when
+    // the destination has none, the way `init` treats the files it scaffolds:
+    // the first export produces a working site, and anything the user writes
+    // afterwards is theirs.
+    let landing = destination.join("index.md");
+    let wrote_landing = !dry_run && !landing.exists();
+
     let report = Report {
+        wrote_landing,
         stale: stale.clone(),
         stale_removed: clean && !dry_run && !stale.is_empty(),
         destination: destination.display().to_string(),
@@ -231,6 +256,11 @@ pub fn run(
                 std::fs::create_dir_all(parent)?;
             }
             crate::core::atomic::write(path, text)?;
+        }
+        // After the articles, so the destination directory exists.
+        if wrote_landing {
+            std::fs::create_dir_all(&destination)?;
+            crate::core::atomic::write(&landing, landing_page(&published))?;
         }
         crate::core::log::append(
             "export",
@@ -291,6 +321,9 @@ pub fn run(
             }
             println!("      Re-run with `--clean` to remove them.");
         }
+    }
+    if report.wrote_landing {
+        println!("  index.md scaffolded — the destination had no landing page.");
     }
     if report.links_defused > 0 {
         println!(
@@ -399,6 +432,36 @@ fn bundle(
         progress,
         unreadable_snapshots,
     })
+}
+
+/// A starting landing page, so the first export serves something at `/`.
+///
+/// Deliberately plain and short. It exists so the site works, and says it is
+/// meant to be replaced — a generated front page that tried to be good would
+/// be one more thing asserting facts nobody maintains.
+fn landing_page(published: &[&wiki::LoadedArticle]) -> String {
+    let mut domains: Vec<&str> = published
+        .iter()
+        .filter_map(|a| a.article.frontmatter.domain.as_deref())
+        .collect();
+    domains.sort_unstable();
+    domains.dedup();
+
+    let mut out = String::from("---\ntitle: Home\n---\n\n");
+    out.push_str(&format!(
+        "{} article(s) across {}.\n\n",
+        published.len(),
+        if domains.is_empty() {
+            "no domains yet".to_string()
+        } else {
+            domains.join(", ")
+        }
+    ));
+    out.push_str(
+        "*`sentinel export` wrote this page because the destination had none. \
+         Replace it — it will not be overwritten.*\n",
+    );
+    out
 }
 
 /// Where an article lands in the export.
