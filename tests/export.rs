@@ -53,7 +53,12 @@ fn exported(a: &Archive) -> Vec<String> {
             if p.is_dir() {
                 stack.push(p);
             } else {
-                found.push(p.strip_prefix(&dir).unwrap().display().to_string());
+                let rel = p.strip_prefix(&dir).unwrap().display().to_string();
+                // The scaffolded landing page is not an article. The two tests
+                // that care about it look for it directly.
+                if rel != "index.md" {
+                    found.push(rel);
+                }
             }
         }
     }
@@ -615,4 +620,77 @@ fn a_rebuild_that_changes_nothing_adds_no_history() {
     );
     a.run(&["index"]);
     assert_eq!(lines(&path), before + 1, "a real change was not recorded");
+}
+
+#[test]
+fn clean_leaves_alone_what_this_tool_did_not_write() {
+    // `--clean` removed any markdown it had not just written, which deleted the
+    // site generator's own landing page — the documented workflow produced a
+    // site whose root served "Not Found" — and would have taken a hand-written
+    // about page with it.
+    let a = archive();
+    let out = a.path("out");
+    a.run(&["export", "--out", &out.display().to_string()]);
+
+    std::fs::write(out.join("about.md"), "---\ntitle: About\n---\nMine.\n").unwrap();
+    std::fs::write(out.join("index.md"), "---\ntitle: Home\n---\nMine too.\n").unwrap();
+
+    // Unpublish one article so --clean has real work to do.
+    let beta = a.path("wiki/philosophy/beta.md");
+    let text = std::fs::read_to_string(&beta).unwrap();
+    std::fs::write(&beta, text.replace("status: stable", "status: draft")).unwrap();
+    a.run(&["index"]);
+    a.run(&["export", "--out", &out.display().to_string(), "--clean"]);
+
+    assert!(
+        out.join("about.md").exists(),
+        "--clean deleted a hand-written page"
+    );
+    assert_eq!(
+        std::fs::read_to_string(out.join("index.md"))
+            .unwrap()
+            .trim_end(),
+        "---\ntitle: Home\n---\nMine too.",
+        "--clean overwrote a hand-written landing page"
+    );
+    assert!(
+        !out.join("philosophy/beta.md").exists() && !out.join("beta.md").exists(),
+        "--clean failed to remove the unpublished article, which is its job"
+    );
+}
+
+#[test]
+fn a_destination_with_no_landing_page_gets_one() {
+    // A site whose root is a 404 is not a working site, and following the
+    // documented steps produced exactly that.
+    let a = archive();
+    let out = a.path("out");
+    let text = a.run(&["export", "--out", &out.display().to_string(), "--flat"]);
+
+    let landing = out.join("index.md");
+    assert!(landing.exists(), "no landing page:\n{text}");
+    let body = std::fs::read_to_string(&landing).unwrap();
+    assert!(body.contains("title: Home"), "{body}");
+    assert!(
+        body.contains("Replace it"),
+        "a scaffolded page must say it is a starting point:\n{body}"
+    );
+    assert!(
+        text.contains("scaffolded"),
+        "the export should say so:\n{text}"
+    );
+}
+
+#[test]
+fn an_existing_landing_page_is_never_touched() {
+    let a = archive();
+    let out = a.path("out");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("index.md"), "mine").unwrap();
+
+    a.run(&["export", "--out", &out.display().to_string(), "--flat"]);
+    assert_eq!(
+        std::fs::read_to_string(out.join("index.md")).unwrap(),
+        "mine"
+    );
 }
