@@ -62,6 +62,7 @@ pub fn run(
     include_drafts: bool,
     clean: bool,
     flat: bool,
+    data: Option<&Path>,
 ) -> io::Result<i32> {
     // A partial view would silently publish less than the archive holds, and a
     // reader has no way to tell a missing article from one that was never
@@ -197,6 +198,17 @@ pub fn run(
         .collect();
     stale.sort();
 
+    if let Some(data_path) = data
+        && !dry_run
+    {
+        let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        let payload = bundle(&published, &reachable, &generated_at)?;
+        if let Some(parent) = data_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        crate::core::atomic::write(data_path, serde_json::to_string_pretty(&payload)?)?;
+    }
+
     let report = Report {
         stale: stale.clone(),
         stale_removed: clean && !dry_run && !stale.is_empty(),
@@ -291,6 +303,102 @@ pub fn run(
         println!("\n{}", "Dry run: nothing written.".yellow());
     }
     Ok(0)
+}
+
+/// Everything a front end needs, in one file.
+///
+/// A UI that called the commands one at a time would need a process to call
+/// them, which means a server next to an archive that lives on a laptop. One
+/// bundle is a static asset: 17 KB for 27 articles, 66 KB for 400, and it
+/// gzips to a tenth of that. Nothing here needs to be live to be worth looking
+/// at — the archive changes when its owner works on it, not continuously.
+#[derive(Serialize)]
+struct Bundle {
+    generated_at: String,
+    schema_version: u32,
+    /// Only published articles, so the bundle can be served beside them.
+    nodes: Vec<Node>,
+    edges: Vec<Edge>,
+    progress: Vec<crate::core::history::Snapshot>,
+    /// Snapshots that could not be parsed. A history with holes should say so.
+    unreadable_snapshots: usize,
+}
+
+#[derive(Serialize)]
+struct Node {
+    slug: String,
+    title: String,
+    domain: String,
+    origin: String,
+    status: String,
+    tags: Vec<String>,
+    /// Incoming links from other published articles — how central it is.
+    inbound: usize,
+    outbound: usize,
+}
+
+#[derive(Serialize)]
+struct Edge {
+    from: String,
+    to: String,
+}
+
+fn bundle(
+    published: &[&wiki::LoadedArticle],
+    reachable: &HashSet<String>,
+    generated_at: &str,
+) -> io::Result<Bundle> {
+    let mut edges = Vec::new();
+    let mut inbound: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut outbound: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for article in published {
+        let from = article.canonical_slug();
+        // Against the published set, so the graph matches the site: an edge to
+        // an article nobody can open is not a connection a reader can follow.
+        for target in crate::core::links::extract_wikilinks(&article.content) {
+            let to = slug::canonical(&target);
+            if to.is_empty() || to == from || !reachable.contains(&to) {
+                continue;
+            }
+            *outbound.entry(from.clone()).or_default() += 1;
+            *inbound.entry(to.clone()).or_default() += 1;
+            edges.push(Edge {
+                from: from.clone(),
+                to,
+            });
+        }
+    }
+    edges.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
+    edges.dedup_by(|a, b| a.from == b.from && a.to == b.to);
+
+    let nodes = published
+        .iter()
+        .map(|a| {
+            let slug = a.canonical_slug();
+            let fm = &a.article.frontmatter;
+            Node {
+                title: a.title().to_string(),
+                domain: fm.domain.clone().unwrap_or_default(),
+                origin: fm.origin.clone().unwrap_or_default(),
+                status: fm.status.clone().unwrap_or_default(),
+                tags: fm.tags.clone(),
+                inbound: inbound.get(&slug).copied().unwrap_or(0),
+                outbound: outbound.get(&slug).copied().unwrap_or(0),
+                slug,
+            }
+        })
+        .collect();
+
+    let (progress, unreadable_snapshots) = crate::core::history::read()?;
+    Ok(Bundle {
+        generated_at: generated_at.to_string(),
+        schema_version: output::SCHEMA_VERSION,
+        nodes,
+        edges,
+        progress,
+        unreadable_snapshots,
+    })
 }
 
 /// Where an article lands in the export.

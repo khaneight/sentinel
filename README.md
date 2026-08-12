@@ -75,7 +75,7 @@ sentinel ingest F -d D        # register a source  (-o origin, -t title, --as na
 sentinel sync                 # register files dropped into raw/ by hand
 sentinel mv old new           # move a source, repointing every citation
 sentinel rm target            # delete a source, refusing if articles cite it
-sentinel export --out DIR     # the publishable subset  (see Publishing)
+sentinel export --out DIR     # the publishable subset  (--flat, --clean, --data)
 sentinel log op "detail"      # append to the activity log; bare `log` reads it
 sentinel config               # which archive am I pointed at, and why?
 ```
@@ -131,6 +131,8 @@ sentinel export --out ./content --flat --clean
 ```
 
 Writes only articles whose `status` qualifies (`stable` by default), rewrites links to unpublished articles as plain text so the output has no dead ends, and never copies `raw/` or `meta/`. It renders no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks.
+
+`--data <file>` also emits a JSON bundle — published nodes and edges, plus the growth history from `meta/progress.jsonl` — for a front end to render.
 
 [`docs/publishing.md`](docs/publishing.md) has the verified Quartz setup and self-hosting options.
 

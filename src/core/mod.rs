@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod compilation;
 pub mod frontmatter;
+pub mod history;
 pub mod links;
 pub mod lint;
 pub mod lock;
