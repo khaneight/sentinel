@@ -34,7 +34,9 @@ TMPDIR=/Volumes/CSTEST cargo test --locked --all-targets
 - `src/core/manifest.rs` — raw-document manifest, content hashing, save conflicts
 - `src/core/compilation.rs` — derives the raw → wiki mapping from `sources:`
 - `src/core/wiki.rs` — the one loader for wiki articles
-- `src/core/frontmatter.rs` — frontmatter parsing; `ORIGINS`/`STATUSES`
+- `src/core/persona.rs` — `persona/` traits: the cited model of the author
+- `src/core/frontmatter.rs` — frontmatter parsing (generic over the two
+  document schemas); `ORIGINS`/`STATUSES`
 - `src/core/links.rs` — wikilink extraction, demand ranking, link graph
 - `src/core/slug.rs` — canonical form used for **all** wikilink resolution
 - `src/core/lint.rs` — rules (`analyze`), rule registry, severities
@@ -51,6 +53,13 @@ Each of these was a bug. Breaking one reintroduces it.
 `slug::canonical` — NFKC, lowercased, separator runs collapsed, invisible format
 characters dropped. Use `canonical_slug()`, never `slug()`, which is for display.
 Plurals and the Turkish dotted `İ` are deliberately *not* folded.
+
+**Nothing uncited about a person.** `persona/` holds claims about the archive's
+author. A trait with no `evidence:` is a lint **error**, and every evidence
+entry must resolve to a raw document whose `origin` is `authored` or `hybrid` —
+research records what they read, not what they think. These are the two rules
+the whole clone feature rests on; see [`docs/clone.md`](docs/clone.md). The
+repair for either is never to supply the missing part.
 
 **Derivation.** A raw document is compiled when some article names it in
 `sources:`. That mapping is derived live by `compilation::Compilation`, never
@@ -85,7 +94,10 @@ index stubs against what `index` regenerates. Four bugs got through guards that
 checked only the case in front of them.
 
 **One source of truth.** `ORIGINS`/`STATUSES` back the lint rule, `sentinel
-schema`, and `ingest`'s validation. `lint::RULES` and `lint::analyze` are
+schema`, and `ingest`'s validation. `persona::{KINDS, CONFIDENCES, STATUSES,
+REQUIRED, EVIDENCE_ORIGINS}` back theirs the same way, and `EVIDENCE_ORIGINS`
+is asserted to be a strict subset of `ORIGINS` — if every origin counts as
+evidence the safeguard checks nothing. `lint::RULES` and `lint::analyze` are
 asserted to agree in both directions. `templates/wiki-article.md` is generated
 from `schema::FIELDS`. Nothing `init` writes may assert a fact the tool will not
 maintain.

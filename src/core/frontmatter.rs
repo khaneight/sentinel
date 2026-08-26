@@ -40,13 +40,19 @@ pub struct WikiArticle {
     pub frontmatter_error: Option<String>,
 }
 
+/// A document's date fields, paired with their contract names.
+///
+/// Named because both document kinds expose it and `lint` walks them from one
+/// list — a shape two structs must agree on is worth having a name.
+pub type Dates<'a> = [(&'static str, Option<&'a str>); 2];
+
 impl Frontmatter {
     /// Every date field, paired with its name.
     ///
     /// An accessor rather than a list of names, so a rule iterating it cannot
     /// check one field and miss the other — `updated` was the only one anything
     /// looked at, and `created` went unvalidated beside it.
-    pub fn dates(&self) -> [(&'static str, Option<&str>); 2] {
+    pub fn dates(&self) -> Dates<'_> {
         [
             ("created", self.created.as_deref()),
             ("updated", self.updated.as_deref()),
@@ -55,9 +61,14 @@ impl Frontmatter {
 }
 
 /// The result of splitting a markdown document into frontmatter and body.
+///
+/// Generic over the frontmatter type because the archive now holds two
+/// document schemas — wiki articles and `persona/` traits — and the fence
+/// splitting below is the subtle part. A second copy of it for traits would be
+/// a second opinion on whether a `---` partway down the page opens a block.
 #[derive(Debug, Clone, Default)]
-pub struct ParsedMarkdown {
-    pub frontmatter: Frontmatter,
+pub struct Parsed<T> {
+    pub frontmatter: T,
     /// The document with its frontmatter block removed.
     ///
     /// Part of the parser's contract and asserted on by its tests — they are
@@ -71,6 +82,9 @@ pub struct ParsedMarkdown {
     /// Set when a delimited block was present but did not parse.
     pub error: Option<String>,
 }
+
+/// The wiki-article case, which is what almost every caller wants.
+pub type ParsedMarkdown = Parsed<Frontmatter>;
 
 /// Parse frontmatter from markdown content.
 ///
@@ -92,8 +106,20 @@ pub fn parse_date(value: &str) -> Result<chrono::NaiveDate, String> {
 }
 
 pub fn parse_content(content: &str) -> ParsedMarkdown {
+    parse_as(content)
+}
+
+/// Parse a markdown document whose frontmatter deserialises into `T`.
+///
+/// Absent frontmatter yields `T::default()` — the same contract wiki articles
+/// have always had, where a missing block is reported as missing fields rather
+/// than as a parse failure.
+pub fn parse_as<T>(content: &str) -> Parsed<T>
+where
+    T: serde::de::DeserializeOwned + Default,
+{
     let Some(rest) = strip_opening_fence(content) else {
-        return ParsedMarkdown {
+        return Parsed {
             error: opening_fence_problem(content),
             body: content.to_string(),
             ..Default::default()
@@ -109,19 +135,19 @@ pub fn parse_content(content: &str) -> ParsedMarkdown {
             let body = &rest[offset + line.len()..];
             // An empty block is legal — a template stub, not a parse failure.
             if yaml.trim().is_empty() {
-                return ParsedMarkdown {
+                return Parsed {
                     body: body.trim().to_string(),
                     ..Default::default()
                 };
             }
-            return match serde_yaml::from_str::<Frontmatter>(yaml) {
-                Ok(frontmatter) => ParsedMarkdown {
+            return match serde_yaml::from_str::<T>(yaml) {
+                Ok(frontmatter) => Parsed {
                     frontmatter,
                     body: body.trim().to_string(),
                     error: None,
                 },
-                Err(e) => ParsedMarkdown {
-                    frontmatter: Frontmatter::default(),
+                Err(e) => Parsed {
+                    frontmatter: T::default(),
                     body: body.trim().to_string(),
                     error: Some(e.to_string()),
                 },
@@ -145,7 +171,7 @@ pub fn parse_content(content: &str) -> ParsedMarkdown {
         ),
         None => "frontmatter block opened with `---` but never closed".to_string(),
     };
-    ParsedMarkdown {
+    Parsed {
         body: content.to_string(),
         error: Some(message),
         ..Default::default()

@@ -93,8 +93,14 @@ pub fn render(generated_at: &str) -> io::Result<String> {
     // unbounded and `sentinel lint` already prints them.
     writeln!(out, "## Health\n").ok();
     let articles = crate::core::wiki::load_all()?;
+    let persona = crate::core::persona::load_all()?;
     let manifest = crate::core::manifest::Manifest::load()?;
-    let findings = lint::analyze(&articles.articles, &manifest, &paths::archive_root());
+    let findings = lint::analyze(
+        &articles.articles,
+        &persona.traits,
+        &manifest,
+        &paths::archive_root(),
+    );
     let errors = lint::count(&findings, Severity::Error);
     let warnings = lint::count(&findings, Severity::Warning);
 

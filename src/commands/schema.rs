@@ -7,6 +7,7 @@ use crate::core::frontmatter;
 use crate::core::lint::{self, RuleInfo};
 use crate::core::output;
 use crate::core::paths;
+use crate::core::persona;
 
 /// The archive's contract, in one call.
 ///
@@ -19,6 +20,8 @@ use crate::core::paths;
 #[derive(Serialize)]
 struct Schema {
     frontmatter: &'static [Field],
+    /// The `persona/` contract — the second document schema in the archive.
+    persona: &'static [Field],
     domains: Domains,
     layout: &'static [Directory],
     lint_rules: &'static [RuleInfo],
@@ -123,10 +126,80 @@ pub const FIELDS: &[Field] = &[
     },
 ];
 
+/// The `persona/` trait contract.
+///
+/// Separate from `FIELDS` because a trait is a different document: it makes a
+/// claim about a person rather than about a subject, and the fields that keep
+/// that honest — `evidence`, `confidence`, `status` — have no article
+/// equivalent. Published for the same reason `FIELDS` is: a skill that has to
+/// restate the contract in prose is a skill whose prose will drift from it.
+pub const PERSONA_FIELDS: &[Field] = &[
+    Field {
+        name: "id",
+        required: true,
+        kind: "string",
+        values: None,
+        description: "Stable identifier, matching the filename stem. What an article cites when it says which traits it wrote from.",
+    },
+    Field {
+        name: "kind",
+        required: true,
+        kind: "enum",
+        values: Some(persona::KINDS),
+        description: "style = how the prose reads; principle = a rule the author applies; belief = a position they hold; pattern = a recurring move in how they think.",
+    },
+    Field {
+        name: "claim",
+        required: true,
+        kind: "string",
+        values: None,
+        description: "The claim itself, in one sentence.",
+    },
+    Field {
+        name: "evidence",
+        required: false,
+        kind: "string[]",
+        values: None,
+        description: "Archive-relative paths to the raw documents this was read out of. Required in practice: a trait with none is a `uncited-claim` error, because a claim about a person that cites nothing is the archive inventing them. Only `authored` or `hybrid` documents count — research says what the author read, not what they think.",
+    },
+    Field {
+        name: "confidence",
+        required: false,
+        kind: "enum",
+        values: Some(persona::CONFIDENCES),
+        description: "How well the evidence supports the claim.",
+    },
+    Field {
+        name: "status",
+        required: false,
+        kind: "enum",
+        values: Some(persona::STATUSES),
+        description: "proposed = the agent's reading, unconfirmed (the default when absent); affirmed = the author confirmed it; rejected = they did not. A rejected trait stays on disk carrying the rejection, so the next iteration cannot re-propose it.",
+    },
+    Field {
+        name: "created",
+        required: false,
+        kind: "date",
+        values: None,
+        description: "YYYY-MM-DD.",
+    },
+    Field {
+        name: "updated",
+        required: false,
+        kind: "date",
+        values: None,
+        description: "YYYY-MM-DD.",
+    },
+];
+
 const LAYOUT: &[Directory] = &[
     Directory {
         name: "raw/",
         purpose: "Source documents. Immutable — never edited by sentinel or by an agent.",
+    },
+    Directory {
+        name: "persona/",
+        purpose: "Cited traits describing how the author writes and what they hold. Agent-owned; every claim carries `evidence:` pointing at their own raw documents.",
     },
     Directory {
         name: "wiki/",
@@ -195,9 +268,30 @@ pub fn blank_frontmatter() -> String {
     out
 }
 
+/// A blank `persona/` trait, built from the published field list.
+pub fn blank_trait() -> String {
+    let mut out = String::from("---\n");
+    for field in PERSONA_FIELDS {
+        let default = match (field.kind, field.name) {
+            (_, "status") => " proposed",
+            ("string[]", _) => " []",
+            _ => "",
+        };
+        out.push_str(&format!("{}:{default}\n", field.name));
+    }
+    out.push_str(
+        "---\n\n\
+         What in the evidence supports the claim. Quote it — the paths above say \n\
+         where to look, and this is what saves a reader from re-reading whole \n\
+         documents to check a sentence about themselves.\n",
+    );
+    out
+}
+
 pub fn run() -> io::Result<()> {
     let schema = Schema {
         frontmatter: FIELDS,
+        persona: PERSONA_FIELDS,
         domains: Domains {
             default: paths::DEFAULT_DOMAINS,
             present: paths::present_domains(),
@@ -223,6 +317,25 @@ pub fn run() -> io::Result<()> {
             None => field.kind.to_string(),
         };
         println!("  {:<10} {required}  {}", field.name.cyan(), kind.dimmed());
+        println!("    {}", field.description);
+    }
+
+    println!("\n{}", "Persona Trait Frontmatter".bold());
+    println!(
+        "  {}",
+        "persona/*.md — what the archive holds about its author".dimmed()
+    );
+    for field in schema.persona {
+        let required = if field.required {
+            "required".red().to_string()
+        } else {
+            "optional".dimmed().to_string()
+        };
+        let kind = match field.values {
+            Some(values) => values.join(" | "),
+            None => field.kind.to_string(),
+        };
+        println!("  {:<12} {required}  {}", field.name.cyan(), kind.dimmed());
         println!("    {}", field.description);
     }
 
@@ -299,6 +412,61 @@ mod tests {
             "`sentinel schema` publishes field(s) {phantom:?} that Frontmatter \
              does not have — the parser would ignore them"
         );
+    }
+
+    #[test]
+    fn the_published_persona_contract_matches_the_struct_that_parses_it() {
+        // The same round trip `FIELDS` gets, for the same reason: a field on
+        // `TraitFrontmatter` that `schema` does not publish is a field no agent
+        // knows to write, and a published field the struct lacks is one the
+        // parser silently drops.
+        let value = serde_json::to_value(persona::TraitFrontmatter::default())
+            .expect("TraitFrontmatter must serialise");
+        let actual: BTreeSet<&str> = value
+            .as_object()
+            .expect("a struct serialises to an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let published: BTreeSet<&str> = PERSONA_FIELDS.iter().map(|f| f.name).collect();
+        assert_eq!(
+            actual, published,
+            "the persona contract and the struct that parses it disagree"
+        );
+    }
+
+    #[test]
+    fn every_required_persona_field_is_one_the_checker_requires() {
+        // `REQUIRED` drives the lint rule; this list drives what an agent is
+        // told. Published-as-optional but checked-as-required is a field an
+        // agent omits and is then told off for omitting.
+        let published: BTreeSet<&str> = PERSONA_FIELDS
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.name)
+            .collect();
+        let checked: BTreeSet<&str> = persona::REQUIRED.iter().copied().collect();
+        assert_eq!(published, checked);
+    }
+
+    #[test]
+    fn the_blank_trait_template_covers_every_published_field() {
+        let template = blank_trait();
+        for field in PERSONA_FIELDS {
+            assert!(
+                template.contains(&format!("{}:", field.name)),
+                "trait template omits `{}`:\n{template}",
+                field.name
+            );
+        }
+    }
+
+    #[test]
+    fn persona_enum_fields_publish_the_shared_constants() {
+        let by_name = |n: &str| PERSONA_FIELDS.iter().find(|f| f.name == n).unwrap();
+        assert_eq!(by_name("kind").values, Some(persona::KINDS));
+        assert_eq!(by_name("confidence").values, Some(persona::CONFIDENCES));
+        assert_eq!(by_name("status").values, Some(persona::STATUSES));
     }
 
     #[test]

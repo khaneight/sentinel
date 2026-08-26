@@ -312,6 +312,11 @@ pub fn index_dir() -> PathBuf {
     archive_root().join("index")
 }
 
+/// Where the author's cited traits live — the clone's model of the person.
+pub fn persona_dir() -> PathBuf {
+    archive_root().join("persona")
+}
+
 pub fn meta_dir() -> PathBuf {
     archive_root().join("meta")
 }
