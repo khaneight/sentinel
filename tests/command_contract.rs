@@ -50,6 +50,8 @@ const COMMANDS: &[(&str, Kind)] = &[
     ("rm", Kind::Mutating),
     // Rewrites a document's frontmatter, from a complete view of both layers.
     ("review", Kind::Mutating),
+    // Read-modify-write on the manifest, like `ingest`.
+    ("sources", Kind::Mutating),
     // Writes a tree outside the archive and appends to the log. Locked because
     // it reads the whole wiki to decide what goes in it.
     ("export", Kind::Mutating),

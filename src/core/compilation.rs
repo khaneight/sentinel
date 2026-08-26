@@ -246,6 +246,7 @@ mod tests {
                 wiki_articles: vec![],
                 source_type: "document".into(),
                 content_hash: None,
+                publish: false,
             });
         }
         m

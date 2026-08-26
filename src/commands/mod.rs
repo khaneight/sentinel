@@ -15,6 +15,7 @@ pub mod review;
 pub mod rm;
 pub mod schema;
 pub mod search;
+pub mod sources;
 pub mod status;
 pub mod sync;
 pub mod uncompiled;

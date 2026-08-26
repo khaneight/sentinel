@@ -35,6 +35,16 @@ pub struct ManifestEntry {
     /// Absent on entries written before this field existed; `sync` backfills.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
+    /// Whether this document may be published alongside the wiki.
+    ///
+    /// **Default false, and deliberately per-document.** `raw/` holds whatever
+    /// its owner put there: material under someone else's copyright, private
+    /// notes, correspondence, drafts they never meant anyone to see. Nothing
+    /// about a file tells the tool which of those it is, so there is no flag
+    /// that could safely publish the directory. Opting in is a decision made
+    /// once per document, by hand, and recorded here.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub publish: bool,
 }
 
 fn default_source_type() -> String {
@@ -147,6 +157,7 @@ mod tests {
             wiki_articles: vec![],
             source_type: "document".into(),
             content_hash: None,
+            publish: false,
         }
     }
 

@@ -163,7 +163,11 @@ unpublished pages as plain text. It gains:
 
 - the approval gate (safeguard 4) and the attribution line (safeguard 3)
 - `--with-sources`, writing *only* opted-in raw documents, so a reader can
-  follow a claim to the material it came from
+  follow a claim to the material it came from. Building this turned up a leak
+  that predated it: the published copy of an article carried its `sources:`
+  field verbatim, putting the `raw/` path of every cited document on the site —
+  including withheld ones, whose *filenames* are often the private part.
+  `export` now rewrites the field to name only what a reader can open.
 - persona, review queue, and in-progress work in the `--data` bundle
 
 The last of those is what a front end needs to show the clone as a working

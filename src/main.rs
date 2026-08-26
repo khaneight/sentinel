@@ -70,6 +70,11 @@ enum Commands {
         /// slug, else the source filename)
         #[arg(long = "as", value_name = "FILENAME")]
         filename: Option<String>,
+
+        /// Allow `export --with-sources` to publish this document alongside
+        /// the wiki. Off by default; `sentinel sources` changes it later.
+        #[arg(long)]
+        publish: bool,
     },
 
     /// Ingest and analyze a codebase
@@ -119,6 +124,23 @@ enum Commands {
         /// Report what would change without writing the manifest
         #[arg(long)]
         dry_run: bool,
+    },
+
+    /// List raw documents and which of them may be published
+    ///
+    /// With a target, changes that. `export` never copies `raw/` on its own:
+    /// what is in there is the owner's to decide about, one document at a time.
+    Sources {
+        /// Archive-relative path or a unique filename. Omit to list.
+        target: Option<String>,
+
+        /// Allow `export --with-sources` to copy this document
+        #[arg(long, group = "visibility")]
+        publish: bool,
+
+        /// Withdraw it again
+        #[arg(long, group = "visibility")]
+        private: bool,
     },
 
     /// Show knowledge base status overview
@@ -245,6 +267,11 @@ enum Commands {
         /// Also write a JSON bundle for a front end: graph, metadata, history
         #[arg(long, value_name = "FILE")]
         data: Option<std::path::PathBuf>,
+
+        /// Also copy the raw documents that published articles cite — but only
+        /// those marked publishable by `sentinel sources --publish`
+        #[arg(long)]
+        with_sources: bool,
         /// Report what would be written without writing it.
         #[arg(long)]
         dry_run: bool,
@@ -360,6 +387,8 @@ fn run(cli: Cli) -> io::Result<i32> {
         // half-rebuilt, and a verdict recorded on the wrong document is worse
         // than one never recorded.
         | Commands::Review { .. }
+        // Read-modify-write on the manifest, like `ingest`.
+        | Commands::Sources { .. }
         // Reads the whole wiki and writes a tree from it. Without the lock an
         // `index` running alongside could have it publish a half-rebuilt view.
         | Commands::Export { .. } => Some(core::lock::ArchiveLock::acquire(&paths::meta_dir())?),
@@ -378,12 +407,14 @@ fn run(cli: Cli) -> io::Result<i32> {
             origin,
             title,
             filename,
+            publish,
         } => commands::ingest::run(
             &path,
             &domain,
             &origin,
             title.as_deref(),
             filename.as_deref(),
+            publish,
         )
         .map(|()| 0),
         Commands::IngestRepo { path, domain, name } => {
@@ -426,6 +457,16 @@ fn run(cli: Cli) -> io::Result<i32> {
             .find_map(|(set, name)| set.then_some(name));
             commands::review::run(target.as_deref(), verdict, note.as_deref(), by.as_deref())
         }
+        Commands::Sources {
+            target,
+            publish,
+            private,
+        } => {
+            let change = [(publish, true), (private, false)]
+                .into_iter()
+                .find_map(|(set, value)| set.then_some(value));
+            commands::sources::run(target.as_deref(), change)
+        }
         Commands::Persona { kind, affirmed } => commands::persona::run(kind.as_deref(), affirmed),
         Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
         Commands::Index => commands::index::run().map(|()| 0),
@@ -447,15 +488,17 @@ fn run(cli: Cli) -> io::Result<i32> {
             flat,
             data,
             dry_run,
-        } => commands::export::run(
-            out.as_deref(),
-            status.as_deref(),
+            with_sources,
+        } => commands::export::run(commands::export::Options {
+            destination: out.as_deref(),
+            statuses: status.as_deref(),
             dry_run,
             include_drafts,
             clean,
             flat,
-            data.as_deref(),
-        ),
+            data: data.as_deref(),
+            with_sources,
+        }),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log {
             operation,

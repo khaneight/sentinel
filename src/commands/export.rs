@@ -56,21 +56,52 @@ struct Report {
     stale: Vec<String>,
     /// True when `--clean` removed them.
     stale_removed: bool,
+    /// Raw documents copied because they are opted in and something cites them.
+    sources_published: usize,
+    /// Documents an article cites that are *not* opted in. Reported so a reader
+    /// of the output knows the trail stops somewhere deliberate rather than
+    /// wondering why some citations link and others do not.
+    sources_withheld: usize,
     /// True when the destination had no landing page and one was scaffolded.
     wrote_landing: bool,
     /// True when nothing was written because `--dry-run` was given.
     dry_run: bool,
 }
 
-pub fn run(
-    destination: Option<&Path>,
-    statuses: Option<&str>,
-    dry_run: bool,
-    include_drafts: bool,
-    clean: bool,
-    flat: bool,
-    data: Option<&Path>,
-) -> io::Result<i32> {
+/// Where opted-in raw documents land, relative to the destination.
+///
+/// A directory of its own so nothing can collide with an article, and so a
+/// reader can tell source material from writing at a glance in the URL.
+const SOURCES_DIR: &str = "sources";
+
+/// What an export run was asked to do.
+///
+/// A struct rather than eight positional arguments, five of which are bools:
+/// at that width a caller can transpose `clean` and `flat` and the compiler is
+/// perfectly happy, which for a command that deletes files in a destination is
+/// not a risk worth carrying for brevity.
+pub struct Options<'a> {
+    pub destination: Option<&'a Path>,
+    pub statuses: Option<&'a str>,
+    pub dry_run: bool,
+    pub include_drafts: bool,
+    pub clean: bool,
+    pub flat: bool,
+    pub data: Option<&'a Path>,
+    pub with_sources: bool,
+}
+
+pub fn run(options: Options<'_>) -> io::Result<i32> {
+    let Options {
+        destination,
+        statuses,
+        dry_run,
+        include_drafts,
+        clean,
+        flat,
+        data,
+        with_sources,
+    } = options;
     // A partial view would silently publish less than the archive holds, and a
     // reader has no way to tell a missing article from one that was never
     // written. This writes durable state outside the archive; it gets the same
@@ -126,6 +157,7 @@ pub fn run(
     }
 
     let traits = crate::core::persona::load_all()?.require_complete()?;
+    let manifest = crate::core::manifest::Manifest::load()?;
 
     let mut published = Vec::new();
     let mut excluded = Vec::new();
@@ -193,11 +225,74 @@ pub fn run(
         }
     }
 
+    // Which cited documents a reader will be able to open. Resolved through the
+    // same matcher `sources:` citations use, so a bare filename means here what
+    // it means in an article.
+    let index = crate::core::compilation::SourceIndex::new(&manifest);
+    let mut source_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut sources_withheld = 0usize;
+    let mut public_sources: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    if with_sources {
+        let mut cited: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for article in &published {
+            for source in &article.article.frontmatter.sources {
+                if let Some(resolved) = index.resolve(source) {
+                    cited.insert(resolved);
+                }
+            }
+        }
+        for rel in cited {
+            let Some(entry) = manifest.entries.get(&rel) else {
+                continue;
+            };
+            // Opted in per document, and only ever that. There is no flag that
+            // publishes `raw/` wholesale, because nothing about a file says
+            // whether it is the owner's to publish.
+            if !entry.publish {
+                sources_withheld += 1;
+                continue;
+            }
+            let out_rel = source_output_path(&rel);
+            match std::fs::read(paths::archive_root().join(&rel)) {
+                Ok(bytes) => {
+                    public_sources.insert(rel.clone(), out_rel.clone());
+                    source_writes.push((destination.join(&out_rel), bytes));
+                }
+                // A source that cannot be read is not a source that can be
+                // published, and it must not be silently dropped from a count
+                // that says how much of the trail a reader can follow.
+                Err(_) => sources_withheld += 1,
+            }
+        }
+    }
+
     let mut links_defused = 0usize;
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
     for article in &published {
         let (mut text, defused) = defuse_links(&article.content, &reachable, &titles);
         links_defused += defused;
+        // `sources:` names paths under `raw/`, and `raw/` is not published.
+        // Copying the field verbatim put the *path* of every cited document on
+        // the site — including ones deliberately withheld, whose filenames can
+        // be the private part. The published copy names only what a reader can
+        // actually open, and nothing when that is nothing.
+        let visible: Vec<String> = article
+            .article
+            .frontmatter
+            .sources
+            .iter()
+            .filter_map(|src| index.resolve(src))
+            .filter_map(|rel| public_sources.get(&rel).cloned())
+            .collect();
+        text = crate::core::frontmatter::set_list(&text, "sources", &visible);
+        if !visible.is_empty() {
+            text = format!(
+                "{}{}",
+                text.trim_end(),
+                source_footer(article, &index, &manifest, &public_sources, flat)
+            );
+        }
         // Written here, by the exporter, rather than by whatever produced the
         // article. An agent that composes its own disclosure is an agent that
         // can leave it out, and this is the notice that stops a reader taking
@@ -241,7 +336,30 @@ pub fn run(
                 .to_string()
         })
         .collect();
+
+    // Copied sources are not markdown-only and do not carry article slugs, so
+    // they need their own reckoning. A file under `sources/` whose path matches
+    // a manifest entry is one an export produced — which makes a *withdrawn*
+    // document stale, and leaving it readable is the failure this whole opt-in
+    // exists to prevent.
+    let intended_sources: HashSet<PathBuf> = source_writes.iter().map(|(p, _)| p.clone()).collect();
+    for path in existing_files(&destination.join(SOURCES_DIR)) {
+        if intended_sources.contains(&path) {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(&destination) else {
+            continue;
+        };
+        let under_raw = format!(
+            "raw/{}",
+            rel.strip_prefix(SOURCES_DIR).unwrap_or(rel).display()
+        );
+        if manifest.entries.contains_key(&under_raw) {
+            stale.push(rel.display().to_string());
+        }
+    }
     stale.sort();
+    stale.dedup();
 
     if let Some(data_path) = data
         && !dry_run
@@ -271,6 +389,8 @@ pub fn run(
         excluded_count: excluded.len(),
         excluded: excluded.into_iter().take(20).collect(),
         links_defused,
+        sources_published: source_writes.len(),
+        sources_withheld,
         dry_run,
     };
 
@@ -285,6 +405,12 @@ pub fn run(
                 std::fs::create_dir_all(parent)?;
             }
             crate::core::atomic::write(path, text)?;
+        }
+        for (path, bytes) in &source_writes {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            crate::core::atomic::write(path, bytes)?;
         }
         // After the articles, so the destination directory exists.
         if wrote_landing {
@@ -335,6 +461,12 @@ pub fn run(
     // Said separately and said plainly. This is the one exclusion the owner
     // can clear with a single command, and burying it in a list headed "not
     // publishable" reads as work that is not finished.
+    if report.sources_published > 0 || report.sources_withheld > 0 {
+        println!(
+            "  {} source document(s) copied; {} withheld (not marked publishable).",
+            report.sources_published, report.sources_withheld
+        );
+    }
     if report.held_for_approval > 0 {
         println!(
             "\n  {} {} article(s) written by the clone are finished but unsigned.",
@@ -567,6 +699,55 @@ fn bundle(
     })
 }
 
+/// Where an opted-in raw document lands in the destination.
+///
+/// Under `sources/`, keeping the path it had beneath `raw/`. Two documents with
+/// the same filename in different domains stay distinct, and nothing here can
+/// collide with an article even under `--flat`.
+fn source_output_path(rel: &str) -> String {
+    let without_prefix = rel.strip_prefix("raw/").unwrap_or(rel);
+    format!("{SOURCES_DIR}/{without_prefix}")
+}
+
+/// Links from an article to the source documents a reader can actually open.
+///
+/// Only the opted-in ones. A citation to a document that was withheld is left
+/// out entirely rather than rendered as a dead link — the export's whole
+/// premise is that the output has no dead ends, and a link to `raw/` from a
+/// published page is the worst kind, because it names a file and then denies it.
+fn source_footer(
+    article: &wiki::LoadedArticle,
+    index: &crate::core::compilation::SourceIndex<'_>,
+    manifest: &crate::core::manifest::Manifest,
+    public: &std::collections::HashMap<String, String>,
+    flat: bool,
+) -> String {
+    let mut links: Vec<String> = Vec::new();
+    for source in &article.article.frontmatter.sources {
+        let Some(resolved) = index.resolve(source) else {
+            continue;
+        };
+        let Some(out_rel) = public.get(&resolved) else {
+            continue;
+        };
+        let title = manifest
+            .entries
+            .get(&resolved)
+            .map_or(resolved.as_str(), |e| e.title.as_str());
+        // Articles sit one directory deep unless `--flat`, so the link back up
+        // has to account for that. A site generator resolving a relative link
+        // from the wrong depth is a 404 that only appears once it is deployed.
+        let prefix = if flat { "" } else { "../" };
+        links.push(format!("- [{title}]({prefix}{out_rel})"));
+    }
+    if links.is_empty() {
+        return String::new();
+    }
+    links.sort();
+    links.dedup();
+    format!("\n\n## Sources\n\n{}\n", links.join("\n"))
+}
+
 /// The notice appended to every published extrapolated article.
 ///
 /// Not composable by an agent and not suppressible by a flag: the exporter
@@ -669,6 +850,25 @@ fn output_path(rel_path: &str, flat: bool) -> String {
 
 /// Markdown already in the destination, so an export can see what it is
 /// replacing.
+/// Every file under `dir`, whatever its extension.
+///
+/// Sources are copied verbatim, so a `.txt` or a `.pdf` in the destination is
+/// as much this tool's output as a `.md` is — and as much of a problem when it
+/// should no longer be there.
+fn existing_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if !dir.exists() {
+        return out;
+    }
+    for entry in walkdir::WalkDir::new(dir).into_iter().flatten() {
+        if entry.file_type().is_file() {
+            out.push(entry.into_path());
+        }
+    }
+    out.sort();
+    out
+}
+
 fn existing_markdown(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];

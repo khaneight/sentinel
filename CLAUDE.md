@@ -65,6 +65,13 @@ unconfirmed one a warning. `INGESTABLE_ORIGINS` is a strict subset of `ORIGINS`:
 `raw/` can never hold extrapolated work, or the archive could learn a person
 from its own output.
 
+**`raw/` is published one document at a time.** `export --with-sources` copies
+only entries marked `publish: true` by `sentinel sources`, default false.
+Nothing about a file says whether its owner may publish it, so there is no flag
+that takes the directory. The published copy of an article has its `sources:`
+rewritten to name only what a reader can open — a withheld filename is often
+the private part.
+
 **The owner's word.** `review:` entries are the archive owner's verdicts, and
 `sentinel review` is their only writer — no skill invokes it, because an agent
 that can approve its own work has a permission system in name only. Entries
