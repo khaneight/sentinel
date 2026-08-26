@@ -149,6 +149,11 @@ pub fn assert_exists(path: &Path) {
 
 /// A persona trait citing `evidence`, so the `learn` rung has nothing to say.
 ///
+/// Left `proposed` rather than `affirmed`: coverage counts any trait the author
+/// has not rejected, so `proposed` satisfies `learn` — while `affirmed` would
+/// make the trait a view nothing has written from, and hand the fixture an
+/// `extend` recommendation instead of the rung it is about.
+///
 /// `sync` and `ingest` register raw documents as `origin: authored` by default,
 /// which under the clone design means "the author's own writing" — and any such
 /// document nothing has read for voice is `learn` work. Most fixtures here are
@@ -161,7 +166,7 @@ pub fn trait_citing(id: &str, evidence: &[&str]) -> String {
         .collect::<String>();
     format!(
         "---\nid: {id}\nkind: style\nclaim: Writes plainly.\nconfidence: medium\n\
-         status: affirmed\nevidence:\n{cited}---\n\nThe sources read plainly.\n"
+         status: proposed\nevidence:\n{cited}---\n\nThe sources read plainly.\n"
     )
 }
 

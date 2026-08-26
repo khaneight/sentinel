@@ -38,7 +38,8 @@ Stop and report when **any** of these holds. Do not push past one.
 
    Each action moves a different counter — `compile` moves `uncompiled`, `learn`
    moves `unmined`, `write` moves `wiki_articles`, `connect` moves `orphans`,
-   `review` moves `drafts`, `fix-errors` moves `errors` — so check all of them,
+   `extend` moves `unexpressed`, `review` moves `drafts`, `fix-errors` moves
+   `errors` — so check all of them,
    not just the obvious one for the action you ran. Report what you attempted
    and why you think it did not land.
 
@@ -101,7 +102,7 @@ sentinel next --action write --json
 ```
 
 `--action` accepts any rung `sentinel schema` lists — currently `fix-errors`,
-`learn`, `compile`, `write`, `connect`, `review` — and returns that category's
+`compile`, `learn`, `write`, `connect`, `extend`, `review` — and returns that category's
 targets regardless of priority. The response is marked
 `requested: true` so the log records that it was your scheduling choice rather
 than sentinel's advice.

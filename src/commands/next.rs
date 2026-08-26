@@ -36,6 +36,8 @@ pub enum Action {
     Write,
     /// Articles nothing links to.
     Connect,
+    /// Affirmed traits the clone has never written from.
+    Extend,
     /// Drafts that have stopped moving.
     Review,
     /// Nothing outstanding.
@@ -52,6 +54,7 @@ impl std::str::FromStr for Action {
             "compile" => Ok(Action::Compile),
             "write" => Ok(Action::Write),
             "connect" => Ok(Action::Connect),
+            "extend" => Ok(Action::Extend),
             "review" => Ok(Action::Review),
             // Derived from the ladder, so a rung added above cannot leave this
             // message naming four of five actions.
@@ -87,6 +90,11 @@ impl Action {
         Action::Learn,
         Action::Write,
         Action::Connect,
+        // The payoff, not the maintenance. Below `connect` because generating
+        // new work on top of a disconnected archive compounds whatever is
+        // wrong with it, and below `learn` because writing from a corpus
+        // nobody has read is writing in a voice nobody established.
+        Action::Extend,
         Action::Review,
     ];
 
@@ -97,6 +105,7 @@ impl Action {
             Action::Compile => "compile",
             Action::Write => "write",
             Action::Connect => "connect",
+            Action::Extend => "extend",
             Action::Review => "review",
             Action::None => "none",
         }
@@ -177,6 +186,14 @@ pub struct Progress {
     /// Articles still `draft`. Moves when `review` promotes one, for the same
     /// reason.
     pub drafts: usize,
+    /// Traits the author affirmed that no extrapolated article has been
+    /// written from — views they hold that the clone has never expressed.
+    /// Moves when `extend` does its work.
+    pub unexpressed: usize,
+    /// Extrapolated articles whose latest verdict is not `approved`. Not a
+    /// rung: the agent cannot approve its own work, so this is reported for
+    /// the loop to *stop* on rather than to act on.
+    pub awaiting_approval: usize,
     /// Documents the author wrote that no persona trait has been read from.
     /// Moves when `learn` does its work — which changes nothing else, so
     /// without this a correct `learn` iteration reads as no progress and halts
@@ -267,6 +284,12 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
 
     let coverage = persona::Coverage::derive(&persona_loaded.traits, &manifest);
     let unmined = coverage.unmined();
+    let unexpressed = unexpressed_traits(&persona_loaded.traits, &articles);
+    let awaiting_approval = articles
+        .iter()
+        .filter(|a| a.article.frontmatter.is_extrapolated())
+        .filter(|a| !crate::core::review::is_approved(&a.article.frontmatter.review))
+        .count();
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
     let wanted = links::wanted(&articles);
@@ -292,6 +315,8 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
             .filter(|a| a.article.frontmatter.status.as_deref() == Some("draft"))
             .count(),
         unmined: unmined.len(),
+        unexpressed: unexpressed.len(),
+        awaiting_approval,
         link_graph_error: graph_error,
         link_graph_stale: graph_stale,
         unreadable: unreadable.clone(),
@@ -303,6 +328,7 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
         (Action::Compile, uncompiled.len()),
         (Action::Write, wanted.len()),
         (Action::Connect, orphans.len()),
+        (Action::Extend, unexpressed.len()),
         (Action::Review, stale.len()),
     ]
     .into_iter()
@@ -328,6 +354,9 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
             }
             Action::Write if !wanted.is_empty() => Some(write_gap(&wanted, &backlog, &progress)),
             Action::Connect if !orphans.is_empty() => Some(connect(&orphans, &backlog, &progress)),
+            Action::Extend if !unexpressed.is_empty() => {
+                Some(extend(&unexpressed, &backlog, &progress))
+            }
             Action::Review if !stale.is_empty() => Some(review(&stale, &backlog, &progress)),
             _ => None,
         }
@@ -480,6 +509,75 @@ fn learn(
             })
             .collect(),
         suggested_command: ordered.first().map(|p| format!("/sentinel-clone {p}")),
+        backlog: backlog.to_vec(),
+        progress: progress.clone(),
+        requested: false,
+    }
+}
+
+/// Traits the author affirmed that nothing has been written from.
+///
+/// Only `affirmed` ones: a `proposed` trait is the agent's own reading, and
+/// treating it as a prompt to generate from would let the clone bootstrap a
+/// voice out of its own guesses. Ranked by how much evidence stands behind the
+/// trait, so the best-established views are expressed first.
+fn unexpressed_traits<'t>(
+    traits: &'t [persona::LoadedTrait],
+    articles: &[LoadedArticle],
+) -> Vec<&'t persona::LoadedTrait> {
+    let written_from: std::collections::HashSet<String> = articles
+        .iter()
+        .flat_map(|a| a.article.frontmatter.persona.iter())
+        .map(|id| crate::core::slug::canonical(id))
+        .collect();
+
+    let mut out: Vec<&persona::LoadedTrait> = traits
+        .iter()
+        .filter(|t| t.is_affirmed())
+        .filter(|t| !written_from.contains(&t.canonical_id()))
+        .collect();
+    out.sort_by(|a, b| {
+        b.frontmatter
+            .evidence
+            .len()
+            .cmp(&a.frontmatter.evidence.len())
+            .then_with(|| a.rel_path.cmp(&b.rel_path))
+    });
+    out
+}
+
+fn extend(
+    unexpressed: &[&persona::LoadedTrait],
+    backlog: &[BacklogEntry],
+    progress: &Progress,
+) -> Recommendation {
+    Recommendation {
+        action: Action::Extend,
+        reason: format!(
+            "{} trait(s) the author affirmed that nothing has been written from — \
+             views they hold the archive has never expressed",
+            unexpressed.len()
+        ),
+        target_count: unexpressed.len(),
+        targets: unexpressed
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|t| {
+                Target::plain(
+                    t.id(),
+                    t.frontmatter.claim.clone().unwrap_or_else(|| t.id()),
+                    format!(
+                        "{} · {} source(s) · {} confidence",
+                        t.kind(),
+                        t.frontmatter.evidence.len(),
+                        t.frontmatter.confidence.as_deref().unwrap_or("unstated")
+                    ),
+                )
+            })
+            .collect(),
+        suggested_command: unexpressed
+            .first()
+            .map(|t| format!("/sentinel-extend {}", t.id())),
         backlog: backlog.to_vec(),
         progress: progress.clone(),
         requested: false,

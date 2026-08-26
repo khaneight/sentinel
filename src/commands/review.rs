@@ -286,19 +286,28 @@ fn list(loaded: &wiki::Loaded, persona_loaded: &persona::Loaded) -> io::Result<i
     }
 
     for a in &loaded.articles {
-        let Some(standing) = review::standing(&a.article.frontmatter.review) else {
-            continue;
+        let fm = &a.article.frontmatter;
+        let standing = review::standing(&fm.review);
+        // Two ways an article gets here. `changes-requested` is anything the
+        // owner sent back. The other is generated work with no approval —
+        // which `export` will refuse to publish, so leaving it out of this
+        // queue would mean the one thing that *needs* an answer is the one
+        // thing this command does not mention.
+        let reason = match standing {
+            Some(e) if e.verdict == "changes-requested" => "changes requested",
+            _ if fm.is_extrapolated() && !review::is_approved(&fm.review) => match standing {
+                Some(e) if e.verdict == "rejected" => "rejected, still in the wiki",
+                _ => "written by the clone, unapproved — cannot be published",
+            },
+            _ => continue,
         };
-        if standing.verdict != "changes-requested" {
-            continue;
-        }
         pending.push(Pending {
             path: a.rel_path().to_string(),
             id: a.slug(),
             kind: "article",
             title: a.title().to_string(),
-            reason: "changes requested".to_string(),
-            note: standing.note.clone(),
+            reason: reason.to_string(),
+            note: standing.and_then(|e| e.note.clone()),
         });
     }
 

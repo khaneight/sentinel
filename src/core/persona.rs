@@ -54,7 +54,8 @@ pub const STATUSES: &[&str] = &["proposed", "affirmed", "rejected"];
 
 /// Raw-document origins that can serve as evidence for a trait.
 ///
-/// A subset of `frontmatter::ORIGINS`, asserted as one below. Material an
+/// A subset of `frontmatter::INGESTABLE_ORIGINS`, asserted as one below.
+/// Material an
 /// agent researched says what the author *read*, not what they think, and a
 /// profile built from a reading list is a profile of somebody else.
 pub const EVIDENCE_ORIGINS: &[&str] = &["authored", "hybrid"];
@@ -373,12 +374,12 @@ mod tests {
         // safeguard would pass every trait by accident.
         for origin in EVIDENCE_ORIGINS {
             assert!(
-                frontmatter::ORIGINS.contains(origin),
+                frontmatter::INGESTABLE_ORIGINS.contains(origin),
                 "'{origin}' is not an origin any raw document can have"
             );
         }
         assert!(
-            EVIDENCE_ORIGINS.len() < frontmatter::ORIGINS.len(),
+            EVIDENCE_ORIGINS.len() < frontmatter::INGESTABLE_ORIGINS.len(),
             "if every origin counts as evidence, the rule checks nothing"
         );
     }

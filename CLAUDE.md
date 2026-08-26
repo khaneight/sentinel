@@ -57,6 +57,14 @@ raw document whose `origin` is `authored` or `hybrid` — research records what
 they read, not what they think. The repair for either is never to supply the
 missing part. [`docs/clone.md`](docs/clone.md).
 
+**Generated work is traceable.** `origin: extrapolated` marks what the clone
+wrote. It must name the `persona:` traits it rests on
+(`unattributed-extrapolation`), those must resolve, and they must be ones the
+author *affirmed* — writing from a rejected trait is an error, from an
+unconfirmed one a warning. `INGESTABLE_ORIGINS` is a strict subset of `ORIGINS`:
+`raw/` can never hold extrapolated work, or the archive could learn a person
+from its own output.
+
 **The owner's word.** `review:` entries are the archive owner's verdicts, and
 `sentinel review` is their only writer — no skill invokes it, because an agent
 that can approve its own work has a permission system in name only. Entries
@@ -131,15 +139,17 @@ A `broken-link` is a **warning**: the compile workflow forward-declares links
 deliberately, so an archive full of them is healthy.
 
 **`sentinel next`** — priority `fix-errors` → `compile` → `learn` → `write` →
-`connect` → `review`, from `Action::LADDER`, which is the one ordering:
+`connect` → `extend` → `review`, from `Action::LADDER`, which is the one ordering:
 `schema`'s published list and its numbering are derived from it. It ranks; it
 does not schedule.
 **Every action in the ladder must move a progress counter** — `fix-errors`→`errors`,
 `compile`→`uncompiled`, `learn`→`unmined`, `write`→`wiki_articles`,
-`connect`→`orphans`, `review`→`drafts` — or a correct iteration of it reads as
+`connect`→`orphans`, `extend`→`unexpressed`, `review`→`drafts` — or a correct iteration of it reads as
 no progress and halts the loop. A new action needs a counter, and one that only
 fires for archives that opted into it, or `next` never says "nothing
-outstanding" again. `--action <name>` reaches any
+outstanding" again. Approval is deliberately *not* a rung: the agent cannot
+approve its own work, so `progress.awaiting_approval` is something for the loop
+to stop on rather than to act on. `--action <name>` reaches any
 category, `backlog` counts them all, and `progress` reports what the archive
 *contains*. Measure loop progress by `progress`, never by backlog size.
 

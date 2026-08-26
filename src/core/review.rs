@@ -50,6 +50,14 @@ pub fn standing(entries: &[Entry]) -> Option<&Entry> {
         .find(|e| DECISIONS.contains(&e.verdict.as_str()))
 }
 
+/// Whether the archive's owner has signed this off.
+///
+/// The gate `export` reads. Absence of a verdict is *not* approval: work
+/// nobody has looked at and work somebody refused both come back false.
+pub fn is_approved(entries: &[Entry]) -> bool {
+    standing(entries).is_some_and(|e| e.verdict == "approved")
+}
+
 /// The trait `status` a decision implies.
 ///
 /// Persona traits carry both: `status:` is what a person reads at the top of
@@ -298,6 +306,12 @@ mod tests {
             "approved",
             "a remark left on approved work must not un-approve it"
         );
+        assert!(is_approved(&entries));
+        assert!(
+            !is_approved(&[]),
+            "work nobody has looked at is not approved work"
+        );
+        assert!(!is_approved(&[entry("rejected")]));
     }
 
     #[test]

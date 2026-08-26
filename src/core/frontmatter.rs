@@ -1,10 +1,22 @@
 use serde::{Deserialize, Serialize};
 
-/// Accepted values for `origin`.
+/// Accepted values for an *article*'s `origin`.
 ///
 /// Shared by the lint rule and by `sentinel schema` so the checker and the
 /// published contract cannot disagree about what is legal.
-pub const ORIGINS: &[&str] = &["authored", "researched", "hybrid"];
+pub const ORIGINS: &[&str] = &["authored", "researched", "hybrid", EXTRAPOLATED];
+
+/// Accepted values for a *raw document*'s origin — what `ingest -o` takes.
+///
+/// A strict subset, asserted as one. `extrapolated` is work the clone wrote,
+/// and `raw/` is the provenance floor everything else rests on: a generated
+/// document filed there could later be cited as evidence for what its supposed
+/// author believes, which is the archive learning a person from its own output.
+pub const INGESTABLE_ORIGINS: &[&str] = &["authored", "researched", "hybrid"];
+
+/// Written by the clone, extending the author's thinking rather than distilled
+/// from any source.
+pub const EXTRAPOLATED: &str = "extrapolated";
 
 /// Accepted values for `status`.
 pub const STATUSES: &[&str] = &["draft", "review", "stable"];
@@ -24,6 +36,11 @@ pub struct Frontmatter {
     pub created: Option<String>,
     pub updated: Option<String>,
     pub status: Option<String>,
+    /// `persona/` trait ids this was written from. Required when `origin` is
+    /// `extrapolated`: generated prose that names no trait is prose nobody can
+    /// trace to a claim the author actually made.
+    #[serde(default)]
+    pub persona: Vec<String>,
     /// Verdicts the archive's owner recorded, oldest first. See `core::review`.
     #[serde(default)]
     pub review: Vec<super::review::Entry>,
@@ -50,6 +67,11 @@ pub struct WikiArticle {
 pub type Dates<'a> = [(&'static str, Option<&'a str>); 2];
 
 impl Frontmatter {
+    /// Whether this is the clone's own work rather than compiled from a source.
+    pub fn is_extrapolated(&self) -> bool {
+        self.origin.as_deref() == Some(EXTRAPOLATED)
+    }
+
     /// Every date field, paired with its name.
     ///
     /// An accessor rather than a list of names, so a rule iterating it cannot
