@@ -67,6 +67,7 @@ fn once_sources_are_compiled_the_wiki_names_its_own_next_article() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
     a.write(
         "wiki/philosophy/stoicism.md",
         &article_with(
@@ -99,6 +100,7 @@ fn orphans_come_after_gaps() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
     // Two articles, fully compiled, no dangling links, neither linked to.
     for slug in ["alpha", "beta"] {
         a.write(
@@ -118,6 +120,7 @@ fn a_stalled_draft_is_surfaced_last() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
     // Linked to each other, so neither is an orphan; no dangling links.
     a.write(
         "wiki/philosophy/alpha.md",
@@ -555,6 +558,10 @@ fn completed_archive(status: &str) -> Archive {
             .replace("updated: 2026-01-01", &format!("updated: {today}")),
         );
     }
+    // A terminal archive has to satisfy every rung, `learn` included — the
+    // source is registered as the author's own writing, and nothing had read
+    // it. Without this the fixture is not "completed", it is one rung short.
+    common::mine_corpus(&a);
     a.run(&["index"]);
     a
 }
@@ -635,6 +642,7 @@ fn connecting_an_orphan_registers_as_progress() {
     let a = Archive::new();
     a.write("raw/philosophy/s.md", "x");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
     a.write(
         "wiki/philosophy/alpha.md",
         &article_with("Alpha", &["raw/philosophy/s.md"], "See [[beta]]."),
@@ -713,6 +721,7 @@ fn progress_reports_a_counter_for_every_action_in_the_ladder() {
         match action {
             "fix-errors" => "errors",
             "compile" => "uncompiled",
+            "learn" => "unmined",
             "write" => "wiki_articles",
             "connect" => "orphans",
             "review" => "drafts",

@@ -146,3 +146,47 @@ pub fn article(title: &str, domain: &str, sources: &[&str]) -> String {
 pub fn assert_exists(path: &Path) {
     assert!(path.exists(), "expected {} to exist", path.display());
 }
+
+/// A persona trait citing `evidence`, so the `learn` rung has nothing to say.
+///
+/// `sync` and `ingest` register raw documents as `origin: authored` by default,
+/// which under the clone design means "the author's own writing" — and any such
+/// document nothing has read for voice is `learn` work. Most fixtures here are
+/// about a different rung, so they satisfy this one explicitly rather than
+/// having their recommendation quietly changed by it.
+pub fn trait_citing(id: &str, evidence: &[&str]) -> String {
+    let cited = evidence
+        .iter()
+        .map(|e| format!("  - {e}\n"))
+        .collect::<String>();
+    format!(
+        "---\nid: {id}\nkind: style\nclaim: Writes plainly.\nconfidence: medium\n\
+         status: affirmed\nevidence:\n{cited}---\n\nThe sources read plainly.\n"
+    )
+}
+
+/// Satisfy the `learn` rung: one trait citing every document the manifest
+/// registers as the author's own writing.
+///
+/// A fixture testing `write`, `connect` or `revise` should not have its
+/// recommendation quietly changed by a rung it is not about. Derived from the
+/// manifest rather than from a list of paths repeated in each test, so a
+/// fixture that gains a source stays covered.
+pub fn mine_corpus(a: &Archive) {
+    let manifest: serde_json::Value = serde_json::from_str(&a.read("meta/manifest.json")).unwrap();
+    let evidence: Vec<String> = manifest["entries"]
+        .as_object()
+        .map(|entries| {
+            entries
+                .iter()
+                .filter(|(_, e)| matches!(e["origin"].as_str(), Some("authored" | "hybrid")))
+                .map(|(path, _)| path.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    if evidence.is_empty() {
+        return;
+    }
+    let refs: Vec<&str> = evidence.iter().map(String::as_str).collect();
+    a.write("persona/read.md", &trait_citing("read", &refs));
+}

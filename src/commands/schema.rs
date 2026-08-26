@@ -25,7 +25,7 @@ struct Schema {
     domains: Domains,
     layout: &'static [Directory],
     lint_rules: &'static [RuleInfo],
-    next_actions: &'static [NextAction],
+    next_actions: Vec<NextAction>,
 }
 
 #[derive(Serialize)]
@@ -55,9 +55,50 @@ struct Directory {
 
 #[derive(Serialize)]
 struct NextAction {
-    priority: u8,
+    /// Position in `next::Action::LADDER`, 1-based. Computed rather than
+    /// written down: two copies of an ordering is two orderings, and this one
+    /// is the archive's editorial judgement about what matters most.
+    priority: usize,
     action: &'static str,
     pub description: &'static str,
+}
+
+/// What each rung of the ladder is for.
+///
+/// Descriptions only. The order and the numbering come from
+/// `next::Action::LADDER`, which is the ladder — a hand-numbered second copy
+/// drifted from it the moment a rung was inserted anywhere but the end.
+fn next_actions() -> Vec<NextAction> {
+    crate::commands::next::Action::LADDER
+        .iter()
+        .enumerate()
+        .map(|(i, action)| NextAction {
+            priority: i + 1,
+            action: action.as_str(),
+            description: describe(*action),
+        })
+        .collect()
+}
+
+fn describe(action: crate::commands::next::Action) -> &'static str {
+    use crate::commands::next::Action;
+    match action {
+        Action::FixErrors => {
+            "Lint errors exist. Every later judgement would be made on data they call into question."
+        }
+        Action::Learn => {
+            "Documents the author wrote that no persona trait has been read from. Above `compile` deliberately: a corpus read after the wiki is built shaped nothing, and the clone cannot write in a voice it has not read."
+        }
+        Action::Compile => "Raw documents no wiki article cites. Knowledge already in hand.",
+        Action::Write => {
+            "Wikilinks with no article behind them, ranked by how many distinct articles ask for each. The wiki naming its own gaps."
+        }
+        Action::Connect => "Articles nothing links to.",
+        Action::Review => "Drafts untouched for over 30 days.",
+        // Not a rung; `LADDER` never yields it, and the match is exhaustive so
+        // that a new variant fails to compile rather than shipping undescribed.
+        Action::None => "Nothing outstanding.",
+    }
 }
 
 pub const FIELDS: &[Field] = &[
@@ -219,34 +260,6 @@ const LAYOUT: &[Directory] = &[
     },
 ];
 
-const NEXT_ACTIONS: &[NextAction] = &[
-    NextAction {
-        priority: 1,
-        action: "fix-errors",
-        description: "Lint errors exist. Every later judgement would be made on data they call into question.",
-    },
-    NextAction {
-        priority: 2,
-        action: "compile",
-        description: "Raw documents no wiki article cites. Knowledge already in hand.",
-    },
-    NextAction {
-        priority: 3,
-        action: "write",
-        description: "Wikilinks with no article behind them, ranked by how many distinct articles ask for each. The wiki naming its own gaps.",
-    },
-    NextAction {
-        priority: 4,
-        action: "connect",
-        description: "Articles nothing links to.",
-    },
-    NextAction {
-        priority: 5,
-        action: "review",
-        description: "Drafts untouched for over 30 days.",
-    },
-];
-
 /// A blank frontmatter block built from the published field list.
 ///
 /// The article template used to be a hand-written fourth copy of the contract,
@@ -298,7 +311,7 @@ pub fn run() -> io::Result<()> {
         },
         layout: LAYOUT,
         lint_rules: lint::RULES,
-        next_actions: NEXT_ACTIONS,
+        next_actions: next_actions(),
     };
 
     if output::is_json() {
@@ -366,7 +379,7 @@ pub fn run() -> io::Result<()> {
     }
 
     println!("\n{}", "`sentinel next` Priority".bold());
-    for action in schema.next_actions {
+    for action in &schema.next_actions {
         println!("  {}. {}", action.priority, action.action.cyan());
         println!("     {}", action.description);
     }

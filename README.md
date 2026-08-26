@@ -50,11 +50,12 @@ It converges rather than running away. On a real corpus, filling five top-ranked
 
 ## Skills
 
-Symlinked into the archive's `.claude/skills`, these are where the work happens. All five read the archive through `--json` and take the frontmatter contract from `sentinel schema` rather than restating it, so they keep working as the archive outgrows reading its own index.
+Symlinked into the archive's `.claude/skills`, these are where the work happens. They all read the archive through `--json` and take the frontmatter contract from `sentinel schema` rather than restating it, so they keep working as the archive outgrows reading its own index.
 
 | | |
 |---|---|
 | `/sentinel-grow [n]` | Runs the loop: ask `next`, do it, re-check. **Bounded** — 3 iterations by default, stopping early when the backlog empties, a pass makes no progress, or something needs your judgement. Never touches `raw/`, never deletes an article, never stubs a page to silence a warning. Every iteration lands in `meta/log.md`. |
+| `/sentinel-clone [doc]` | Read a document the user wrote and record how they write and what they hold as cited `persona/` traits. Every claim carries `evidence:` from their own writing; nothing is marked `affirmed` except by them. |
 | `/sentinel-compile` | Turn raw documents into wiki articles. One source may touch a dozen pages. Preserves the author's voice for `authored` material. |
 | `/sentinel-research <topic>` | Research via web search, file the trail under `raw/` as `origin: researched`, then compile it. |
 | `/sentinel-ask <question>` | Answer from the wiki with citations. Offers to file the answer back **only** when it found a connection no article records — otherwise a knowledge base fills with restatements of what it already knew. |

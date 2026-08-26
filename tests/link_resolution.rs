@@ -17,6 +17,9 @@ fn archive_with_source() -> Archive {
     let a = Archive::new();
     a.write("raw/philosophy/src.md", "notes");
     a.run(&["sync"]);
+    // These tests are about which gap `next` ranks first. `learn` outranks
+    // `write`, so an unread corpus would answer every one of them the same way.
+    common::mine_corpus(&a);
     a
 }
 

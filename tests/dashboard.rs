@@ -129,6 +129,7 @@ fn a_capped_list_publishes_its_true_total() {
     let a = Archive::new();
     a.write("raw/philosophy/s.md", "x");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
     // Ten gaps, so the write rung has more targets than the page shows.
     for i in 0..10 {
         a.write(

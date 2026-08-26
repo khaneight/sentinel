@@ -217,6 +217,9 @@ pub fn run() -> io::Result<()> {
         errors: crate::core::lint::count(&findings, crate::core::lint::Severity::Error),
         warnings: crate::core::lint::count(&findings, crate::core::lint::Severity::Warning),
         wanted: links::wanted(&articles).len(),
+        unmined: crate::core::persona::Coverage::derive(&traits, &manifest)
+            .unmined()
+            .len(),
         links: graph.forward.values().map(Vec::len).sum(),
     };
     crate::core::history::record(&snapshot)?;

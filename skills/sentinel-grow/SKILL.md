@@ -33,13 +33,14 @@ Stop and report when **any** of these holds. Do not push past one.
    this loop can stop while there is still work to do.
 3. **No progress** — an iteration finishes and **nothing in `progress` moved in
    the right direction**: `wiki_articles` did not increase, and none of
-   `uncompiled`, `errors`, `orphans`, or `drafts` decreased. That means the
-   iteration produced nothing durable.
+   `uncompiled`, `unmined`, `errors`, `orphans`, or `drafts` decreased. That
+   means the iteration produced nothing durable.
 
-   Each action moves a different counter — `compile` moves `uncompiled`, `write`
-   moves `wiki_articles`, `connect` moves `orphans`, `review` moves `drafts`,
-   `fix-errors` moves `errors` — so check all of them, not just the obvious one
-   for the action you ran. Report what you attempted and why you think it did not land.
+   Each action moves a different counter — `compile` moves `uncompiled`, `learn`
+   moves `unmined`, `write` moves `wiki_articles`, `connect` moves `orphans`,
+   `review` moves `drafts`, `fix-errors` moves `errors` — so check all of them,
+   not just the obvious one for the action you ran. Report what you attempted
+   and why you think it did not land.
 
    **Do not measure progress by the size of `backlog`.** Filling a gap that
    legitimately opens new ones grows the backlog while making the archive
@@ -99,8 +100,9 @@ ask for a different category explicitly:
 sentinel next --action write --json
 ```
 
-`--action` accepts `fix-errors`, `compile`, `write`, `connect`, `review`, and
-returns that category's targets regardless of priority. The response is marked
+`--action` accepts any rung `sentinel schema` lists — currently `fix-errors`,
+`learn`, `compile`, `write`, `connect`, `review` — and returns that category's
+targets regardless of priority. The response is marked
 `requested: true` so the log records that it was your scheduling choice rather
 than sentinel's advice.
 
@@ -114,6 +116,24 @@ Then act:
 ### `fix-errors`
 
 The archive is malformed. Follow `/sentinel-improve` → *Fix errors first*. Nothing else in the loop is trustworthy until the error count is 0, so this always runs to completion before the loop advances.
+
+### `learn`
+
+Documents registered `origin: authored` that no persona trait has been read
+from. Follow `/sentinel-clone` on the top target. **One document per
+iteration** — traits written from one document change what the next reading
+should look for corroboration of.
+
+Two things to watch here, because this rung writes claims about a person:
+
+- **Never mark a trait `affirmed`.** That records the user agreeing. Traits you
+  write are `proposed` until they say otherwise, and the run's report should say
+  how many are waiting on them.
+- **A target that is plainly not the user's writing is a wrong `origin`, not a
+  reading task.** `ingest` and `sync` default to `origin: authored`, so a paper
+  or someone else's essay brought in without `-o researched` lands in this queue
+  looking like theirs. Say so, recommend fixing the origin, and move on — do not
+  mine it, and never edit `raw/`.
 
 ### `compile`
 

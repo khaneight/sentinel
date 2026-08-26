@@ -501,3 +501,174 @@ fn an_uncategorised_trait_still_appears_in_the_profile() {
         "a trait with an invalid kind must not vanish:\n{out}"
     );
 }
+
+// --- the `learn` rung ------------------------------------------------------
+
+/// An archive with one authored source, one researched source, and one article
+/// compiling both — so only `learn` is outstanding.
+fn compiled_archive() -> Archive {
+    let a = archive();
+    a.write(
+        "wiki/philosophy/notes.md",
+        "---\ntitle: Notes\ndomain: philosophy\norigin: authored\ntags: [t]\n\
+         sources:\n  - raw/philosophy/mine.md\n  - raw/philosophy/theirs.md\n---\n\n\
+         Plain prose, no links.\n",
+    );
+    a.run(&["index"]);
+    a
+}
+
+#[test]
+fn an_unread_corpus_is_the_learn_rung() {
+    let a = compiled_archive();
+    let v = a.json(&["next"]);
+    assert_eq!(v["action"], "learn", "{v}");
+    assert_eq!(v["progress"]["unmined"], 1);
+    assert_eq!(
+        v["targets"][0]["id"], "raw/philosophy/mine.md",
+        "only the author's own writing can be read for voice:\n{v}"
+    );
+    assert_eq!(
+        v["suggested_command"],
+        "/sentinel-clone raw/philosophy/mine.md"
+    );
+}
+
+#[test]
+fn the_reason_names_the_field_that_put_a_document_in_the_queue() {
+    // `ingest` and `sync` default to `origin: authored`, so a paper brought in
+    // without `-o researched` lands here looking like the author's own writing.
+    // Naming the field is what lets a reader see that the origin is what is
+    // wrong, rather than concluding the tool has misread their corpus.
+    let a = compiled_archive();
+    let reason = a.json(&["next"])["reason"].as_str().unwrap().to_string();
+    assert!(
+        reason.contains("origin: authored"),
+        "the recommendation should name what put these documents here: {reason}"
+    );
+}
+
+#[test]
+fn reading_a_document_moves_the_counter_the_loop_measures_by() {
+    // `/sentinel-grow` stops when nothing in `progress` moved. A rung whose
+    // work registers as no progress halts the loop on its own success.
+    let a = compiled_archive();
+    let before = a.json(&["next"])["progress"]["unmined"].as_u64().unwrap();
+    a.write(
+        "persona/plain.md",
+        &trait_file("plain", &["raw/philosophy/mine.md"]),
+    );
+    let after = a.json(&["next"])["progress"]["unmined"].as_u64().unwrap();
+    assert_eq!((before, after), (1, 0), "{}", a.run(&["next"]));
+}
+
+#[test]
+fn learn_sits_below_compile_and_above_write() {
+    // The one thing about this rung a reader is most likely to disagree with,
+    // asserted rather than described. Compiling a document is the close reading
+    // that makes mining it cheap; the profile then shapes how the next article
+    // is written.
+    let a = archive();
+    // Nothing compiled yet, and nothing read.
+    assert_eq!(a.json(&["next"])["action"], "compile");
+
+    a.write(
+        "wiki/philosophy/notes.md",
+        "---\ntitle: Notes\ndomain: philosophy\norigin: authored\ntags: [t]\n\
+         sources:\n  - raw/philosophy/mine.md\n  - raw/philosophy/theirs.md\n---\n\n\
+         See [[an-unwritten-gap]].\n",
+    );
+    a.run(&["index"]);
+    let v = a.json(&["next"]);
+    assert_eq!(
+        v["action"], "learn",
+        "with a gap outstanding, learn should still come first:\n{v}"
+    );
+
+    a.write(
+        "persona/plain.md",
+        &trait_file("plain", &["raw/philosophy/mine.md"]),
+    );
+    assert_eq!(
+        a.json(&["next"])["action"],
+        "write",
+        "and hand over to write once the corpus is read"
+    );
+}
+
+#[test]
+fn an_archive_with_no_writing_of_its_own_never_sees_the_rung() {
+    // The rung must not fire for someone whose archive is entirely research.
+    // A backlog category that can never be satisfied by the people it applies
+    // to would mean `next` never says "nothing outstanding" again.
+    let a = Archive::new();
+    let f = a.path("paper.md");
+    std::fs::write(&f, "Somebody else's paper.\n").unwrap();
+    a.run(&[
+        "ingest",
+        &f.display().to_string(),
+        "-d",
+        "philosophy",
+        "-o",
+        "researched",
+        "--as",
+        "paper.md",
+    ]);
+    a.write(
+        "wiki/philosophy/summary.md",
+        "---\ntitle: Summary\ndomain: philosophy\norigin: researched\ntags: [t]\n\
+         sources: [raw/philosophy/paper.md]\n---\n\nA summary.\n",
+    );
+    a.run(&["index"]);
+
+    let v = a.json(&["next"]);
+    assert_eq!(v["progress"]["unmined"], 0);
+    let backlog: Vec<&str> = v["backlog"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert!(
+        !backlog.contains(&"learn"),
+        "an archive with none of the author's own writing has nothing to learn from:\n{v}"
+    );
+}
+
+#[test]
+fn a_requested_learn_reports_the_category_even_when_priority_would_hide_it() {
+    let a = archive();
+    let v = a.json(&["next", "--action", "learn"]);
+    assert_eq!(v["action"], "learn");
+    assert_eq!(v["requested"], true);
+}
+
+#[test]
+fn the_history_records_the_corpus_being_read() {
+    // `meta/progress.jsonl` is what a front end draws the growth curve from.
+    // A rung whose work leaves no trace there is invisible in the one place
+    // the loop is meant to be watchable.
+    let a = compiled_archive();
+    let snapshots: Vec<serde_json::Value> = a
+        .read("meta/progress.jsonl")
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(snapshots.last().unwrap()["unmined"], 1);
+
+    a.write(
+        "persona/plain.md",
+        &trait_file("plain", &["raw/philosophy/mine.md"]),
+    );
+    a.run(&["index"]);
+    let snapshots: Vec<serde_json::Value> = a
+        .read("meta/progress.jsonl")
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        snapshots.last().unwrap()["unmined"],
+        0,
+        "reading the corpus must register in the history"
+    );
+}

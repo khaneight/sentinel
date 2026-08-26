@@ -8,6 +8,7 @@ use crate::core::links::{self, LinkGraph};
 use crate::core::lint::{self, Severity};
 use crate::core::manifest::Manifest;
 use crate::core::output;
+use crate::core::persona;
 use crate::core::wiki::{self, LoadedArticle};
 
 /// A draft untouched for this long is treated as stalled rather than in progress.
@@ -27,6 +28,8 @@ const MAX_TARGETS: usize = 5;
 pub enum Action {
     /// The archive is malformed. Nothing else is worth doing first.
     FixErrors,
+    /// The author's own documents no persona trait has been read from.
+    Learn,
     /// Raw documents no wiki article cites.
     Compile,
     /// Concepts the wiki links to but has not written.
@@ -45,12 +48,20 @@ impl std::str::FromStr for Action {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "fix-errors" => Ok(Action::FixErrors),
+            "learn" => Ok(Action::Learn),
             "compile" => Ok(Action::Compile),
             "write" => Ok(Action::Write),
             "connect" => Ok(Action::Connect),
             "review" => Ok(Action::Review),
+            // Derived from the ladder, so a rung added above cannot leave this
+            // message naming four of five actions.
             other => Err(format!(
-                "unknown action '{other}' (expected fix-errors, compile, write, connect, or review)"
+                "unknown action '{other}' (expected {})",
+                Action::LADDER
+                    .iter()
+                    .map(|a| a.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )),
         }
     }
@@ -66,6 +77,14 @@ impl Action {
     pub const LADDER: &'static [Action] = &[
         Action::FixErrors,
         Action::Compile,
+        // Below `compile`, above `write`. docs/clone.md originally argued for
+        // the top of the ladder — "a corpus read after the fact shaped
+        // nothing" — and that was overstated. Compiling a document *is* the
+        // close reading that makes mining it cheap, and what a thin profile
+        // actually degrades is generated work, which sits below this. What
+        // `learn` does earn is a place above `write`: the profile shapes how
+        // the next article is written.
+        Action::Learn,
         Action::Write,
         Action::Connect,
         Action::Review,
@@ -74,6 +93,7 @@ impl Action {
     pub fn as_str(self) -> &'static str {
         match self {
             Action::FixErrors => "fix-errors",
+            Action::Learn => "learn",
             Action::Compile => "compile",
             Action::Write => "write",
             Action::Connect => "connect",
@@ -157,6 +177,11 @@ pub struct Progress {
     /// Articles still `draft`. Moves when `review` promotes one, for the same
     /// reason.
     pub drafts: usize,
+    /// Documents the author wrote that no persona trait has been read from.
+    /// Moves when `learn` does its work — which changes nothing else, so
+    /// without this a correct `learn` iteration reads as no progress and halts
+    /// the loop.
+    pub unmined: usize,
     /// Set when the link graph exists but could not be parsed. Orphans could
     /// not be counted, so `connect` is absent from the backlog for that reason
     /// rather than because there is nothing to do.
@@ -218,20 +243,20 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
     // files that could not be read, so `next` ranked the whole archive from
     // whatever happened to be legible and said nothing about the rest.
     let loaded = wiki::load_all()?;
-    let persona = crate::core::persona::load_all()?;
+    let persona_loaded = persona::load_all()?;
     // Both directories feed one disclosure. A trait that could not be read
     // costs the same thing an article does — every count below is computed
     // without it — so it belongs in the same list rather than a second one a
     // caller has to remember to check.
     let mut unreadable = loaded.unreadable.clone();
-    unreadable.extend(persona.unreadable.iter().cloned());
+    unreadable.extend(persona_loaded.unreadable.iter().cloned());
     unreadable.sort_by(|a, b| a.path.cmp(&b.path));
     let articles = loaded.articles;
     let manifest = Manifest::load()?;
 
     let findings = lint::analyze(
         &articles,
-        &persona.traits,
+        &persona_loaded.traits,
         &manifest,
         &crate::core::paths::archive_root(),
     );
@@ -240,6 +265,8 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
         .filter(|f| f.severity == Severity::Error)
         .collect();
 
+    let coverage = persona::Coverage::derive(&persona_loaded.traits, &manifest);
+    let unmined = coverage.unmined();
     let compilation = Compilation::derive(&articles, &manifest);
     let uncompiled = compilation.uncompiled(&manifest);
     let wanted = links::wanted(&articles);
@@ -264,6 +291,7 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
             .iter()
             .filter(|a| a.article.frontmatter.status.as_deref() == Some("draft"))
             .count(),
+        unmined: unmined.len(),
         link_graph_error: graph_error,
         link_graph_stale: graph_stale,
         unreadable: unreadable.clone(),
@@ -271,6 +299,7 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
 
     let backlog: Vec<BacklogEntry> = [
         (Action::FixErrors, errors.len()),
+        (Action::Learn, unmined.len()),
         (Action::Compile, uncompiled.len()),
         (Action::Write, wanted.len()),
         (Action::Connect, orphans.len()),
@@ -290,6 +319,9 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
         match action {
             Action::FixErrors if !errors.is_empty() => {
                 Some(fix_errors(&errors, &backlog, &progress))
+            }
+            Action::Learn if !unmined.is_empty() => {
+                Some(learn(&unmined, &manifest, &backlog, &progress))
             }
             Action::Compile if !uncompiled.is_empty() => {
                 Some(compile(&uncompiled, &backlog, &progress))
@@ -319,11 +351,9 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
     // Priority order. Errors first because every later judgement is made on
     // data the errors call into question; compile before write because an
     // uncompiled source is knowledge already in hand.
-    Ok(build(Action::FixErrors)
-        .or_else(|| build(Action::Compile))
-        .or_else(|| build(Action::Write))
-        .or_else(|| build(Action::Connect))
-        .or_else(|| build(Action::Review))
+    Ok(Action::LADDER
+        .iter()
+        .find_map(|action| build(*action))
         .unwrap_or_else(|| Recommendation {
             action: Action::None,
             reason: nothing_outstanding(&articles, manifest.count()),
@@ -391,6 +421,65 @@ fn fix_errors(
             })
             .collect(),
         suggested_command: Some("sentinel lint".to_string()),
+        backlog: backlog.to_vec(),
+        progress: progress.clone(),
+        requested: false,
+    }
+}
+
+fn learn(
+    unmined: &[&str],
+    manifest: &crate::core::manifest::Manifest,
+    backlog: &[BacklogEntry],
+    progress: &Progress,
+) -> Recommendation {
+    // Oldest first. Unlike `write`, there is no demand signal here — nothing in
+    // the archive asks to be read before anything else — so the ranking is
+    // simply the order the corpus arrived. Saying that plainly beats inventing
+    // a relevance score the archive cannot actually support.
+    let mut ordered: Vec<&str> = unmined.to_vec();
+    ordered.sort_by_key(|p| {
+        manifest
+            .entries
+            .get(*p)
+            .map(|e| e.ingested_at.clone())
+            .unwrap_or_default()
+    });
+
+    Recommendation {
+        action: Action::Learn,
+        // Names the field, not just the idea. `ingest` and `sync` default to
+        // `origin: authored`, so a research paper brought in without `-o`
+        // lands here looking like the author's own writing — and a reader who
+        // sees it listed can tell at once that the origin is what is wrong.
+        reason: format!(
+            "{} document(s) registered `origin: authored` that no persona trait has \
+             been read from — the clone cannot write in a voice it has not read",
+            unmined.len()
+        ),
+        target_count: unmined.len(),
+        targets: ordered
+            .iter()
+            .take(MAX_TARGETS)
+            .map(|path| {
+                let entry = manifest.entries.get(*path);
+                let title = entry.map_or_else(|| (*path).to_string(), |e| e.title.clone());
+                // Whether it is already compiled is context, not ranking: an
+                // agent that has just written an article from this document
+                // has its content in hand and can mine it cheaply.
+                let compiled = entry.is_some_and(|e| !e.wiki_articles.is_empty());
+                let detail = if compiled {
+                    format!(
+                        "{} · already compiled, so its content is in hand",
+                        entry.map_or("", |e| e.domain.as_str())
+                    )
+                } else {
+                    entry.map_or(String::new(), |e| e.domain.clone())
+                };
+                Target::plain((*path).to_string(), title, detail)
+            })
+            .collect(),
+        suggested_command: ordered.first().map(|p| format!("/sentinel-clone {p}")),
         backlog: backlog.to_vec(),
         progress: progress.clone(),
         requested: false,
