@@ -38,6 +38,13 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
     let loaded = wiki::load_all()?;
     let articles = &loaded.articles;
     let persona = crate::core::persona::load_all()?;
+    // Both layers, one list. `lint` checks persona traits, so a trait it could
+    // not read is a rule that did not run — disclosed exactly like an article
+    // it could not read, rather than dropped because the field was named for
+    // the wiki first.
+    let mut unreadable = loaded.unreadable.clone();
+    unreadable.extend(persona.unreadable.iter().cloned());
+    unreadable.sort_by(|a, b| a.path.cmp(&b.path));
     let manifest = Manifest::load()?;
     let all = lint::analyze(
         articles,
@@ -102,7 +109,7 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
                 warnings,
                 by_rule,
                 findings: (!summary).then_some(findings),
-                unreadable: loaded.unreadable.clone(),
+                unreadable: unreadable.clone(),
             },
         )?;
     } else if summary {
@@ -111,13 +118,13 @@ pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result
         report_human(&findings, errors, warnings);
     }
 
-    if !loaded.unreadable.is_empty() && !output::is_json() {
+    if !unreadable.is_empty() && !output::is_json() {
         println!(
             "\n{} {} wiki file(s) could not be read and were not linted:",
             "!".red(),
-            loaded.unreadable.len()
+            unreadable.len()
         );
-        for u in &loaded.unreadable {
+        for u in &unreadable {
             println!("    {} — {}", u.path, u.error);
         }
     }

@@ -324,3 +324,180 @@ fn a_trait_that_cannot_be_read_stops_index_rather_than_shrinking_the_profile() {
         std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 }
+
+// --- `sentinel persona` ----------------------------------------------------
+
+#[test]
+fn an_empty_profile_says_the_clone_has_nothing_to_write_from() {
+    // "0 traits" read as a healthy archive with nothing to report. It is the
+    // opposite: the archive holds no model of its author at all.
+    let a = archive();
+    let out = a.run(&["persona"]);
+    assert!(
+        out.contains("no model of its author"),
+        "an empty profile must say what is missing:\n{out}"
+    );
+    let v = a.json(&["persona"]);
+    assert_eq!(v["count"], 0);
+    assert_eq!(
+        v["coverage"]["eligible"], 1,
+        "one authored source is registered; the researched one is not eligible"
+    );
+}
+
+#[test]
+fn research_is_not_eligible_evidence_so_it_is_not_counted_as_corpus() {
+    // The archive holds two raw documents. Only the authored one can support a
+    // claim about its author, so only that one belongs in the coverage
+    // denominator — counting both would report the profile as half-read when
+    // it is fully read.
+    let a = archive();
+    a.write(
+        "persona/grounded.md",
+        &trait_file("grounded", &["raw/philosophy/mine.md"]),
+    );
+    let v = a.json(&["persona"]);
+    assert_eq!(v["coverage"]["eligible"], 1);
+    assert_eq!(v["coverage"]["mined"], 1);
+    assert_eq!(v["coverage"]["unmined_count"], 0);
+}
+
+#[test]
+fn a_rejected_trait_does_not_count_its_evidence_as_read() {
+    // The author disagreed with what was read out of the document. That means
+    // the document has not been read *correctly*, so it stays in the queue —
+    // otherwise one rejected trait retires a source permanently.
+    let a = archive();
+    a.write(
+        "persona/wrong.md",
+        &trait_file("wrong", &["raw/philosophy/mine.md"])
+            .replace("status: proposed", "status: rejected"),
+    );
+    let v = a.json(&["persona"]);
+    assert_eq!(v["count"], 1);
+    assert_eq!(v["by_status"]["rejected"], 1);
+    assert_eq!(
+        v["coverage"]["unmined_count"], 1,
+        "a rejected reading must not retire the source it came from:\n{v:#}"
+    );
+    assert_eq!(v["coverage"]["unmined"][0], "raw/philosophy/mine.md");
+}
+
+#[test]
+fn a_filter_narrows_what_is_listed_and_never_what_is_counted() {
+    // The same rule `lint --rule` follows. A `--kind belief` view that also
+    // reported "1 trait" would make a profile look like it holds one thing.
+    let a = archive();
+    for (id, kind) in [("a", "style"), ("b", "belief")] {
+        a.write(
+            &format!("persona/{id}.md"),
+            &trait_file(id, &["raw/philosophy/mine.md"])
+                .replace("kind: belief", &format!("kind: {kind}")),
+        );
+    }
+    let all = a.json(&["persona"]);
+    assert_eq!(all["count"], 2);
+
+    let filtered = a.json(&["persona", "--kind", "belief"]);
+    assert_eq!(
+        filtered["count"], 2,
+        "the count describes the profile, not the filter:\n{filtered:#}"
+    );
+    let listed = filtered["traits"].as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["kind"], "belief");
+}
+
+#[test]
+fn an_unknown_kind_is_an_error_not_an_empty_profile() {
+    // `--rule` and `--action` both validate, for the reason this does: a typo
+    // that returns nothing is indistinguishable from a category that is empty,
+    // and the caller acts on "you hold no beliefs".
+    let a = archive();
+    let out = a.output(&["persona", "--kind", "beleif"]);
+    assert_ne!(out.status.code(), Some(0), "a typo must not read as clean");
+    let stderr = common::stderr(&out);
+    assert!(
+        stderr.contains("belief"),
+        "the error should name the real values: {stderr}"
+    );
+}
+
+#[test]
+fn affirmed_shows_only_what_the_author_has_agreed_to() {
+    // This is the set the clone may write from. An unset status is `proposed`,
+    // so a trait nobody has looked at must not appear here.
+    let a = archive();
+    a.write(
+        "persona/unset.md",
+        "---\nid: unset\nkind: style\nclaim: c\n\
+         evidence: [raw/philosophy/mine.md]\n---\n\nbody\n",
+    );
+    a.write(
+        "persona/agreed.md",
+        &trait_file("agreed", &["raw/philosophy/mine.md"])
+            .replace("status: proposed", "status: affirmed"),
+    );
+
+    let v = a.json(&["persona", "--affirmed"]);
+    assert_eq!(v["count"], 2, "counts still describe the whole profile");
+    let listed = v["traits"].as_array().unwrap();
+    assert_eq!(listed.len(), 1, "an unset status is not agreement:\n{v:#}");
+    assert_eq!(listed[0]["id"], "agreed");
+    assert_eq!(v["by_status"]["proposed"], 1);
+    assert_eq!(v["by_status"]["affirmed"], 1);
+}
+
+#[test]
+fn a_capped_unmined_list_publishes_its_true_total() {
+    // The archive's rule for every capped list. A short list that does not say
+    // it is short reads as the whole corpus already being read.
+    let a = archive();
+    for i in 0..15 {
+        let f = a.path(&format!("src{i}.md"));
+        std::fs::write(&f, format!("Essay {i}.\n")).unwrap();
+        assert_eq!(
+            a.code(&[
+                "ingest",
+                &f.display().to_string(),
+                "-d",
+                "philosophy",
+                "-o",
+                "authored",
+                "--as",
+                &format!("src{i}.md"),
+            ]),
+            0
+        );
+    }
+    let v = a.json(&["persona"]);
+    assert_eq!(v["coverage"]["unmined_count"], 16);
+    let sample = v["coverage"]["unmined"].as_array().unwrap();
+    assert!(
+        sample.len() < 16,
+        "the sample should be capped, or this proves nothing"
+    );
+
+    let out = a.run(&["persona"]);
+    assert!(
+        out.contains(&format!("and {} more", 16 - sample.len())),
+        "human output must say the list is short:\n{out}"
+    );
+}
+
+#[test]
+fn an_uncategorised_trait_still_appears_in_the_profile() {
+    // Grouping by the published kinds means anything outside them prints
+    // nowhere. `lint` reports it, but the one command meant to show the whole
+    // profile would be the one place it is invisible.
+    let a = archive();
+    a.write(
+        "persona/odd.md",
+        &trait_file("odd", &["raw/philosophy/mine.md"]).replace("kind: belief", "kind: nonsense"),
+    );
+    let out = a.run(&["persona"]);
+    assert!(
+        out.contains("persona/odd.md"),
+        "a trait with an invalid kind must not vanish:\n{out}"
+    );
+}

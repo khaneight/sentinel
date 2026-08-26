@@ -20,12 +20,15 @@
 //!    raw documents count. Deriving someone's principles from material an agent
 //!    researched *for* them builds a person out of their reading list.
 
+use std::collections::BTreeSet;
 use std::io;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::compilation::SourceIndex;
 use super::frontmatter;
+use super::manifest::Manifest;
 use super::paths;
 use super::wiki::{self, Unreadable};
 
@@ -230,6 +233,67 @@ impl Loaded {
                 self.unreadable.len()
             ),
         ))
+    }
+}
+
+/// How much of the author's own writing the profile has actually been read out
+/// of.
+///
+/// Derived live from the traits and the manifest, never recorded — the same
+/// rule `Compilation` follows, and for the same reason: a stored copy is right
+/// until somebody edits a file, and this one decides whether the clone has read
+/// enough of a person to write as them.
+#[derive(Debug, Clone, Default)]
+pub struct Coverage {
+    /// Raw documents that could serve as evidence, in manifest order.
+    pub eligible: Vec<String>,
+    /// Those some trait cites.
+    pub mined: BTreeSet<String>,
+}
+
+impl Coverage {
+    pub fn derive(traits: &[LoadedTrait], manifest: &Manifest) -> Self {
+        let mut eligible: Vec<String> = manifest
+            .entries
+            .iter()
+            .filter(|(_, e)| EVIDENCE_ORIGINS.contains(&e.origin.as_str()))
+            .map(|(path, _)| path.clone())
+            .collect();
+        eligible.sort();
+
+        // Through the same matcher `sources:` uses, so `mine.md` and
+        // `raw/philosophy/mine.md` count the same document once. Counting
+        // spellings instead of documents would report a corpus as mined
+        // because one file was cited two ways.
+        let index = SourceIndex::new(manifest);
+        let eligible_set: BTreeSet<&str> = eligible.iter().map(String::as_str).collect();
+        let mut mined = BTreeSet::new();
+        for t in traits {
+            // A rejected trait is one the author disagreed with. Whatever it
+            // was read out of has not been read *correctly*, so it stays in the
+            // queue rather than counting as covered.
+            if t.status() == "rejected" {
+                continue;
+            }
+            for cited in &t.frontmatter.evidence {
+                if let Some(resolved) = index.resolve(cited)
+                    && eligible_set.contains(resolved.as_str())
+                {
+                    mined.insert(resolved);
+                }
+            }
+        }
+
+        Self { eligible, mined }
+    }
+
+    /// Eligible documents no trait has been read out of — the `learn` queue.
+    pub fn unmined(&self) -> Vec<&str> {
+        self.eligible
+            .iter()
+            .map(String::as_str)
+            .filter(|p| !self.mined.contains(*p))
+            .collect()
     }
 }
 

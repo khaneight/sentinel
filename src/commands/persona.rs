@@ -140,16 +140,20 @@ pub fn run(kind_filter: Option<&str>, affirmed_only: bool) -> io::Result<i32> {
         println!(
             "\n  The archive holds no model of its author, so nothing can be\n  \
              written in their voice. Traits are read out of their own writing\n  \
-             in `raw/` — {} eligible document(s) are registered.",
-            profile.coverage.eligible
+             in `raw/`.",
         );
         println!("\n  see: {}", "sentinel schema".cyan());
-        wiki::warn_partial(&profile.unreadable, "the profile above may be short");
+        // Printed here too, not only below. An empty profile is the case where
+        // the unread corpus matters most — it is the entire queue — and an
+        // early return that skipped it left the one command meant to show
+        // where to start showing nothing to start from.
+        print_unread(&profile.coverage);
+        wiki::warn_partial(&profile.unreadable, "some trait could not be read");
         return Ok(0);
     }
 
     println!(
-        "{} — {} trait(s), read from {} of {} of the author's own document(s)",
+        "{} — {} trait(s), drawn from {} of {} document(s) the author wrote",
         "Persona".bold(),
         profile.count,
         profile.coverage.mined,
@@ -214,27 +218,37 @@ pub fn run(kind_filter: Option<&str>, affirmed_only: bool) -> io::Result<i32> {
         }
     }
 
-    if profile.coverage.unmined_count > 0 {
-        println!(
-            "\n{} — {} of the author's document(s) no trait has been read from",
-            "Unread".bold(),
-            profile.coverage.unmined_count
-        );
-        for path in &profile.coverage.unmined {
-            println!("  {path}");
-        }
-        if profile.coverage.unmined_count > profile.coverage.unmined.len() {
-            println!(
-                "  {}",
-                format!(
-                    "... and {} more",
-                    profile.coverage.unmined_count - profile.coverage.unmined.len()
-                )
-                .dimmed()
-            );
-        }
-    }
-
+    print_unread(&profile.coverage);
     wiki::warn_partial(&profile.unreadable, "the profile above may be short");
     Ok(0)
+}
+
+/// The author's own documents nothing has been read from.
+///
+/// Always states the true total alongside the sample, per the archive's rule
+/// for capped lists: a short list that does not say it is short reads as the
+/// whole corpus already being covered.
+fn print_unread(coverage: &CoverageReport) {
+    if coverage.unmined_count == 0 {
+        return;
+    }
+    println!(
+        "\n{} — {} of {} document(s) the author wrote, that no trait has been read from",
+        "Unread".bold(),
+        coverage.unmined_count,
+        coverage.eligible
+    );
+    for path in &coverage.unmined {
+        println!("  {path}");
+    }
+    if coverage.unmined_count > coverage.unmined.len() {
+        println!(
+            "  {}",
+            format!(
+                "... and {} more",
+                coverage.unmined_count - coverage.unmined.len()
+            )
+            .dimmed()
+        );
+    }
 }
