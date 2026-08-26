@@ -178,16 +178,33 @@ what it is waiting on you for.
 
 Each is a PR, stacked, each independently reviewable.
 
-1. **this document**
-2. `persona/` — the layer, its loader, its lint rules, `init`, `schema`
-3. `sentinel persona` — read the profile; coverage against the corpus
-4. the `learn` rung + `/sentinel-clone`, the skill that works it
-5. `sentinel review` — verdicts on traits and articles
-6. `origin: extrapolated` + the `extend` rung + the ladder rename
-7. `export` — approval gate, attribution, opted-in sources, richer bundle
-8. the front end
-9. skills — `sentinel-clone`, `sentinel-extend`, and `sentinel-grow` rewritten
-   around the new ladder
+1. ✅ **this document**
+2. ✅ `persona/` — the layer, its loader, its lint rules, `init`, `schema`
+3. ✅ `sentinel persona` — read the profile; coverage against the corpus
+4. ✅ the `learn` rung + `/sentinel-clone`, the skill that works it
+5. ✅ `sentinel review` — verdicts on traits and articles
+6. ✅ `origin: extrapolated` + the `extend` rung + `/sentinel-extend`
+7. ✅ `export` — approval gate and the attribution notice
+8. ✅ `sentinel sources` + `export --with-sources`
+9. ✅ the showcase page + `export --ui`
+10. ✅ the docs
+
+### Where it differs from what is above
+
+Two things changed under test and the document is corrected rather than left
+standing.
+
+**`learn` moved below `compile`.** The argument for the top of the ladder — "a
+corpus read after the fact shaped nothing" — was overstated. Compiling a
+document *is* the close reading that makes mining it cheap, and what a thin
+profile degrades is generated work, four rungs further down.
+
+**`review` was not renamed to `revise`, and `SCHEMA_VERSION` stayed at 1.** The
+rename was proposed to free the word for the human gate. In the event the gate
+needed a *command* rather than a rung, and `sentinel review` reads correctly
+beside a `review` rung that means stalled drafts — the two never appear in the
+same sentence. Renaming would have broken every `--action review` in the wild
+to solve a collision that turned out not to exist.
 
 ## What this does not do
 
