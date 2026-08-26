@@ -19,12 +19,8 @@ cargo fmt --check
 
 CI (`.github/workflows/ci.yml`) runs these on Linux and macOS for every push and
 PR. **Read its result** — a local run on one filesystem is not the same
-evidence. To exercise the case-sensitive path locally:
-
-```
-hdiutil create -size 200m -fs "Case-sensitive APFS" -volname CSTEST cs.dmg && hdiutil attach cs.dmg
-TMPDIR=/Volumes/CSTEST cargo test --locked --all-targets
-```
+evidence. To exercise the case-sensitive path on macOS, see *Running the
+case-sensitive tests* in [`docs/design-notes.md`](docs/design-notes.md).
 
 ## Architecture
 
@@ -54,12 +50,11 @@ Each of these was a bug. Breaking one reintroduces it.
 characters dropped. Use `canonical_slug()`, never `slug()`, which is for display.
 Plurals and the Turkish dotted `İ` are deliberately *not* folded.
 
-**Nothing uncited about a person.** `persona/` holds claims about the archive's
-author. A trait with no `evidence:` is a lint **error**, and every evidence
-entry must resolve to a raw document whose `origin` is `authored` or `hybrid` —
-research records what they read, not what they think. These are the two rules
-the whole clone feature rests on; see [`docs/clone.md`](docs/clone.md). The
-repair for either is never to supply the missing part.
+**Nothing uncited about a person.** `persona/` holds claims about the author. A
+trait with no `evidence:` is a lint **error**, and every entry must resolve to a
+raw document whose `origin` is `authored` or `hybrid` — research records what
+they read, not what they think. The repair for either is never to supply the
+missing part. [`docs/clone.md`](docs/clone.md).
 
 **Derivation.** A raw document is compiled when some article names it in
 `sources:`. That mapping is derived live by `compilation::Compilation`, never
@@ -144,49 +139,35 @@ it.
 ## Commands with non-obvious behaviour
 
 `sentinel mv <from> <to>` moves a raw document and rewrites every `sources:`
-citation, matching them the way the compile loop does so `d/x.md` and a bare
-`x.md` are repointed too. The edit is textual and confined to the frontmatter
-block — whole entries, never substrings — so formatting and comments survive and
-a path in the body prose is left alone. A case-only rename is allowed;
-destinations must stay under `raw/`.
+citation, matching them the way the compile loop does. `sentinel rm <target>`
+refuses when anything cites the target and points at `mv`; `--force` proceeds
+and reports each citation it orphans. Both are textual, frontmatter-only edits —
+see [`docs/design-notes.md`](docs/design-notes.md).
 
-`sentinel rm <target>` refuses when anything cites the target, names the citing
-articles, and points at `mv`, since most such attempts are a rename. `--force`
-proceeds and reports each citation it orphans.
+`sentinel search` ranks title 1000 / slug 500 / tag 200 / body line 1, top
+`--limit` (20). `sentinel graph --node <slug>` returns a neighbourhood; bare, it
+dumps the whole topology for humans. `sentinel log` reads with no arguments and
+appends with them.
 
-`sentinel search` returns the top `--limit` (20) results with `--matches` (3)
-excerpts each, ranked title 1000 / slug 500 / tag 200 / body line 1.
-
-`sentinel graph --node <slug> --depth <n>` returns a neighbourhood; the bare form
-dumps the whole topology and is for humans.
-
-`sentinel log` with no arguments reads recent entries; with arguments it appends.
-
-`sentinel export` writes the publishable subset to a directory: articles whose
-`status` qualifies (`stable` by default), with `[[links]]` to anything not
-published rewritten to plain text so the output has no dead ends. It renders no
-HTML — a static site generator that understands wikilinks takes it from there.
-It refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks,
-and reports files a previous export left behind — `--clean` removes them.
-`--data <file>` also emits a JSON bundle for a front end: published nodes and
-edges, and the progress history. `meta/progress.jsonl` is that history — one
-snapshot per `index` **that changed something**, so it records the archive
-rather than how often a command ran.
-Publishing is not recoverable by re-running, so it refuses on a partial view and
-`--dry-run` reports without writing.
-Articles land at `<domain>/<slug>.md`, or `<slug>.md` with `--flat`; the `wiki/`
-prefix is dropped because a site generator turns directories into URL segments.
-[`docs/publishing.md`](docs/publishing.md) is the workflow, including a verified
-Quartz setup.
+`sentinel export` writes the publishable subset: articles whose `status`
+qualifies (`stable` by default), with `[[links]]` to anything unpublished
+rewritten as plain text so the output has no dead ends. It renders no HTML. It
+refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks, and —
+since publishing is not recoverable by re-running — refuses on a partial view;
+`--dry-run` reports instead, `--clean` removes what a previous export left.
+`--data <file>` emits a JSON bundle for a front end, including the growth
+history in `meta/progress.jsonl`: one snapshot per `index` **that changed
+something**, so it records the archive rather than how often a command ran.
+[`docs/publishing.md`](docs/publishing.md) has the workflow and the path layout.
 
 `sentinel index` regenerates `_master.md`, `_by-domain.md`, `_recent.md`,
 `_orphans.md`, `_uncompiled.md`, `_dashboard.md`, the link graph, and the
-manifest's compilation mapping. `_dashboard.md` is the human-facing page —
-generated from `next::recommend`, `status::summarize`, `lint::analyze` and
-`schema`, never from a second definition, and capped so it cannot become
-`_master.md` in size. Agents should use `sentinel next --json` instead of
-the page; it carries the same facts without spending the context. `paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come
-from disk.
+manifest's compilation mapping. `_dashboard.md` is the human page — generated
+from `next::recommend`, `status::summarize`, `lint::analyze` and `schema`,
+never a second definition, and capped so it cannot become `_master.md`. Agents
+use `sentinel next --json` instead; same facts, less context.
+`paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come from
+disk.
 
 ## Skills
 
@@ -200,12 +181,12 @@ section title, never step number. `sentinel-grow` runs the maintenance loop; `as
 
 `tests/skill_flows.rs` executes every `sentinel …` line in a skill's fenced
 blocks against a real archive — naming a command that exists is not the same as
-publishing a sequence that runs. `tests/skills.rs` enforces what is enforceable: required frontmatter, `name`
-matching the directory, that every `sentinel <cmd>` in a code block exists, that
-none instruct reading `index/_master.md`, that each defines empty-`$ARGUMENTS`
-behaviour and defers to `sentinel schema`, that every mutating command is
-reachable from some skill, and that any skill invoking a command which can
-refuse says what to do about it.
+publishing a sequence that runs. `tests/skills.rs` enforces the rest: frontmatter, `name` matching the directory,
+that every `sentinel <cmd>` named exists, that none send an agent to
+`index/_master.md`, that each defines empty-`$ARGUMENTS` behaviour and defers to
+`sentinel schema`, that every mutating command and every lint rule is reachable
+from some skill, and that any skill invoking a command which can refuse says
+what to do about it.
 
 **A new failure mode in the CLI is a change to the skills — and to the
 `CLAUDE.md` `init` writes into the archive**, which is the same kind of
@@ -217,11 +198,11 @@ that the archive file stays small enough to be per-session context.
 - Integration tests drive the compiled binary against temp archives and scrub
   `SENTINEL_ARCHIVE`/`SENTINEL_CONFIG` so they cannot read the developer's own.
 - **`tests/onboarding.rs` tests journeys, not commands.** `tests/common/journey.rs`
-  records every step of a session and asserts over the transcript. Two defects it
-  exists for could not be seen one command at a time: `next` telling a brand-new
-  archive "Nothing outstanding", and `connect` asking a one-article archive for
-  an incoming link forever. Add a step here when a change alters what a user
-  sees *in sequence*.
+  records a whole session and asserts over the transcript. Two defects it exists
+  for were invisible one command at a time: `next` telling a brand-new archive
+  "Nothing outstanding", and `connect` asking a one-article archive for an
+  incoming link forever. Add a step when a change alters what a user sees *in
+  sequence*.
 - **When a test enumerates, enumerate from the source of truth** — from
   `--help`, from `schema`, from `RULES` — not from the case in front of you.
   Three bugs got through guards that checked only the site being written.
