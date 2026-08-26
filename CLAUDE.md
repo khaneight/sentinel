@@ -186,6 +186,9 @@ reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.
   re-running — refuses on a partial view. `--data` emits the front-end bundle,
   including `meta/progress.jsonl`: one snapshot per `index` **that changed
   something**, so it records the archive, not how often a command ran.
+  `--ui <dir>` writes the showcase page (`ui/index.html`, `include_str!`d so it
+  cannot drift from the bundle shape) plus its own `bundle.json`, since a page
+  without its data is a site whose only content is an error message.
   [`docs/publishing.md`](docs/publishing.md) has the workflow.
 - **`index`** regenerates every `index/` page, the link graph and the manifest's
   compilation mapping. `_dashboard.md` is the human page, generated from

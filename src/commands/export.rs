@@ -62,6 +62,9 @@ struct Report {
     /// of the output knows the trail stops somewhere deliberate rather than
     /// wondering why some citations link and others do not.
     sources_withheld: usize,
+    /// Where the showcase page was written, when it was asked for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ui: Option<String>,
     /// True when the destination had no landing page and one was scaffolded.
     wrote_landing: bool,
     /// True when nothing was written because `--dry-run` was given.
@@ -73,6 +76,13 @@ struct Report {
 /// A directory of its own so nothing can collide with an article, and so a
 /// reader can tell source material from writing at a glance in the URL.
 const SOURCES_DIR: &str = "sources";
+
+/// The showcase page, compiled into the binary.
+///
+/// `include_str!` rather than a file the user is told to copy: a page that has
+/// to be kept in step by hand is a page that renders last month's bundle
+/// shape. Versioning it with the tool means the two cannot disagree.
+const UI_PAGE: &str = include_str!("../../ui/index.html");
 
 /// What an export run was asked to do.
 ///
@@ -89,6 +99,13 @@ pub struct Options<'a> {
     pub flat: bool,
     pub data: Option<&'a Path>,
     pub with_sources: bool,
+    /// Write the showcase page and its bundle into this directory.
+    ///
+    /// Separate from the markdown export on purpose. That output is for
+    /// reading, and a static site generator owns it; this is one self-contained
+    /// page for looking at the archive as a working system. Mixing them would
+    /// mean handing a generator an HTML file it does not know what to do with.
+    pub ui: Option<&'a Path>,
 }
 
 pub fn run(options: Options<'_>) -> io::Result<i32> {
@@ -101,6 +118,7 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
         flat,
         data,
         with_sources,
+        ui,
     } = options;
     // A partial view would silently publish less than the archive holds, and a
     // reader has no way to tell a missing article from one that was never
@@ -361,15 +379,30 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
     stale.sort();
     stale.dedup();
 
-    if let Some(data_path) = data
-        && !dry_run
-    {
+    // `--ui` implies its own bundle: the page reads `bundle.json` from beside
+    // itself, and a flag that wrote the page without the data it needs would
+    // produce a site whose only content is an error message.
+    let bundle_targets: Vec<PathBuf> = data
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(ui.map(|dir| dir.join("bundle.json")))
+        .collect();
+    if !bundle_targets.is_empty() && !dry_run {
         let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
         let payload = bundle(&published, &articles, &traits, &reachable, &generated_at)?;
-        if let Some(parent) = data_path.parent() {
-            std::fs::create_dir_all(parent)?;
+        let text = serde_json::to_string_pretty(&payload)?;
+        for target in &bundle_targets {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            crate::core::atomic::write(target, &text)?;
         }
-        crate::core::atomic::write(data_path, serde_json::to_string_pretty(&payload)?)?;
+    }
+    if let Some(dir) = ui
+        && !dry_run
+    {
+        std::fs::create_dir_all(dir)?;
+        crate::core::atomic::write(&dir.join("index.html"), UI_PAGE)?;
     }
 
     // A site with no landing page serves a 404 at its root. Written only when
@@ -380,6 +413,7 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
     let wrote_landing = !dry_run && !landing.exists();
 
     let report = Report {
+        ui: ui.map(|d| d.display().to_string()),
         held_for_approval,
         wrote_landing,
         stale: stale.clone(),
@@ -466,6 +500,9 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
             "  {} source document(s) copied; {} withheld (not marked publishable).",
             report.sources_published, report.sources_withheld
         );
+    }
+    if let Some(dir) = &report.ui {
+        println!("  showcase page → {dir}/index.html");
     }
     if report.held_for_approval > 0 {
         println!(

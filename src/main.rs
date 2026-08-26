@@ -272,6 +272,11 @@ enum Commands {
         /// those marked publishable by `sentinel sources --publish`
         #[arg(long)]
         with_sources: bool,
+
+        /// Also write the self-contained showcase page and its data into this
+        /// directory: the graph, the persona, and what is still in flight
+        #[arg(long, value_name = "DIR")]
+        ui: Option<std::path::PathBuf>,
         /// Report what would be written without writing it.
         #[arg(long)]
         dry_run: bool,
@@ -489,6 +494,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             data,
             dry_run,
             with_sources,
+            ui,
         } => commands::export::run(commands::export::Options {
             destination: out.as_deref(),
             statuses: status.as_deref(),
@@ -498,6 +504,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             flat,
             data: data.as_deref(),
             with_sources,
+            ui: ui.as_deref(),
         }),
         Commands::Graph { node, depth } => commands::graph::run(node.as_deref(), depth).map(|()| 0),
         Commands::Log {

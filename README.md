@@ -139,7 +139,13 @@ Writes only articles whose `status` qualifies (`stable` by default), rewrites li
 
 Anything the clone wrote (`origin: extrapolated`) publishes **only once you have approved it** — `sentinel review <slug> --approve` — and `export` appends an attribution notice to it that no flag suppresses. Finished is not the same as signed. It renders no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks.
 
-`--data <file>` also emits a JSON bundle — published nodes and edges, plus the growth history from `meta/progress.jsonl` — for a front end to render.
+`--ui <dir>` writes a self-contained showcase page and its data there: the knowledge graph, what the clone writes from, and what is still in flight. One HTML file and one JSON file, no build step and no network beyond that JSON — copy them to any static host.
+
+```bash
+sentinel export --out ./content --flat --ui ./showcase
+```
+
+`--data <file>` emits just the bundle, if you would rather render it yourself: published nodes and edges, affirmed persona traits, work in progress, and the growth history from `meta/progress.jsonl`.
 
 [`docs/publishing.md`](docs/publishing.md) has the verified Quartz setup and self-hosting options.
 
