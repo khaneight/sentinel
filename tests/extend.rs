@@ -46,15 +46,17 @@ fn archive() -> Archive {
         0
     );
     a.write("persona/held.md", &trait_file("held", "affirmed"));
+    // `stable`, so the publishing tests below have something ordinary to
+    // publish alongside the generated article.
     a.write(
         "wiki/philosophy/compiled.md",
         "---\ntitle: Compiled\ndomain: philosophy\norigin: authored\ntags: [t]\n\
-         sources: [raw/philosophy/mine.md]\n---\n\nSee [[held-thing]].\n",
+         status: stable\nsources: [raw/philosophy/mine.md]\n---\n\nSee [[held-thing]].\n",
     );
     a.write(
         "wiki/philosophy/held-thing.md",
         "---\ntitle: Held Thing\ndomain: philosophy\norigin: authored\ntags: [t]\n\
-         sources: [raw/philosophy/mine.md]\n---\n\nSee [[compiled]].\n",
+         status: stable\nsources: [raw/philosophy/mine.md]\n---\n\nSee [[compiled]].\n",
     );
     a.run(&["index"]);
     a
@@ -339,4 +341,195 @@ fn an_ordinary_article_never_appears_in_the_queue() {
         !text.contains("compiled.md") && !text.contains("held-thing.md"),
         "compiled articles do not need approval:\n{v:#}"
     );
+}
+
+// --- publishing ------------------------------------------------------------
+
+fn approve(a: &Archive, slug: &str) {
+    let mut cmd = a.cmd(&["review", slug, "--approve", "--note", "yes"]);
+    cmd.env("SENTINEL_REVIEWER", "khaneight");
+    assert!(cmd.output().unwrap().status.success());
+}
+
+/// An archive holding one finished, unapproved extrapolated article.
+fn publishable() -> (Archive, tempfile::TempDir) {
+    let a = archive();
+    a.write(
+        "wiki/philosophy/new.md",
+        &extrapolated("New", &["held"]).replace("status: draft", "status: stable"),
+    );
+    a.run(&["index"]);
+    (a, tempfile::tempdir().unwrap())
+}
+
+#[test]
+fn finished_but_unsigned_generated_work_is_not_published() {
+    // The gate. `stable` means finished; `approved` means the archive's owner
+    // signed it, and only the second lets machine prose out under their name.
+    let (a, out) = publishable();
+    let dest = out.path().join("site");
+    let v = a.json(&["export", "--out", &dest.display().to_string(), "--flat"]);
+    assert_eq!(v["published"], 2, "the compiled articles still go:\n{v:#}");
+    assert_eq!(v["held_for_approval"], 1, "{v:#}");
+    assert!(
+        !dest.join("new.md").exists(),
+        "unsigned work must not reach the site"
+    );
+
+    let reason = v["excluded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["path"] == "wiki/philosophy/new.md")
+        .expect("it must be reported, not silently dropped")["reason"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(reason.contains("not approved"), "{reason}");
+}
+
+#[test]
+fn no_status_flag_can_open_the_gate() {
+    // A flag that could override this would make the gate advisory. Approval
+    // is a different axis from maturity and `--status` only speaks to maturity.
+    let (a, out) = publishable();
+    let dest = out.path().join("site");
+    for args in [
+        vec!["export", "--out", "", "--flat", "--include-drafts"],
+        vec![
+            "export",
+            "--out",
+            "",
+            "--flat",
+            "--status",
+            "draft,review,stable",
+        ],
+    ] {
+        let d = dest.display().to_string();
+        let argv: Vec<&str> = args
+            .iter()
+            .map(|x| if x.is_empty() { d.as_str() } else { *x })
+            .collect();
+        let v = a.json(&argv);
+        assert_eq!(
+            v["held_for_approval"], 1,
+            "{argv:?} opened the gate:\n{v:#}"
+        );
+        assert!(!dest.join("new.md").exists());
+    }
+}
+
+#[test]
+fn approved_work_is_published_and_carries_a_notice_the_agent_did_not_write() {
+    // The exporter writes the attribution, unconditionally. An agent that
+    // composes its own disclosure is an agent that can leave it out.
+    let (a, out) = publishable();
+    approve(&a, "new");
+    let dest = out.path().join("site");
+    let v = a.json(&["export", "--out", &dest.display().to_string(), "--flat"]);
+    assert_eq!(v["published"], 3, "{v:#}");
+    assert_eq!(v["held_for_approval"], 0);
+
+    let text = std::fs::read_to_string(dest.join("new.md")).unwrap();
+    assert!(
+        text.contains("Written by a language model"),
+        "a reader must not take this for the author's own writing:\n{text}"
+    );
+    assert!(
+        text.contains("The author holds held"),
+        "the notice should name the claim it was written from:\n{text}"
+    );
+    assert!(
+        text.contains("Approved by khaneight"),
+        "and who signed it:\n{text}"
+    );
+}
+
+#[test]
+fn an_ordinary_article_gets_no_notice() {
+    // The disclosure has to mean something. Attaching it to everything would
+    // make it furniture.
+    let (a, out) = publishable();
+    let dest = out.path().join("site");
+    a.run(&["export", "--out", &dest.display().to_string(), "--flat"]);
+    let text = std::fs::read_to_string(dest.join("compiled.md")).unwrap();
+    assert!(!text.contains("Written by a language model"), "{text}");
+}
+
+#[test]
+fn the_bundle_marks_generated_work_and_publishes_only_affirmed_traits() {
+    // A front end that renders the clone's work like the author's own misleads
+    // its readers, and a bundle carrying `proposed` traits would put an
+    // unconfirmed claim about a person in front of them.
+    let (a, out) = publishable();
+    approve(&a, "new");
+    a.write("persona/guessed.md", &trait_file("guessed", "proposed"));
+    // Something genuinely unfinished, so `unpublished` has a real value to
+    // report rather than being asserted against a fully-published archive.
+    a.write(
+        "wiki/philosophy/half-written.md",
+        "---\ntitle: Half Written\ndomain: philosophy\norigin: authored\ntags: [t]\n\
+         status: draft\nsources: [raw/philosophy/mine.md]\n---\n\nSee [[compiled]].\n",
+    );
+    a.run(&["index"]);
+
+    let dest = out.path().join("site");
+    let data = out.path().join("bundle.json");
+    a.run(&[
+        "export",
+        "--out",
+        &dest.display().to_string(),
+        "--flat",
+        "--data",
+        &data.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&data).unwrap()).unwrap();
+
+    let node = bundle["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["slug"] == "new")
+        .expect("the approved article is in the bundle");
+    assert_eq!(node["extrapolated"], true);
+
+    let traits = bundle["persona"].as_array().unwrap();
+    assert_eq!(traits.len(), 1, "affirmed only:\n{traits:#?}");
+    assert_eq!(traits[0]["id"], "held");
+    assert_eq!(
+        traits[0]["expressed_in"],
+        serde_json::json!(["new"]),
+        "the bundle should link a claim to what was written from it"
+    );
+    assert!(
+        traits[0].get("evidence").is_none(),
+        "raw/ paths are not published, so citing them at readers is a dead end"
+    );
+    assert_eq!(traits[0]["evidence_count"], 1);
+
+    assert_eq!(bundle["in_progress"]["unconfirmed_traits"], 1);
+    assert_eq!(bundle["in_progress"]["awaiting_approval"], 0);
+    assert_eq!(
+        bundle["in_progress"]["unpublished"], 1,
+        "the draft is in the archive and not on the site"
+    );
+}
+
+#[test]
+fn the_notice_reads_as_a_sentence() {
+    // Found by reading the published file rather than by asserting on it: the
+    // string was line-wrapped into the middle of a sentence, and joining
+    // claims that already end in a full stop produced "generalising..".
+    let (a, out) = publishable();
+    approve(&a, "new");
+    let dest = out.path().join("site");
+    a.run(&["export", "--out", &dest.display().to_string(), "--flat"]);
+    let text = std::fs::read_to_string(dest.join("new.md")).unwrap();
+    let notice = text
+        .lines()
+        .find(|l| l.contains("Written by a language model"))
+        .expect("the notice is there");
+    assert!(!notice.contains("  "), "doubled spacing: {notice}");
+    assert!(!notice.contains(".."), "doubled punctuation: {notice}");
 }

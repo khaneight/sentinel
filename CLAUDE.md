@@ -170,7 +170,11 @@ reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.
   **`graph`** bare dumps the whole topology, for humans. **`log`** reads with no
   arguments and appends with them.
 - **`export`** writes the publishable subset, rewriting `[[links]]` to
-  unpublished pages as plain text. It renders no HTML, refuses to write under
+  unpublished pages as plain text. **An `extrapolated` article publishes only
+  when its latest verdict is `approved`** — no `--status` opens that gate — and
+  the *exporter* appends the attribution notice, because an agent that composes
+  its own disclosure can leave it out. The `--data` bundle carries affirmed
+  traits only, never their `raw/` paths. It renders no HTML, refuses to write under
   `wiki/`, `raw/` or `index/`, and — publishing not being recoverable by
   re-running — refuses on a partial view. `--data` emits the front-end bundle,
   including `meta/progress.jsonl`: one snapshot per `index` **that changed
