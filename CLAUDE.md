@@ -24,20 +24,21 @@ case-sensitive tests* in [`docs/design-notes.md`](docs/design-notes.md).
 
 ## Architecture
 
-- `src/main.rs` — clap entry point; resolves the archive root and acquires the
-  lock before dispatch
-- `src/core/paths.rs` — archive root resolution, derived paths, user config
-- `src/core/manifest.rs` — raw-document manifest, content hashing, save conflicts
-- `src/core/compilation.rs` — derives the raw → wiki mapping from `sources:`
+- `src/main.rs` — clap entry; resolves the archive root and takes the lock
+- `src/core/paths.rs` — root resolution, derived paths, user config
+- `src/core/manifest.rs` — raw-document manifest, hashing, save conflicts
+- `src/core/compilation.rs` — derives raw → wiki from `sources:`; `SourceIndex`
+  is the one matcher for a cited path
 - `src/core/wiki.rs` — the one loader for wiki articles
 - `src/core/persona.rs` — `persona/` traits: the cited model of the author
-- `src/core/frontmatter.rs` — frontmatter parsing (generic over the two
-  document schemas); `ORIGINS`/`STATUSES`
+- `src/core/review.rs` — verdicts, and the only writer of `review:`
+- `src/core/frontmatter.rs` — parsing, generic over both document schemas;
+  `ORIGINS`/`STATUSES`
 - `src/core/links.rs` — wikilink extraction, demand ranking, link graph
-- `src/core/slug.rs` — canonical form used for **all** wikilink resolution
+- `src/core/slug.rs` — canonical form used for **all** identity comparison
 - `src/core/lint.rs` — rules (`analyze`), rule registry, severities
-- `src/core/{atomic,lock,output,text,log}.rs` — writes, mutual exclusion,
-  JSON/exit-code contract, truncation, activity log
+- `src/core/{atomic,lock,output,text,log,history}.rs` — writes, mutual
+  exclusion, JSON/exit-code contract, truncation, activity log, progress series
 - `src/commands/` — one module per subcommand
 - `tests/` — integration tests driving the compiled binary
 
@@ -56,6 +57,15 @@ raw document whose `origin` is `authored` or `hybrid` — research records what
 they read, not what they think. The repair for either is never to supply the
 missing part. [`docs/clone.md`](docs/clone.md).
 
+**The owner's word.** `review:` entries are the archive owner's verdicts, and
+`sentinel review` is their only writer — no skill invokes it, because an agent
+that can approve its own work has a permission system in name only. Entries
+append; the operative one is the latest that *decided* something, and a
+`comment` decides nothing. A verdict is never attributed to a default: with no
+`--by`, `SENTINEL_REVIEWER` or `USER`, the command refuses. A persona trait
+carries its standing twice — `status:` is what a reader sees, `review:` is the
+history — and `verdict-disagrees-with-status` reports them drifting.
+
 **Derivation.** A raw document is compiled when some article names it in
 `sources:`. That mapping is derived live by `compilation::Compilation`, never
 read back from the manifest — the manifest copy is a published projection.
@@ -72,30 +82,27 @@ producing identical bytes writes nothing (`atomic::write_if_changed`).
 **Durability.** Everything persistent goes through `atomic::write` — temp
 sibling, `sync_all`, `rename`. Never `fs::write`.
 
-**Exclusivity.** `main` takes `core::lock::ArchiveLock` (`meta/.lock`) for `ingest`,
-`ingest-repo`, `sync`, `index`, `mv`, `rm`. Queries take no lock. `init` and
-`log` are exempt with reasons recorded in `tests/command_contract.rs`, which
-requires every subcommand to be classified.
+**Exclusivity.** Anything that reads shared state, changes it and writes it back
+takes `core::lock::ArchiveLock` (`meta/.lock`). Queries take no lock. Every
+subcommand must be classified in `tests/command_contract.rs`, exemptions with
+reasons; the list lives there, not here.
 
 **Honesty about limits.** Any capped list publishes its true total —
 `ref_count`, `target_count`, `result_count`, `entry_count`, and the header of
 `index/_recent.md`. A truncated list that does not say so reads as complete.
 
-**Derived sets.** Where one list must match another, derive it rather than
-maintaining a second copy: `schema::FIELDS` against the serialised
-`Frontmatter`, the `next` ladder against its progress counters, `lint::RULES`
-against `analyze`, the subcommand classification against `--help`, `init`'s
-index stubs against what `index` regenerates. Four bugs got through guards that
-checked only the case in front of them.
-
-**One source of truth.** `ORIGINS`/`STATUSES` back the lint rule, `sentinel
-schema`, and `ingest`'s validation. `persona::{KINDS, CONFIDENCES, STATUSES,
-REQUIRED, EVIDENCE_ORIGINS}` back theirs the same way, and `EVIDENCE_ORIGINS`
-is asserted to be a strict subset of `ORIGINS` — if every origin counts as
-evidence the safeguard checks nothing. `lint::RULES` and `lint::analyze` are
-asserted to agree in both directions. `templates/wiki-article.md` is generated
-from `schema::FIELDS`. Nothing `init` writes may assert a fact the tool will not
-maintain.
+**One source of truth.** Where one list must match another, derive it rather
+than keeping a second copy — five bugs got through guards that checked only the
+case in front of them. The enum constants (`ORIGINS`/`STATUSES`,
+`persona::{KINDS, CONFIDENCES, STATUSES, REQUIRED, EVIDENCE_ORIGINS}`,
+`review::{VERDICTS, DECISIONS}`) back the lint rules, `sentinel schema`, and
+`ingest`'s validation at once. `schema::FIELDS` is asserted against the
+serialised struct and generates the template; `Action::LADDER` generates the
+published ladder and its numbering; `lint::RULES` and `analyze` must agree in
+both directions; the subcommand classification comes from `--help`; `init`'s
+stubs from what `index` regenerates. `EVIDENCE_ORIGINS` is asserted a *strict*
+subset of `ORIGINS` — if every origin counts as evidence the safeguard checks
+nothing. Nothing `init` writes may assert a fact the tool will not maintain.
 
 **Pipes.** `main` restores default `SIGPIPE` before anything else.
 
@@ -142,36 +149,30 @@ it.
 
 ## Commands with non-obvious behaviour
 
-`sentinel mv <from> <to>` moves a raw document and rewrites every `sources:`
-citation, matching them the way the compile loop does. `sentinel rm <target>`
-refuses when anything cites the target and points at `mv`; `--force` proceeds
-and reports each citation it orphans. Both are textual, frontmatter-only edits —
-see [`docs/design-notes.md`](docs/design-notes.md).
+Behaviour a reader would not guess. Everything else is in `--help`, and the
+reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.md).
 
-`sentinel search` ranks title 1000 / slug 500 / tag 200 / body line 1, top
-`--limit` (20). `sentinel graph --node <slug>` returns a neighbourhood; bare, it
-dumps the whole topology for humans. `sentinel log` reads with no arguments and
-appends with them.
-
-`sentinel export` writes the publishable subset: articles whose `status`
-qualifies (`stable` by default), with `[[links]]` to anything unpublished
-rewritten as plain text so the output has no dead ends. It renders no HTML. It
-refuses to write under `wiki/`, `raw/`, or `index/`, which `index` walks, and —
-since publishing is not recoverable by re-running — refuses on a partial view;
-`--dry-run` reports instead, `--clean` removes what a previous export left.
-`--data <file>` emits a JSON bundle for a front end, including the growth
-history in `meta/progress.jsonl`: one snapshot per `index` **that changed
-something**, so it records the archive rather than how often a command ran.
-[`docs/publishing.md`](docs/publishing.md) has the workflow and the path layout.
-
-`sentinel index` regenerates `_master.md`, `_by-domain.md`, `_recent.md`,
-`_orphans.md`, `_uncompiled.md`, `_dashboard.md`, the link graph, and the
-manifest's compilation mapping. `_dashboard.md` is the human page — generated
-from `next::recommend`, `status::summarize`, `lint::analyze` and `schema`,
-never a second definition, and capped so it cannot become `_master.md`. Agents
-use `sentinel next --json` instead; same facts, less context.
-`paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come from
-disk.
+- **`mv`** rewrites every `sources:` citation, matching them the way the
+  compile loop does. **`rm`** refuses when anything cites the target and points
+  at `mv`; `--force` reports each citation it orphans. Both edit text inside the
+  frontmatter block only.
+- **`search`** ranks title 1000 / slug 500 / tag 200 / body line 1.
+  **`graph`** bare dumps the whole topology, for humans. **`log`** reads with no
+  arguments and appends with them.
+- **`export`** writes the publishable subset, rewriting `[[links]]` to
+  unpublished pages as plain text. It renders no HTML, refuses to write under
+  `wiki/`, `raw/` or `index/`, and — publishing not being recoverable by
+  re-running — refuses on a partial view. `--data` emits the front-end bundle,
+  including `meta/progress.jsonl`: one snapshot per `index` **that changed
+  something**, so it records the archive, not how often a command ran.
+  [`docs/publishing.md`](docs/publishing.md) has the workflow.
+- **`index`** regenerates every `index/` page, the link graph and the manifest's
+  compilation mapping. `_dashboard.md` is the human page, generated from
+  `next::recommend`, `status::summarize`, `lint::analyze` and `schema`, never a
+  second definition, and capped so it cannot become `_master.md`. Agents use
+  `sentinel next --json`: same facts, less context.
+  `paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come from
+  disk.
 
 ## Skills
 

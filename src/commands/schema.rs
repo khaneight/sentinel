@@ -8,6 +8,7 @@ use crate::core::lint::{self, RuleInfo};
 use crate::core::output;
 use crate::core::paths;
 use crate::core::persona;
+use crate::core::review;
 
 /// The archive's contract, in one call.
 ///
@@ -163,7 +164,14 @@ pub const FIELDS: &[Field] = &[
         required: false,
         kind: "enum",
         values: Some(frontmatter::STATUSES),
-        description: "Maturity of the article.",
+        description: "Maturity of the article. Separate from approval: `stable` means finished, not signed off.",
+    },
+    Field {
+        name: "review",
+        required: false,
+        kind: "entry[]",
+        values: Some(review::VERDICTS),
+        description: "Verdicts the archive's owner recorded, oldest first — {verdict, by, at, note}. Written by `sentinel review`, never by an agent. The operative one is the latest that decided something; a `comment` leaves standing unchanged.",
     },
 ];
 
@@ -230,6 +238,13 @@ pub const PERSONA_FIELDS: &[Field] = &[
         kind: "date",
         values: None,
         description: "YYYY-MM-DD.",
+    },
+    Field {
+        name: "review",
+        required: false,
+        kind: "entry[]",
+        values: Some(review::VERDICTS),
+        description: "Verdicts the author recorded about this claim, oldest first. `status:` is what a reader sees; this is the history behind it. Written by `sentinel review`, never by an agent.",
     },
 ];
 

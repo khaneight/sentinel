@@ -75,6 +75,18 @@ are looking at is short, and the fix is the file permissions, not the profile.
 | `inferred-from-research` | The trait was read out of material an agent gathered, which says what the author read, not what they think. Re-source it from `authored` or `hybrid` material, or delete it. Do not "fix" it by changing the source document's `origin`. |
 | `duplicate-trait-id` | Two traits share an `id`. If they are the same claim, merge them and union their `evidence`. If they are different claims, rename one and its file. |
 
+### Verdicts — what the user said
+
+`review:` entries record the archive owner's decisions. **You never write one.**
+`sentinel review` is theirs, and every repair below fixes a malformed record,
+never supplies a missing one.
+
+| Rule | Fix |
+|---|---|
+| `invalid-verdict` | The verdict is not a value `sentinel schema` lists. If it is a near-miss for a real one, correct the spelling; if it is something else, do not guess what the user meant — report it and leave it. |
+| `incomplete-verdict` | The entry has no `by`, or `at` is not a `YYYY-MM-DD` date. A date can often be repaired from context; **a missing `by` cannot** — filling it means attributing a decision to somebody. Report it. |
+| `verdict-disagrees-with-status` | A trait's `status:` and its own latest verdict say different things, because one was hand-edited. The verdict is the record of what the user actually said, so make `status:` agree with it — `approved` means `affirmed`, `rejected` means `rejected`, `changes-requested` means `proposed`. Never the other way round. |
+
 Never change a trait's `status` to `affirmed`. That field records the author
 agreeing with it, and only they can put it there.
 

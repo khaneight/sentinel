@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod output;
 pub mod paths;
 pub mod persona;
+pub mod review;
 pub mod slug;
 pub mod text;
 pub mod wiki;
