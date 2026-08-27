@@ -533,3 +533,114 @@ fn the_notice_reads_as_a_sentence() {
     assert!(!notice.contains("  "), "doubled spacing: {notice}");
     assert!(!notice.contains(".."), "doubled punctuation: {notice}");
 }
+
+#[test]
+fn provenance_becomes_depth_in_the_bundle() {
+    // What the showcase draws as distance from the author. Asserted here rather
+    // than left to the page, so a front end cannot invent its own opinion about
+    // whose work something is.
+    let a = archive();
+    for (slug, origin) in [
+        ("mine", "authored"),
+        ("ours", "hybrid"),
+        ("theirs", "researched"),
+    ] {
+        a.write(
+            &format!("wiki/philosophy/{slug}.md"),
+            &format!(
+                "---\ntitle: {slug}\ndomain: philosophy\norigin: {origin}\ntags: [t]\n\
+                 status: stable\nsources: [raw/philosophy/mine.md]\n---\n\nProse.\n"
+            ),
+        );
+    }
+    a.write(
+        "wiki/philosophy/machine.md",
+        &extrapolated("Machine", &["held"]).replace("status: draft", "status: stable"),
+    );
+    a.run(&["index"]);
+    approve(&a, "machine");
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+
+    let layer = |slug: &str| -> u64 {
+        bundle["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["slug"] == slug)
+            .unwrap_or_else(|| panic!("{slug} is published"))["layer"]
+            .as_u64()
+            .unwrap()
+    };
+    assert_eq!(layer("mine"), 1, "their own thinking sits nearest");
+    assert_eq!(layer("ours"), 2);
+    assert_eq!(layer("theirs"), 3);
+    assert_eq!(layer("machine"), 4, "the clone's work sits furthest out");
+}
+
+#[test]
+fn the_bundle_carries_the_published_prose_not_the_source_file() {
+    // The page reads from the bundle, so what it shows has to be what the site
+    // shows — links already defused, attribution already appended. Rendering
+    // the article as it sits in `wiki/` would put a live `[[wikilink]]` to an
+    // unpublished page in front of a reader who cannot follow it.
+    let a = archive();
+    a.write(
+        "wiki/philosophy/new.md",
+        &extrapolated("New", &["held"])
+            .replace("status: draft", "status: stable")
+            .replace(
+                "An argument that follows from the above.",
+                "Follows from [[held-thing]] and from [[never-written]].",
+            ),
+    );
+    a.run(&["index"]);
+    approve(&a, "new");
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+    let body = bundle["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["slug"] == "new")
+        .unwrap()["body"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    assert!(
+        !body.starts_with("---"),
+        "frontmatter must not be in the prose"
+    );
+    assert!(body.contains("[[held-thing]]"), "a published link survives");
+    assert!(
+        !body.contains("[[never-written]]"),
+        "a link to an unpublished page must be defused here too:\n{body}"
+    );
+    assert!(
+        body.contains("Written by a language model"),
+        "the attribution travels with the prose:\n{body}"
+    );
+}

@@ -287,6 +287,11 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
 
     let mut links_defused = 0usize;
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
+    // The prose as published, for the bundle to carry. Taken from the text
+    // actually written rather than from the article on disk, so a reader in the
+    // graph sees the defused links and the attribution notice — the same words
+    // the site shows, not a second rendering of them.
+    let mut bodies: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for article in &published {
         let (mut text, defused) = defuse_links(&article.content, &reachable, &titles);
         links_defused += defused;
@@ -318,6 +323,7 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
         if article.article.frontmatter.is_extrapolated() {
             text = format!("{}\n{}", text.trim_end(), attribution(article, &traits));
         }
+        bodies.insert(article.canonical_slug(), strip_frontmatter(&text));
         writes.push((
             destination.join(output_path(article.rel_path(), flat)),
             text,
@@ -389,7 +395,18 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
         .collect();
     if !bundle_targets.is_empty() && !dry_run {
         let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
-        let payload = bundle(&published, &articles, &traits, &reachable, &generated_at)?;
+        let payload = bundle(BundleInput {
+            published: &published,
+            all: &articles,
+            traits: &traits,
+            reachable: &reachable,
+            bodies: &bodies,
+            sources: &source_writes,
+            public_sources: &public_sources,
+            manifest: &manifest,
+            index: &index,
+            generated_at: &generated_at,
+        })?;
         let text = serde_json::to_string_pretty(&payload)?;
         for target in &bundle_targets {
             if let Some(parent) = target.parent() {
@@ -555,9 +572,15 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
 ///
 /// A UI that called the commands one at a time would need a process to call
 /// them, which means a server next to an archive that lives on a laptop. One
-/// bundle is a static asset: 17 KB for 27 articles, 66 KB for 400, and it
-/// gzips to a tenth of that. Nothing here needs to be live to be worth looking
+/// bundle is a static asset. Nothing here needs to be live to be worth looking
 /// at — the archive changes when its owner works on it, not continuously.
+///
+/// It carries the published prose, not just the graph, so the page can be read
+/// as well as looked at without a request per article. That is what makes the
+/// showcase two files you can copy anywhere. The cost is real and worth stating:
+/// metadata alone was 17 KB for 27 articles; with bodies it scales with the
+/// wiki rather than with its shape. It still gzips to roughly a fifth, and a
+/// static host serves it once.
 #[derive(Serialize)]
 struct Bundle {
     generated_at: String,
@@ -617,13 +640,52 @@ struct Node {
     domain: String,
     origin: String,
     status: String,
+    /// `source` for a raw document, `article` for something in `wiki/`.
+    ///
+    /// Sources appear only with `--with-sources`, and only the opted-in ones,
+    /// so a bundle built without that flag holds exactly what it always did.
+    kind: &'static str,
+    /// Distance from the author's own hand, 0 outward.
+    ///
+    /// Derived here rather than in a front end, because it encodes what the
+    /// archive means by provenance and a page that recomputed it would be a
+    /// second opinion about whose work something is:
+    ///
+    /// | 0 | a source document — what they actually wrote |
+    /// | 1 | `authored` — compiled from it, their thinking |
+    /// | 2 | `hybrid` — theirs, enriched |
+    /// | 3 | `researched` — gathered from the world |
+    /// | 4 | `extrapolated` — written by the clone |
+    layer: u8,
     /// Written by the clone. A front end that renders this the same as an
     /// article its author wrote is a front end that misleads its readers.
     extrapolated: bool,
     tags: Vec<String>,
+    /// The published prose, frontmatter removed.
+    ///
+    /// Carried so the page can be *read* without a request per article, which
+    /// is what keeps "one HTML file and one JSON file" true. It is the same
+    /// text that was written to the site — links already defused, attribution
+    /// notice already appended — so a reader in the graph and a reader on the
+    /// site see the same words.
+    body: String,
     /// Incoming links from other published articles — how central it is.
     inbound: usize,
     outbound: usize,
+}
+
+/// How far a piece of work sits from the author's own hand.
+fn layer_of(origin: &str) -> u8 {
+    match origin {
+        "authored" => 1,
+        "hybrid" => 2,
+        "researched" => 3,
+        crate::core::frontmatter::EXTRAPOLATED => 4,
+        // An origin the contract does not know. Placed with the machine work
+        // rather than at the core: whatever it is, nothing has established it
+        // is theirs.
+        _ => 4,
+    }
 }
 
 #[derive(Serialize)]
@@ -632,13 +694,57 @@ struct Edge {
     to: String,
 }
 
-fn bundle(
-    published: &[&wiki::LoadedArticle],
-    all: &[wiki::LoadedArticle],
-    traits: &[crate::core::persona::LoadedTrait],
-    reachable: &HashSet<String>,
-    generated_at: &str,
-) -> io::Result<Bundle> {
+/// Everything `bundle` needs. A struct because it is nine values, and at that
+/// width a transposed pair of `&[...]` arguments compiles perfectly happily.
+struct BundleInput<'a> {
+    published: &'a [&'a wiki::LoadedArticle],
+    all: &'a [wiki::LoadedArticle],
+    traits: &'a [crate::core::persona::LoadedTrait],
+    reachable: &'a HashSet<String>,
+    bodies: &'a std::collections::HashMap<String, String>,
+    sources: &'a [(PathBuf, Vec<u8>)],
+    public_sources: &'a std::collections::HashMap<String, String>,
+    manifest: &'a crate::core::manifest::Manifest,
+    index: &'a crate::core::compilation::SourceIndex<'a>,
+    generated_at: &'a str,
+}
+
+/// The prose, with the frontmatter block removed.
+///
+/// Uses the one parser rather than looking for the second `---`: a horizontal
+/// rule partway down an article is not a delimiter, and the attribution notice
+/// appended to generated work opens with exactly that.
+fn strip_frontmatter(text: &str) -> String {
+    match crate::core::frontmatter::block_end(text) {
+        Some(end) => text[end..].trim_start().to_string(),
+        None => text.trim_start().to_string(),
+    }
+}
+
+/// The identity a published source document goes by in the graph.
+///
+/// Prefixed and pathful: an article slug never contains `/`, and two sources
+/// with the same filename in different domains have to stay distinct.
+fn source_slug(published_path: &str) -> String {
+    let stem = published_path
+        .strip_prefix(&format!("{SOURCES_DIR}/"))
+        .unwrap_or(published_path);
+    format!("src:{}", stem.trim_end_matches(".md"))
+}
+
+fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
+    let BundleInput {
+        published,
+        all,
+        traits,
+        reachable,
+        bodies,
+        sources,
+        public_sources,
+        manifest,
+        index,
+        generated_at,
+    } = input;
     let mut edges = Vec::new();
     let mut inbound: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut outbound: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -660,27 +766,84 @@ fn bundle(
             });
         }
     }
+    // Citation edges, article → source. The same `sources:` the compile loop
+    // reads, resolved the same way, so the graph shows the provenance the
+    // archive records rather than a second reading of it.
+    for article in published {
+        let from = article.canonical_slug();
+        for cited in &article.article.frontmatter.sources {
+            let Some(resolved) = index.resolve(cited) else {
+                continue;
+            };
+            let Some(out_rel) = public_sources.get(&resolved) else {
+                continue;
+            };
+            let to = source_slug(out_rel);
+            *outbound.entry(from.clone()).or_default() += 1;
+            *inbound.entry(to.clone()).or_default() += 1;
+            edges.push(Edge {
+                from: from.clone(),
+                to,
+            });
+        }
+    }
     edges.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
     edges.dedup_by(|a, b| a.from == b.from && a.to == b.to);
 
-    let nodes = published
+    // Source documents, at the core. Only the opted-in ones are here at all —
+    // `public_sources` is already filtered by `sentinel sources --publish`.
+    let mut source_text: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    for (path, bytes) in sources {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            // Lossy: a source is whatever its owner ingested, and a byte that
+            // is not UTF-8 should cost that character rather than the document.
+            source_text.insert(name, String::from_utf8_lossy(bytes).to_string());
+        }
+    }
+
+    let mut nodes: Vec<Node> = public_sources
         .iter()
-        .map(|a| {
-            let slug = a.canonical_slug();
-            let fm = &a.article.frontmatter;
+        .map(|(raw_path, out_rel)| {
+            let entry = manifest.entries.get(raw_path);
+            let name = out_rel.rsplit('/').next().unwrap_or(out_rel);
+            let slug = source_slug(out_rel);
             Node {
-                title: a.title().to_string(),
-                domain: fm.domain.clone().unwrap_or_default(),
-                origin: fm.origin.clone().unwrap_or_default(),
-                status: fm.status.clone().unwrap_or_default(),
-                tags: fm.tags.clone(),
-                extrapolated: fm.is_extrapolated(),
+                title: entry.map_or_else(|| name.to_string(), |e| e.title.clone()),
+                domain: entry.map_or_else(String::new, |e| e.domain.clone()),
+                origin: entry.map_or_else(String::new, |e| e.origin.clone()),
+                status: "published".to_string(),
+                kind: "source",
+                layer: 0,
+                extrapolated: false,
+                tags: Vec::new(),
+                body: source_text.get(name).cloned().unwrap_or_default(),
                 inbound: inbound.get(&slug).copied().unwrap_or(0),
-                outbound: outbound.get(&slug).copied().unwrap_or(0),
+                outbound: 0,
                 slug,
             }
         })
         .collect();
+    nodes.sort_by(|a, b| a.slug.cmp(&b.slug));
+
+    nodes.extend(published.iter().map(|a| {
+        let slug = a.canonical_slug();
+        let fm = &a.article.frontmatter;
+        let origin = fm.origin.clone().unwrap_or_default();
+        Node {
+            title: a.title().to_string(),
+            domain: fm.domain.clone().unwrap_or_default(),
+            status: fm.status.clone().unwrap_or_default(),
+            kind: "article",
+            layer: layer_of(&origin),
+            origin,
+            tags: fm.tags.clone(),
+            extrapolated: fm.is_extrapolated(),
+            body: bodies.get(&slug).cloned().unwrap_or_default(),
+            inbound: inbound.get(&slug).copied().unwrap_or(0),
+            outbound: outbound.get(&slug).copied().unwrap_or(0),
+            slug,
+        }
+    }));
 
     let persona = traits
         .iter()

@@ -10,9 +10,16 @@
   document you can drop on any static host, and it will still work in five
   years when whatever framework was fashionable today does not.
 
-  One rule it exists to keep: an article the clone wrote is never rendered as
-  though its author wrote it. That is `extrapolated` in the bundle, and it is
-  marked in the graph, in the list, and on the article panel.
+  Two rules it exists to keep.
+
+  An article the clone wrote is never rendered as though its author wrote it.
+  That is `extrapolated` in the bundle, and it is marked in the graph, in the
+  legend, and at the top of the document when you read it.
+
+  And depth means provenance. `layer` comes from the exporter: 0 is a source
+  document the author actually wrote, and it rises through their compiled
+  thinking to the machine's work at the rim. The core is nearest the camera
+  because it is nearest the person.
 -->
 <style>
   :root {
@@ -24,8 +31,10 @@
     --line: #e3e3df;
     --accent: #3d5a80;
     --machine: #9b5de5;
-    --ok: #2d6a4f;
+    --core: #b07d3f;
     --warn: #b45309;
+    --shadow: 0 10px 40px rgba(0, 0, 0, 0.13);
+    --scrim: rgba(251, 251, 250, 0.72);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -36,8 +45,10 @@
       --line: #303038;
       --accent: #8fb3d9;
       --machine: #c79bff;
-      --ok: #74c69d;
+      --core: #e0b063;
       --warn: #f0a860;
+      --shadow: 0 10px 44px rgba(0, 0, 0, 0.5);
+      --scrim: rgba(22, 22, 26, 0.72);
     }
   }
   * { box-sizing: border-box; }
@@ -46,13 +57,14 @@
     background: var(--bg);
     color: var(--ink);
     font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
   }
   header {
-    padding: 20px 24px 14px;
+    padding: 18px 24px 13px;
     border-bottom: 1px solid var(--line);
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 24px;
+    gap: 6px 22px;
     align-items: baseline;
   }
   h1 { font-size: 17px; margin: 0; font-weight: 620; letter-spacing: -0.01em; }
@@ -60,16 +72,56 @@
   main {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
-    gap: 0;
-    height: calc(100vh - 62px);
+    height: calc(100vh - 60px);
   }
   @media (max-width: 900px) {
+    body { overflow: auto; }
     main { grid-template-columns: 1fr; height: auto; }
     #stage { height: 62vh; }
   }
-  #stage { position: relative; min-width: 0; }
-  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
-  canvas:active { cursor: grabbing; }
+  #stage { position: relative; min-width: 0; overflow: hidden; }
+  canvas#graph { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  canvas#graph.dragging { cursor: grabbing; }
+
+  /* --- graph controls ------------------------------------------------ */
+  .controls {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .controls button {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 7px;
+    font: 15px/1 ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--muted); }
+  .controls .zoom { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 44px; }
+  .hint-keys {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: right;
+    pointer-events: none;
+  }
+  kbd {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 4px;
+    font: 10.5px/1.5 ui-monospace, monospace;
+  }
+
+  /* --- sidebar -------------------------------------------------------- */
   aside {
     border-left: 1px solid var(--line);
     background: var(--panel);
@@ -105,8 +157,119 @@
     margin-bottom: 12px;
   }
   .machine-note b { color: var(--machine); }
-  #detail .title { font-size: 16px; font-weight: 620; margin-bottom: 3px; }
-  #detail .path { font-size: 12px; color: var(--muted); word-break: break-all; }
+  #spark { width: 100%; height: 46px; display: block; }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  .error { padding: 40px 24px; max-width: 46rem; }
+  .error code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+
+  /* --- reader --------------------------------------------------------- */
+  #scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+    z-index: 40;
+  }
+  #scrim.open { opacity: 1; pointer-events: auto; }
+  #reader {
+    position: fixed;
+    z-index: 50;
+    top: 60px;
+    left: 24px;
+    width: min(680px, calc(100vw - 388px));
+    max-height: calc(100vh - 108px);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease,
+                inset 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  #reader.open { opacity: 1; transform: none; pointer-events: auto; }
+  #reader.full {
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border-width: 0;
+  }
+  #reader header {
+    border-bottom: 1px solid var(--line);
+    padding: 14px 18px 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  #reader .who { flex: 1; min-width: 0; }
+  #reader .who h3 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -0.01em; }
+  #reader .who .sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  #reader .acts { display: flex; gap: 6px; flex: 0 0 auto; }
+  #reader .acts button {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 6px;
+    height: 27px;
+    padding: 0 9px;
+    font: 12px/1 ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  #reader .acts button:hover { color: var(--ink); border-color: var(--muted); }
+  .badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .badge.machine { border-color: var(--machine); color: var(--machine); }
+  .badge.core { border-color: var(--core); color: var(--core); }
+  #doc {
+    overflow-y: auto;
+    padding: 22px 28px 40px;
+    line-height: 1.68;
+  }
+  #reader.full #doc { padding: 34px max(28px, calc(50vw - 22rem)) 80px; }
+  #doc h2 { font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--ink); margin: 26px 0 8px; }
+  #doc h3 { font-size: 14.5px; margin: 22px 0 6px; }
+  #doc p { margin: 0 0 14px; }
+  #doc ul { margin: 0 0 14px; padding-left: 20px; }
+  #doc li { margin-bottom: 4px; }
+  #doc blockquote {
+    margin: 0 0 14px;
+    padding: 2px 0 2px 14px;
+    border-left: 2px solid var(--line);
+    color: var(--muted);
+  }
+  #doc hr { border: 0; border-top: 1px solid var(--line); margin: 22px 0; }
+  #doc code { font: 13px/1.5 ui-monospace, monospace; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  #doc em { color: var(--muted); }
+  #doc a { color: var(--accent); }
+  #doc .xref {
+    color: var(--accent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    cursor: pointer;
+  }
+  #doc .xref.dead { color: var(--muted); border-bottom-style: dotted; cursor: default; }
+  #doc .attribution {
+    border: 1px solid var(--machine);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 20px;
+  }
   .tag {
     display: inline-block;
     border: 1px solid var(--line);
@@ -116,10 +279,6 @@
     color: var(--muted);
     margin: 4px 4px 0 0;
   }
-  .hint { color: var(--muted); font-size: 12.5px; }
-  #spark { width: 100%; height: 46px; display: block; }
-  .error { padding: 40px 24px; max-width: 46rem; }
-  .error code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
 </style>
 
 <div id="root" class="error">Loading…</div>
@@ -133,7 +292,7 @@
 // test suite rather than this page.
 const CONTRACT = {
   top: ['generated_at', 'nodes', 'edges', 'persona', 'in_progress', 'progress'],
-  node: ['slug', 'title', 'domain', 'origin', 'status', 'extrapolated', 'tags', 'inbound', 'outbound'],
+  node: ['slug', 'title', 'domain', 'origin', 'status', 'kind', 'layer', 'extrapolated', 'tags', 'body', 'inbound', 'outbound'],
   edge: ['from', 'to'],
   trait: ['id', 'kind', 'claim', 'confidence', 'evidence_count', 'expressed_in'],
   in_progress: ['unpublished', 'awaiting_approval', 'unconfirmed_traits', 'wanted'],
@@ -145,7 +304,6 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
 
-/// Say what is wrong rather than rendering nothing.
 function fail(message, detail) {
   $('#root').innerHTML =
     `<h1>This page could not read its data.</h1><p>${esc(message)}</p>` +
@@ -154,7 +312,6 @@ function fail(message, detail) {
      <code>sentinel export --ui &lt;dir&gt;</code>.</p>`;
 }
 
-/// Which declared fields a loaded bundle is missing.
 function missingFields(b) {
   const gaps = [];
   for (const k of CONTRACT.top) if (!(k in b)) gaps.push(k);
@@ -172,29 +329,110 @@ function missingFields(b) {
   return gaps;
 }
 
+// --- markdown ---------------------------------------------------------------
+// Enough of it for what the archive publishes, and no more. Escaping happens
+// first and unconditionally: this text comes out of somebody's wiki, and a page
+// that renders it as HTML is a page that renders whatever is in it as HTML.
+function markdown(src, isLinked) {
+  const inline = (t) => esc(t)
+    .replace(/\[\[([^\]]+)\]\]/g, (_, slug) => {
+      const id = slug.trim().toLowerCase().replace(/\s+/g, '-');
+      return isLinked(id)
+        ? `<span class="xref" data-slug="${esc(id)}">${esc(slug)}</span>`
+        : `<span class="xref dead" title="not published">${esc(slug)}</span>`;
+    })
+    .replace(/\[([^\]]+)\]\(sources\/([^)]+)\)/g,
+      (_, text, path) => `<span class="xref" data-slug="src:${esc(path.replace(/\.md$/, ''))}">${text}</span>`)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+  const out = [];
+  let list = null;
+  let para = [];
+  const flushPara = () => {
+    if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`);
+    para = [];
+  };
+  const flushList = () => {
+    if (list) out.push(`<ul>${list.map((i) => `<li>${inline(i)}</li>`).join('')}</ul>`);
+    list = null;
+  };
+
+  for (const raw of String(src).split('\n')) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    let m;
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+      flushPara(); flushList();
+      const level = Math.min(m[1].length + 1, 4);
+      out.push(`<h${level}>${inline(m[2])}</h${level}>`);
+    } else if (/^(-{3,}|\*{3,})$/.test(line.trim())) {
+      flushPara(); flushList();
+      out.push('<hr>');
+    } else if ((m = line.match(/^>\s?(.*)$/))) {
+      flushPara(); flushList();
+      out.push(`<blockquote>${inline(m[1])}</blockquote>`);
+    } else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {
+      flushPara();
+      (list ??= []).push(m[1]);
+    } else {
+      flushList();
+      para.push(line.trim());
+    }
+  }
+  flushPara(); flushList();
+  return out.join('\n');
+}
+
+// --- provenance -------------------------------------------------------------
 const PALETTE = ['#3d5a80', '#2d6a4f', '#9c6644', '#5f4b8b', '#a4243b', '#1b6ca8', '#7d8471'];
+
+const PROVENANCE = {
+  source: ['the author’s own document', 'core'],
+  authored: ['distilled from their writing', ''],
+  hybrid: ['their thinking, with research', ''],
+  researched: ['gathered by an agent', ''],
+  extrapolated: ['written by the clone', 'machine'],
+};
+
+function describe(n) {
+  const key = n.kind === 'source' ? 'source' : n.origin;
+  return PROVENANCE[key] ?? [n.origin || 'unknown', ''];
+}
+
+let APP = null;
 
 function render(b) {
   const domains = [...new Set(b.nodes.map((n) => n.domain).filter(Boolean))].sort();
-  const colorOf = (n) => (n.extrapolated
-    ? 'var(--machine)'
-    : PALETTE[Math.max(0, domains.indexOf(n.domain)) % PALETTE.length]);
-
   const generated = b.nodes.filter((n) => n.extrapolated).length;
+  const sources = b.nodes.filter((n) => n.kind === 'source').length;
   const ip = b.in_progress || {};
 
   $('#root').outerHTML = `
     <header>
       <h1>Archive</h1>
-      <span class="stamp">${b.nodes.length} published · ${b.edges.length} links ·
+      <span class="stamp">${b.nodes.length} node(s) · ${b.edges.length} links ·
         generated ${esc(b.generated_at)}</span>
     </header>
     <main>
-      <div id="stage"><canvas id="graph"></canvas></div>
+      <div id="stage">
+        <canvas id="graph"></canvas>
+        <div class="controls">
+          <button id="zoom-out" title="Zoom out">−</button>
+          <span class="zoom" id="zoom-level">100%</span>
+          <button id="zoom-in" title="Zoom in">+</button>
+          <button id="reset" title="Fit to view (0)">⤢</button>
+        </div>
+        <div class="hint-keys">
+          drag to pan · scroll to zoom · <kbd>←↑→↓</kbd> · click to read
+        </div>
+      </div>
       <aside>
         <div id="detail">
           <h2>Selected</h2>
-          <p class="hint">Click a node in the graph.</p>
+          <p class="hint">Click a node to read it.</p>
         </div>
 
         <h2>In progress</h2>
@@ -215,31 +453,45 @@ function render(b) {
           <div class="trait">
             <div class="claim">${esc(t.claim)}</div>
             <div class="meta">${esc(t.kind)} · ${esc(t.confidence)} confidence ·
-              ${t.evidence_count} source(s) ·
-              ${t.expressed_in.length} article(s)</div>
+              ${t.evidence_count} source(s) · ${t.expressed_in.length} article(s)</div>
           </div>`).join('') : '<p class="hint">No affirmed traits published.</p>'}
 
         <h2>Legend</h2>
         <div class="legend">
+          ${sources ? '<span><i style="background:var(--core)"></i>source material</span>' : ''}
           ${domains.map((d, i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${esc(d)}</span>`).join('')}
           <span><i style="background:var(--machine)"></i>written by the clone</span>
         </div>
+        <p class="hint" style="margin-top:10px">
+          Depth is provenance: the core is what the author wrote, and each layer
+          out is a further step from their hand.
+        </p>
       </aside>
-    </main>`;
+    </main>
+
+    <div id="scrim"></div>
+    <div id="reader">
+      <header>
+        <div class="who"><h3 id="r-title"></h3><div class="sub" id="r-sub"></div></div>
+        <div class="acts">
+          <button id="r-full">Fullscreen</button>
+          <button id="r-close">Close</button>
+        </div>
+      </header>
+      <div id="doc"></div>
+    </div>`;
 
   if (generated) {
     $('#detail').insertAdjacentHTML('beforebegin', `
       <div class="machine-note"><b>${generated}</b> of these ${b.nodes.length}
         page(s) were written by a language model from this archive, and approved
-        by its owner. They are shown in purple.</div>`);
+        by its owner. They sit at the outer edge, in purple.</div>`);
   }
 
   drawSpark(b.progress);
-  return { colorOf };
+  return { domains };
 }
 
-/// The growth curve. Deliberately tiny and unlabelled beyond its endpoints —
-/// it is there to show the archive moving, not to be read off precisely.
 function drawSpark(series) {
   const c = $('#spark');
   const note = $('#spark-note');
@@ -274,198 +526,441 @@ function drawSpark(series) {
     `${first.wiki_articles} → ${last.wiki_articles} articles, ` +
     `${first.links} → ${last.links} links, since ${first.at.split(' ')[0]}.`;
 }
+</script>
+<script>
+// --- layout -----------------------------------------------------------------
+// Radial by provenance. Each node is pulled toward the ring its `layer` earns
+// it, and repelled from its neighbours within that ring; edges pull across
+// rings. The result is a core of source material with the archive's own
+// thinking around it and the machine's work at the rim.
+//
+// Ring index is derived from the layers actually present, not from the raw
+// value: an archive that publishes no source documents should still have a
+// core rather than a hole where one would be.
+function layout(nodes, edges) {
+  const present = [...new Set(nodes.map((n) => n.layer))].sort((a, b) => a - b);
+  const ringOf = (n) => present.indexOf(n.layer);
+  const RING = 215;
+  const radiusOf = (ring) => (ring === 0 ? (present.length > 1 ? 62 : 0) : ring * RING);
 
-/// A small force-directed layout.
-///
-/// Hand-rolled rather than pulled in: the whole page is one file with no
-/// network access, and Fruchterman-Reingold is forty lines. It runs to a fixed
-/// step count and stops, so an idle tab does not spin a core.
-///
-/// The ideal edge length is derived from the space available and the number of
-/// nodes, `k = sqrt(area / n)`. A fixed constant looked right on the archive it
-/// was written against and left four nodes huddled in the middle of a 1400px
-/// canvas on a bigger one.
-function layout(nodes, edges, w, h) {
-  const idx = new Map(nodes.map((n, i) => [n.slug, i]));
-  const n = nodes.length;
-  const pad = 46;
-  const inner = { w: Math.max(80, w - pad * 2), h: Math.max(80, h - pad * 2) };
-  // Bounded above as well as derived. `sqrt(area / n)` alone gives a five-node
-  // archive a 260px ideal edge on a wide canvas, which spreads it into a
-  // sparse string across the whole stage — technically filling the space and
-  // much harder to read than a compact cluster.
-  const k = Math.min(
-    Math.sqrt((inner.w * inner.h) / Math.max(n, 2)) * 0.55,
-    Math.min(inner.w, inner.h) * 0.22,
-  );
+  // Adjacency, both ways. An article cites a source and links to its siblings;
+  // for deciding *where* on a ring to sit, either direction is a reason to be
+  // near something.
+  const near = new Map(nodes.map((n) => [n.slug, new Set()]));
+  for (const e of edges) {
+    near.get(e.from)?.add(e.to);
+    near.get(e.to)?.add(e.from);
+  }
 
-  // Seeded from a circle rather than at random, so the same archive lays out
-  // the same way twice — a graph that reshuffles on every reload is one nobody
-  // can build a mental map of.
-  const pts = nodes.map((node, i) => ({
-    x: w / 2 + Math.cos((i / n) * 6.283) * Math.min(inner.w, inner.h) * 0.32,
-    y: h / 2 + Math.sin((i / n) * 6.283) * Math.min(inner.w, inner.h) * 0.32,
-    dx: 0, dy: 0, n: node,
-  }));
+  const byRing = new Map();
+  for (const n of nodes) {
+    const r = ringOf(n);
+    (byRing.get(r) ?? byRing.set(r, []).get(r)).push(n);
+  }
+
+  // Placed innermost first, each ring positioned to face what it came from.
+  //
+  // Not a force simulation. The radius is already decided — it is the claim
+  // the picture makes about provenance — so the only free variable is angle,
+  // and simulating that produced rings whose nodes piled onto each other while
+  // the radial constraint fought the springs. Even spacing in a considered
+  // order cannot overlap, and it lays out the same way every time.
+  const placed = new Map();
+  const pts = [];
+  const TAU = Math.PI * 2;
+
+  for (const ring of [...byRing.keys()].sort((a, b) => a - b)) {
+    const list = byRing.get(ring).slice().sort((a, b) => a.slug.localeCompare(b.slug));
+    const radius = radiusOf(ring);
+
+    // Where each node would like to be: the mean direction of its neighbours
+    // that are already on the board.
+    const wish = new Map();
+    for (const n of list) {
+      let sx = 0;
+      let sy = 0;
+      let count = 0;
+      for (const other of near.get(n.slug) ?? []) {
+        const q = placed.get(other);
+        if (!q) continue;
+        sx += Math.cos(q.angle);
+        sy += Math.sin(q.angle);
+        count++;
+      }
+      if (count) wish.set(n.slug, Math.atan2(sy, sx));
+    }
+
+    // Ordered by that wish, so neighbours end up adjacent; then spaced evenly,
+    // so nothing can collide however the wishes fell.
+    const order = list.slice().sort((a, b) => {
+      const wa = wish.has(a.slug) ? wish.get(a.slug) : Infinity;
+      const wb = wish.has(b.slug) ? wish.get(b.slug) : Infinity;
+      return wa - wb || a.slug.localeCompare(b.slug);
+    });
+    const step = TAU / order.length;
+
+    // Rotate the whole ring to sit as close to its wishes as it can. Spacing
+    // is what stops overlap; this is what stops a source and the article that
+    // cites it ending up on opposite sides of the picture.
+    let ox = 0;
+    let oy = 0;
+    order.forEach((n, i) => {
+      if (!wish.has(n.slug)) return;
+      const delta = wish.get(n.slug) - i * step;
+      ox += Math.cos(delta);
+      oy += Math.sin(delta);
+    });
+    const offset = ox || oy ? Math.atan2(oy, ox) : -Math.PI / 2;
+
+    order.forEach((n, i) => {
+      const angle = offset + i * step;
+      const pt = {
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+        angle,
+        ring,
+        n,
+      };
+      placed.set(n.slug, pt);
+      pts.push(pt);
+    });
+  }
+
+  const idx = new Map(pts.map((p, i) => [p.n.slug, i]));
   const links = edges
     .map((e) => [idx.get(e.from), idx.get(e.to)])
     .filter(([a, b]) => a !== undefined && b !== undefined && a !== b);
 
-  const STEPS = 300;
-  let temp = Math.min(inner.w, inner.h) * 0.18;
-  for (let step = 0; step < STEPS; step++) {
-    for (const p of pts) { p.dx = 0; p.dy = 0; }
-
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        let dx = pts[i].x - pts[j].x;
-        let dy = pts[i].y - pts[j].y;
-        let d = Math.hypot(dx, dy);
-        if (d < 0.01) { dx = (i % 2 ? 1 : -1) * 0.5; dy = 0.5; d = 0.71; }
-        const f = (k * k) / d;
-        pts[i].dx += (dx / d) * f; pts[i].dy += (dy / d) * f;
-        pts[j].dx -= (dx / d) * f; pts[j].dy -= (dy / d) * f;
-      }
-    }
-    for (const [a, b] of links) {
-      const dx = pts[a].x - pts[b].x;
-      const dy = pts[a].y - pts[b].y;
-      const d = Math.hypot(dx, dy) || 0.01;
-      const f = (d * d) / k;
-      pts[a].dx -= (dx / d) * f; pts[a].dy -= (dy / d) * f;
-      pts[b].dx += (dx / d) * f; pts[b].dy += (dy / d) * f;
-    }
-    // A weak pull to the middle. Without it a disconnected node drifts to a
-    // corner and the graph reads as though it were cut off by the viewport.
-    for (const p of pts) {
-      p.dx += (w / 2 - p.x) * 0.012;
-      p.dy += (h / 2 - p.y) * 0.012;
-      const d = Math.hypot(p.dx, p.dy) || 0.01;
-      const move = Math.min(d, temp);
-      p.x += (p.dx / d) * move;
-      p.y += (p.dy / d) * move;
-      p.x = Math.max(pad, Math.min(w - pad, p.x));
-      p.y = Math.max(pad, Math.min(h - pad, p.y));
-    }
-    temp *= 0.975;
-  }
-
-  // Fill the stage. The simulation settles into a shape; scaling it to the
-  // space afterwards means a four-node archive is as legible as a four-hundred
-  // node one, instead of a speck in the middle of a wide canvas.
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
-  const span = { x: Math.max(...xs) - Math.min(...xs), y: Math.max(...ys) - Math.min(...ys) };
-  if (span.x > 1 && span.y > 1) {
-    // Centred and nudged outward, not stretched to the edges. Beyond about
-    // half again, a small graph stops looking connected.
-    const scale = Math.min(inner.w / span.x, inner.h / span.y, 1.4);
-    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
-    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-    for (const p of pts) {
-      p.x = w / 2 + (p.x - cx) * scale;
-      p.y = h / 2 + (p.y - cy) * scale;
-    }
-  }
-  return { pts, links };
+  return { pts, links, rings: present.length };
 }
 
-function graph(b, colorOf) {
+// --- the graph --------------------------------------------------------------
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 3.5;
+// Perspective. A node's ring becomes its distance from the camera, so the core
+// sits nearest and the outer layers fall away — and because the projection
+// divides the pan offset too, moving the graph produces real parallax rather
+// than a flat slide.
+const FOCAL = 1500;
+const LAYER_GAP = 190;
+
+function graph(b, onOpen) {
   const canvas = $('#graph');
   const stage = $('#stage');
-  let placed = null;
+  const placed = layout(b.nodes, b.edges);
+  const cam = { x: 0, y: 0, zoom: 1 };
+  let hover = null;
   let selected = null;
 
-  const radius = (n) => 4 + Math.min(9, Math.sqrt(n.inbound + n.outbound) * 2.6);
+  const persp = (ring) => FOCAL / (FOCAL + ring * LAYER_GAP);
+  const radius = (p) => 5 + Math.min(11, Math.sqrt(p.n.inbound + p.n.outbound) * 2.7);
+
+  function project(p, w, h) {
+    const s = persp(p.ring);
+    return {
+      x: w / 2 + (p.x - cam.x) * cam.zoom * s,
+      y: h / 2 + (p.y - cam.y) * cam.zoom * s,
+      s,
+    };
+  }
+
+  function colorOf(n, style) {
+    if (n.kind === 'source') return style.getPropertyValue('--core').trim();
+    if (n.extrapolated) return style.getPropertyValue('--machine').trim();
+    const domains = APP.domains;
+    return PALETTE[Math.max(0, domains.indexOf(n.domain)) % PALETTE.length];
+  }
 
   function paint() {
     const dpr = window.devicePixelRatio || 1;
-    const w = stage.clientWidth, h = stage.clientHeight;
-    canvas.width = w * dpr; canvas.height = h * dpr;
+    const w = stage.clientWidth;
+    const h = stage.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
     const g = canvas.getContext('2d');
     g.scale(dpr, dpr);
     g.clearRect(0, 0, w, h);
-    if (!placed) return;
-
     const style = getComputedStyle(document.body);
-    g.strokeStyle = style.getPropertyValue('--line');
+
+    // A soft light at the centre. The core is the person; it should look like
+    // the place the rest came from.
+    const core = { x: w / 2 - cam.x * cam.zoom, y: h / 2 - cam.y * cam.zoom };
+    const glow = g.createRadialGradient(core.x, core.y, 0, core.x, core.y, 260 * cam.zoom);
+    glow.addColorStop(0, 'rgba(176, 125, 63, 0.13)');
+    glow.addColorStop(1, 'rgba(176, 125, 63, 0)');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, w, h);
+
+    const screen = placed.pts.map((p) => project(p, w, h));
+
     g.lineWidth = 1;
     for (const [a, bIdx] of placed.links) {
+      const far = Math.max(placed.pts[a].ring, placed.pts[bIdx].ring);
+      g.globalAlpha = 0.55 - far * 0.07;
+      g.strokeStyle = style.getPropertyValue('--line');
       g.beginPath();
-      g.moveTo(placed.pts[a].x, placed.pts[a].y);
-      g.lineTo(placed.pts[bIdx].x, placed.pts[bIdx].y);
+      g.moveTo(screen[a].x, screen[a].y);
+      g.lineTo(screen[bIdx].x, screen[bIdx].y);
       g.stroke();
     }
-    for (const p of placed.pts) {
+    g.globalAlpha = 1;
+
+    // Back to front, so the core lands on top of what it produced.
+    const order = placed.pts
+      .map((p, i) => i)
+      .sort((i, j) => placed.pts[j].ring - placed.pts[i].ring);
+
+    for (const i of order) {
+      const p = placed.pts[i];
+      const at = screen[i];
+      const r = radius(p) * cam.zoom * at.s;
+      if (at.x < -80 || at.x > w + 80 || at.y < -80 || at.y > h + 80) continue;
+
+      g.globalAlpha = 1 - p.ring * 0.1;
       g.beginPath();
-      g.arc(p.x, p.y, radius(p.n), 0, 6.284);
-      g.fillStyle = colorOf(p.n).startsWith('var(')
-        ? style.getPropertyValue('--machine')
-        : colorOf(p.n);
+      g.arc(at.x, at.y, r, 0, 6.284);
+      g.fillStyle = colorOf(p.n, style);
       g.fill();
-      if (selected === p.n.slug) {
+
+      if (selected === p.n.slug || hover === p.n.slug) {
+        g.globalAlpha = 1;
         g.lineWidth = 2;
         g.strokeStyle = style.getPropertyValue('--ink');
         g.stroke();
         g.lineWidth = 1;
       }
-      if (placed.pts.length <= 60 || radius(p.n) > 7) {
+
+      const label = r > 6 || hover === p.n.slug || selected === p.n.slug;
+      if (label && cam.zoom > 0.45) {
+        g.globalAlpha = Math.min(1, 1 - p.ring * 0.11);
         g.fillStyle = style.getPropertyValue('--muted');
-        g.font = '11px ui-sans-serif, sans-serif';
+        g.font = `${Math.max(10, 11 * at.s)}px ui-sans-serif, sans-serif`;
         g.textAlign = 'center';
-        g.fillText(p.n.title, p.x, p.y - radius(p.n) - 4);
+        g.fillText(p.n.title, at.x, at.y - r - 5);
       }
     }
+    g.globalAlpha = 1;
+    $('#zoom-level').textContent = `${Math.round(cam.zoom * 100)}%`;
   }
 
-  function relayout() {
-    const w = stage.clientWidth, h = stage.clientHeight;
-    placed = b.nodes.length ? layout(b.nodes, b.edges, w, h) : null;
-    paint();
-  }
-
-  canvas.addEventListener('click', (ev) => {
-    if (!placed) return;
-    const r = canvas.getBoundingClientRect();
-    const x = ev.clientX - r.left, y = ev.clientY - r.top;
-    let hit = null;
-    for (const p of placed.pts) {
-      const rr = radius(p.n) + 6;
-      if ((p.x - x) ** 2 + (p.y - y) ** 2 <= rr * rr) hit = p.n;
+  function hit(px, py) {
+    const w = stage.clientWidth;
+    const h = stage.clientHeight;
+    // Nearest ring first, matching what is drawn on top.
+    const order = placed.pts
+      .map((p, i) => i)
+      .sort((i, j) => placed.pts[i].ring - placed.pts[j].ring);
+    for (const i of order) {
+      const p = placed.pts[i];
+      const at = project(p, w, h);
+      const r = radius(p) * cam.zoom * at.s + 7;
+      if ((at.x - px) ** 2 + (at.y - py) ** 2 <= r * r) return p.n;
     }
-    selected = hit ? hit.slug : null;
-    detail(hit);
-    paint();
-  });
+    return null;
+  }
 
-  function detail(n) {
-    const el = $('#detail');
-    if (!n) {
-      el.innerHTML = '<h2>Selected</h2><p class="hint">Click a node in the graph.</p>';
+  function fit() {
+    const w = stage.clientWidth;
+    const h = stage.clientHeight;
+    const span = Math.max(
+      ...placed.pts.map((p) => Math.hypot(p.x, p.y) * persp(p.ring)),
+      1,
+    );
+    cam.x = 0;
+    cam.y = 0;
+    cam.zoom = clamp(Math.min(w, h) / (span * 2.15 + 90), MIN_ZOOM, MAX_ZOOM);
+    paint();
+  }
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // --- input ---
+  let drag = null;
+  canvas.addEventListener('pointerdown', (ev) => {
+    canvas.setPointerCapture(ev.pointerId);
+    drag = { x: ev.clientX, y: ev.clientY, camX: cam.x, camY: cam.y, moved: 0 };
+    canvas.classList.add('dragging');
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    const r = canvas.getBoundingClientRect();
+    if (drag) {
+      const dx = ev.clientX - drag.x;
+      const dy = ev.clientY - drag.y;
+      drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
+      cam.x = drag.camX - dx / cam.zoom;
+      cam.y = drag.camY - dy / cam.zoom;
+      paint();
       return;
     }
-    const traits = b.persona.filter((t) => t.expressed_in.includes(n.slug));
-    el.innerHTML = `
-      <h2>Selected</h2>
-      <div class="title">${esc(n.title)}</div>
-      <div class="path">${esc(n.domain)}/${esc(n.slug)}</div>
-      ${n.extrapolated ? `
-        <div class="machine-note" style="margin-top:10px">
-          <b>Written by the clone.</b> A language model produced this from the
-          archive, extending its author's writing rather than reproducing it.
-          ${traits.length ? `Written from: ${traits.map((t) => esc(t.claim)).join(' ')}` : ''}
-        </div>` : ''}
-      <p class="hint" style="margin:8px 0 0">
-        ${n.inbound} link(s) in · ${n.outbound} out · ${esc(n.status)}</p>
-      <div>${(n.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>`;
-  }
+    const n = hit(ev.clientX - r.left, ev.clientY - r.top);
+    const slug = n ? n.slug : null;
+    if (slug !== hover) {
+      hover = slug;
+      canvas.style.cursor = slug ? 'pointer' : '';
+      paint();
+    }
+  });
+  const endDrag = (ev) => {
+    if (!drag) return;
+    const r = canvas.getBoundingClientRect();
+    // A click, not a drag. Four pixels of slack, because a trackpad never
+    // gives you zero and a graph you cannot click is not navigable.
+    if (drag.moved < 4) {
+      const n = hit(ev.clientX - r.left, ev.clientY - r.top);
+      selected = n ? n.slug : null;
+      if (n) onOpen(n);
+      paint();
+    }
+    drag = null;
+    canvas.classList.remove('dragging');
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', () => { drag = null; canvas.classList.remove('dragging'); });
 
-  relayout();
+  canvas.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    const mx = ev.clientX - r.left - stage.clientWidth / 2;
+    const my = ev.clientY - r.top - stage.clientHeight / 2;
+    const before = cam.zoom;
+    const next = clamp(cam.zoom * Math.exp(-ev.deltaY * 0.0016), MIN_ZOOM, MAX_ZOOM);
+    // Zoom toward the cursor rather than the middle: the thing you are
+    // pointing at is the thing you are trying to look at.
+    cam.x += mx * (1 / before - 1 / next);
+    cam.y += my * (1 / before - 1 / next);
+    cam.zoom = next;
+    paint();
+  }, { passive: false });
+
+  window.addEventListener('keydown', (ev) => {
+    if ($('#reader').classList.contains('open')) return;
+    const step = 60 / cam.zoom;
+    const moves = {
+      ArrowLeft: [-step, 0], ArrowRight: [step, 0],
+      ArrowUp: [0, -step], ArrowDown: [0, step],
+    };
+    if (moves[ev.key]) {
+      ev.preventDefault();
+      cam.x += moves[ev.key][0];
+      cam.y += moves[ev.key][1];
+      paint();
+    } else if (ev.key === '+' || ev.key === '=') {
+      cam.zoom = clamp(cam.zoom * 1.2, MIN_ZOOM, MAX_ZOOM); paint();
+    } else if (ev.key === '-' || ev.key === '_') {
+      cam.zoom = clamp(cam.zoom / 1.2, MIN_ZOOM, MAX_ZOOM); paint();
+    } else if (ev.key === '0') {
+      fit();
+    }
+  });
+
+  $('#zoom-in').onclick = () => { cam.zoom = clamp(cam.zoom * 1.25, MIN_ZOOM, MAX_ZOOM); paint(); };
+  $('#zoom-out').onclick = () => { cam.zoom = clamp(cam.zoom / 1.25, MIN_ZOOM, MAX_ZOOM); paint(); };
+  $('#reset').onclick = fit;
+
   let timer;
   window.addEventListener('resize', () => {
     clearTimeout(timer);
-    timer = setTimeout(relayout, 180);
+    timer = setTimeout(paint, 120);
   });
+
+  fit();
+  return {
+    select(slug) { selected = slug; paint(); },
+    focus(slug) {
+      const p = placed.pts.find((q) => q.n.slug === slug);
+      if (!p) return;
+      cam.x = p.x * persp(p.ring);
+      cam.y = p.y * persp(p.ring);
+      selected = slug;
+      paint();
+    },
+  };
+}
+
+// --- the reader -------------------------------------------------------------
+function reader(b) {
+  const byId = new Map(b.nodes.map((n) => [n.slug, n]));
+  const el = $('#reader');
+  const scrim = $('#scrim');
+  let current = null;
+
+  function open(n) {
+    current = n;
+    const [what, tone] = describe(n);
+    $('#r-title').textContent = n.title;
+    $('#r-sub').innerHTML =
+      `<span class="badge ${tone}">${esc(what)}</span> ` +
+      (n.domain ? `${esc(n.domain)} · ` : '') +
+      `${n.inbound} link(s) in · ${n.outbound} out` +
+      (n.tags?.length ? `<div>${n.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
+
+    // The exporter appends an attribution notice to every generated article,
+    // at the foot, where a print reader would look for it. On screen the foot
+    // is after you have read the thing believing it might be theirs — so the
+    // reader lifts that notice to the top.
+    //
+    // Lifted, not rewritten and not removed: it is the exporter's wording,
+    // which is the wording that also went to the site. Only if it cannot be
+    // found does this fall back to composing one, so an extrapolated article
+    // can never end up displayed without a disclosure.
+    const traits = b.persona.filter((t) => t.expressed_in.includes(n.slug));
+    let body = n.body ?? '';
+    let notice = '';
+    if (n.extrapolated) {
+      const found = body.match(/\n---\s*\n+\*(Written by a language model[\s\S]*?)\*\s*$/);
+      if (found) {
+        body = body.slice(0, found.index);
+        notice = `<div class="attribution">${markdown(found[1], () => false)}</div>`;
+      } else {
+        notice = `<div class="attribution"><strong>Written by the clone.</strong>
+          A language model produced this from the archive, extending its author's
+          writing rather than reproducing it${traits.length
+            ? `, from: ${traits.map((t) => esc(t.claim)).join(' ')}`
+            : ''}.</div>`;
+      }
+    }
+
+    $('#doc').innerHTML = notice + (body.trim()
+      ? markdown(body, (slug) => byId.has(slug))
+      : '<p class="hint">This document has no published text.</p>');
+    $('#doc').scrollTop = 0;
+
+    el.classList.add('open');
+    scrim.classList.add('open');
+  }
+
+  function close() {
+    el.classList.remove('open', 'full');
+    scrim.classList.remove('open');
+    $('#r-full').textContent = 'Fullscreen';
+    current = null;
+  }
+
+  $('#r-close').onclick = close;
+  scrim.onclick = close;
+  $('#r-full').onclick = () => {
+    const full = el.classList.toggle('full');
+    $('#r-full').textContent = full ? 'Exit fullscreen' : 'Fullscreen';
+  };
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || !el.classList.contains('open')) return;
+    if (el.classList.contains('full')) {
+      el.classList.remove('full');
+      $('#r-full').textContent = 'Fullscreen';
+    } else {
+      close();
+    }
+  });
+  // Cross-references inside the prose open the document they name, which is
+  // what makes this a wiki rather than a list of pages.
+  $('#doc').addEventListener('click', (ev) => {
+    const ref = ev.target.closest('.xref:not(.dead)');
+    if (!ref) return;
+    const n = byId.get(ref.dataset.slug);
+    if (n) { open(n); APP.graph.focus(n.slug); }
+  });
+
+  return { open, close, get current() { return current; } };
 }
 
 fetch('bundle.json')
@@ -479,8 +974,24 @@ fetch('bundle.json')
       fail('The bundle is missing fields this page needs.', gaps.join(', '));
       return;
     }
-    const { colorOf } = render(b);
-    graph(b, colorOf);
+    APP = render(b);
+    APP.reader = reader(b);
+    APP.graph = graph(b, (n) => {
+      APP.reader.open(n);
+      detail(b, n);
+    });
   })
   .catch((e) => fail('Could not load bundle.json.', e.message));
+
+function detail(b, n) {
+  const [what] = describe(n);
+  const traits = b.persona.filter((t) => t.expressed_in.includes(n.slug));
+  $('#detail').innerHTML = `
+    <h2>Selected</h2>
+    <div style="font-size:16px;font-weight:620">${esc(n.title)}</div>
+    <p class="hint" style="margin:4px 0 0">${esc(what)} ·
+      ${n.inbound} in · ${n.outbound} out</p>
+    ${traits.length ? `<p class="hint" style="margin:8px 0 0">Written from
+      ${traits.length} affirmed trait(s).</p>` : ''}`;
+}
 </script>

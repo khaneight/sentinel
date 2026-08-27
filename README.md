@@ -188,7 +188,7 @@ An `extrapolated` article must name the `persona:` traits it was written from, a
 sentinel export --out ./content --flat --clean --ui ./showcase
 ```
 
-Two artifacts. **`--out`** is the wiki for reading: articles whose `status` qualifies (`stable` by default), links to unpublished pages rewritten as plain text so nothing dead-ends, and no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks. **`--ui`** is one self-contained page showing the archive as a working system: the graph, what the clone writes from, and what is still in flight. No build step, no network beyond its own JSON; copy it anywhere static. (`--data <file>` emits that JSON alone if you would rather render it yourself.)
+Two artifacts. **`--out`** is the wiki for reading: articles whose `status` qualifies (`stable` by default), links to unpublished pages rewritten as plain text so nothing dead-ends, and no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks. **`--ui`** is one self-contained page showing the archive as a working system: a graph laid out by provenance — source material at the core, the clone's work at the rim — that you can pan, zoom and read documents in. No build step, no network beyond its own JSON; copy it anywhere static. (`--data <file>` emits that JSON alone if you would rather render it yourself.)
 
 `raw/` and `meta/` are never copied. `--with-sources` publishes the source documents you marked with `sentinel sources --publish`, and only those.
 
