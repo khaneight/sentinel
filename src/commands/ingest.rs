@@ -38,13 +38,17 @@ pub fn run(
     // Validated against the same constant `sentinel schema` publishes and the
     // lint rule enforces. A private copy of this list is how `hybrid` came to
     // be advertised as valid and rejected here.
-    if !frontmatter::ORIGINS.contains(&origin) {
+    // The *ingestable* set, not every origin an article can carry. A raw
+    // document is never `extrapolated`: `raw/` is the provenance floor, and a
+    // generated file sitting in it could later be cited as evidence for what
+    // its supposed author believes.
+    if !frontmatter::INGESTABLE_ORIGINS.contains(&origin) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
                 "Unknown origin '{origin}'. Expected one of: {}.\n\
                  Run `sentinel schema` for the full frontmatter contract.",
-                frontmatter::ORIGINS.join(", ")
+                frontmatter::INGESTABLE_ORIGINS.join(", ")
             ),
         ));
     }

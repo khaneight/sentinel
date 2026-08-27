@@ -89,7 +89,9 @@ fn tokenize(line: &str) -> Vec<String> {
 /// the caller can report it instead of pretending the command was covered.
 fn substitute(token: &str, source: &Path) -> Option<String> {
     let filled = match token {
-        "<key terms>" | "<topic>" => "virtue".to_string(),
+        // The fixture holds `wiki/philosophy/virtue.md`, so a slug or a topic
+        // both resolve to something the command can actually act on.
+        "<key terms>" | "<topic>" | "<slug>" => "virtue".to_string(),
         "<path-to-notes>" => source.display().to_string(),
         "{domain}" => "philosophy".to_string(),
         t if t.starts_with("\"Research:") || t.starts_with("Research:") => {
@@ -142,7 +144,15 @@ fn every_command_a_skill_publishes_runs_against_a_real_archive() {
         };
         let argv: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        let out = a.output(&argv);
+        // `sentinel review` refuses to attribute a verdict to nobody, and a
+        // skill that publishes it has to be runnable. Supplying the identity
+        // here rather than in the skill keeps the published line the one a
+        // person would actually type.
+        let out = a
+            .cmd(&argv)
+            .env("SENTINEL_REVIEWER", "skill-flows")
+            .output()
+            .expect("the binary should run");
         let code = out.status.code().unwrap_or(-1);
         let stderr = common::stderr(&out);
 

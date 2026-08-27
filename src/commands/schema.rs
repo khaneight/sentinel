@@ -21,6 +21,10 @@ use crate::core::review;
 #[derive(Serialize)]
 struct Schema {
     frontmatter: &'static [Field],
+    /// Origins a *raw document* may have — what `ingest -o` accepts. A strict
+    /// subset of the article origins above, because `extrapolated` is the
+    /// clone's own work and never enters the archive as a source.
+    ingest_origins: &'static [&'static str],
     /// The `persona/` contract — the second document schema in the archive.
     persona: &'static [Field],
     domains: Domains,
@@ -95,6 +99,9 @@ fn describe(action: crate::commands::next::Action) -> &'static str {
             "Wikilinks with no article behind them, ranked by how many distinct articles ask for each. The wiki naming its own gaps."
         }
         Action::Connect => "Articles nothing links to.",
+        Action::Extend => {
+            "Traits the author affirmed that no `origin: extrapolated` article has been written from — views they hold the archive has never expressed. Only affirmed ones: generating from the agent's own unconfirmed reading would let the clone bootstrap a voice out of its guesses."
+        }
         Action::Review => "Drafts untouched for over 30 days.",
         // Not a rung; `LADDER` never yields it, and the match is exhaustive so
         // that a new variant fails to compile rather than shipping undescribed.
@@ -122,7 +129,7 @@ pub const FIELDS: &[Field] = &[
         required: true,
         kind: "enum",
         values: Some(frontmatter::ORIGINS),
-        description: "Provenance. authored = distilled from the user's own writing; researched = gathered by an agent; hybrid = the user's ideas enriched with research.",
+        description: "Provenance. authored = distilled from the user's own writing; researched = gathered by an agent; hybrid = the user's ideas enriched with research; extrapolated = written by the clone from `persona:` traits, not compiled from any source. Only the first three can be ingested.",
     },
     Field {
         name: "tags",
@@ -165,6 +172,13 @@ pub const FIELDS: &[Field] = &[
         kind: "enum",
         values: Some(frontmatter::STATUSES),
         description: "Maturity of the article. Separate from approval: `stable` means finished, not signed off.",
+    },
+    Field {
+        name: "persona",
+        required: false,
+        kind: "string[]",
+        values: None,
+        description: "Ids of the `persona/` traits this was written from. Required when `origin` is extrapolated: generated prose that names no trait cannot be traced back to a claim the author actually made. Cite only traits they have affirmed.",
     },
     Field {
         name: "review",
@@ -319,6 +333,7 @@ pub fn blank_trait() -> String {
 pub fn run() -> io::Result<()> {
     let schema = Schema {
         frontmatter: FIELDS,
+        ingest_origins: frontmatter::INGESTABLE_ORIGINS,
         persona: PERSONA_FIELDS,
         domains: Domains {
             default: paths::DEFAULT_DOMAINS,

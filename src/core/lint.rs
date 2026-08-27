@@ -156,6 +156,26 @@ pub const RULES: &[RuleInfo] = &[
         description: "A raw document that no wiki article cites in its `sources:`.",
     },
     RuleInfo {
+        rule: "unattributed-extrapolation",
+        severity: Severity::Error,
+        description: "An `origin: extrapolated` article names no `persona:` traits. Generated prose that cannot be traced to a claim the author actually made is prose written in their voice on nobody's authority.",
+    },
+    RuleInfo {
+        rule: "unresolved-trait",
+        severity: Severity::Error,
+        description: "A `persona:` entry names no trait in persona/. The attribution points at nothing, so the article cannot be checked against what it claims to have been written from.",
+    },
+    RuleInfo {
+        rule: "wrote-from-rejected",
+        severity: Severity::Error,
+        description: "An article was written from a trait the author rejected. Their `no` is on the file; writing from it anyway is the one thing the verdict was for.",
+    },
+    RuleInfo {
+        rule: "wrote-from-unconfirmed",
+        severity: Severity::Warning,
+        description: "An article was written from a trait the author has not affirmed. Not malformed — the reading may well be right — but nothing has confirmed it is theirs, so the work rests on the agent's own opinion of them.",
+    },
+    RuleInfo {
         rule: "invalid-verdict",
         severity: Severity::Error,
         description: "A `review:` entry's verdict is not one of approved, rejected, changes-requested, comment. A verdict nothing recognises decides nothing, and `export` reads this to know what may be published.",
@@ -330,7 +350,11 @@ pub fn analyze(
         if frontmatter.tags.is_empty() {
             findings.push(Finding::warning("missing-tags", path, "no tags defined"));
         }
-        if frontmatter.sources.is_empty() {
+        // Not for the clone's own work: an extrapolated article is not
+        // compiled from anything, so "its raw document will stay uncompiled"
+        // names a document that does not exist. Its provenance rule is
+        // `unattributed-extrapolation` instead.
+        if frontmatter.sources.is_empty() && !frontmatter.is_extrapolated() {
             findings.push(Finding::warning(
                 "missing-sources",
                 path,
@@ -447,6 +471,59 @@ pub fn analyze(
             entry.raw_path.clone(),
             format!("not yet compiled into any wiki article ({})", entry.title),
         ));
+    }
+
+    // Attribution for generated work. Kept together because they are one
+    // question — can a reader follow this prose back to something the author
+    // actually said — asked four ways.
+    let by_id: BTreeMap<String, &LoadedTrait> =
+        traits.iter().map(|t| (t.canonical_id(), t)).collect();
+    for article in articles {
+        let fm = &article.article.frontmatter;
+        let path = article.rel_path();
+
+        if fm.is_extrapolated() && fm.persona.is_empty() {
+            findings.push(Finding::error(
+                "unattributed-extrapolation",
+                path,
+                "written by the clone but names no `persona:` traits — nothing \
+                 ties it to a claim the author actually made"
+                    .to_string(),
+            ));
+        }
+
+        for cited in &fm.persona {
+            let Some(t) = by_id.get(&super::slug::canonical(cited)) else {
+                findings.push(Finding::error(
+                    "unresolved-trait",
+                    path,
+                    format!(
+                        "`persona: {cited}` names no trait — `sentinel persona --json` lists them"
+                    ),
+                ));
+                continue;
+            };
+            match t.status() {
+                "rejected" => findings.push(Finding::error(
+                    "wrote-from-rejected",
+                    path,
+                    format!(
+                        "written from '{}', which the author rejected ({})",
+                        t.id(),
+                        t.rel_path
+                    ),
+                )),
+                "affirmed" => {}
+                other => findings.push(Finding::warning(
+                    "wrote-from-unconfirmed",
+                    path,
+                    format!(
+                        "written from '{}', which is `{other}` — nothing has confirmed it is theirs",
+                        t.id()
+                    ),
+                )),
+            }
+        }
     }
 
     // Verdicts, on both document kinds. Walked from one list for the same
@@ -798,6 +875,12 @@ mod tests {
                  evidence: [raw/philosophy/cited.md]\nreview:\n  \
                  - verdict: approved\n    by: someone\n    at: 2026-01-01\n---\n\nbody\n",
             ),
+            // A trait the author said no to, for `wrote-from-rejected`.
+            trait_of(
+                "persona/refused.md",
+                "---\nid: refused\nkind: belief\nclaim: c\nstatus: rejected\n\
+                 evidence: [raw/philosophy/cited.md]\n---\n\nbody\n",
+            ),
             // duplicate-trait-id: two files, one id
             trait_of(
                 "persona/first.md",
@@ -845,6 +928,27 @@ mod tests {
                 Frontmatter {
                     updated: Some("01/02/2024".into()),
                     created: Some("2999-01-01".into()),
+                    ..complete(&["raw/philosophy/cited.md"])
+                },
+                "x",
+                None,
+            ),
+            // unattributed-extrapolation
+            loaded(
+                "wiki/a/generated.md",
+                Frontmatter {
+                    origin: Some("extrapolated".into()),
+                    ..complete(&["raw/philosophy/cited.md"])
+                },
+                "x",
+                None,
+            ),
+            // unresolved-trait + wrote-from-rejected + wrote-from-unconfirmed
+            loaded(
+                "wiki/a/attributed.md",
+                Frontmatter {
+                    origin: Some("extrapolated".into()),
+                    persona: vec!["nonexistent".into(), "refused".into(), "evidence".into()],
                     ..complete(&["raw/philosophy/cited.md"])
                 },
                 "x",

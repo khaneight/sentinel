@@ -724,6 +724,7 @@ fn progress_reports_a_counter_for_every_action_in_the_ladder() {
             "learn" => "unmined",
             "write" => "wiki_articles",
             "connect" => "orphans",
+            "extend" => "unexpressed",
             "review" => "drafts",
             other => panic!(
                 "action `{other}` is in the ladder but no progress counter is \

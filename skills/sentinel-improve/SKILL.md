@@ -75,6 +75,19 @@ are looking at is short, and the fix is the file permissions, not the profile.
 | `inferred-from-research` | The trait was read out of material an agent gathered, which says what the author read, not what they think. Re-source it from `authored` or `hybrid` material, or delete it. Do not "fix" it by changing the source document's `origin`. |
 | `duplicate-trait-id` | Two traits share an `id`. If they are the same claim, merge them and union their `evidence`. If they are different claims, rename one and its file. |
 
+### Generated work — the clone's own articles
+
+An `origin: extrapolated` article was written by the clone from `persona:`
+traits. These rules are what keep it traceable to something the author actually
+said.
+
+| Rule | Fix |
+|---|---|
+| `unattributed-extrapolation` | The article names no `persona:` traits. **Do not attach plausible ones** — that is inventing the authority it was written on. Read it, and if you can identify the affirmed traits it genuinely follows from, cite those; otherwise report it, because an untraceable article in someone's voice should not be kept. |
+| `unresolved-trait` | A `persona:` entry names no trait. It may be a renamed id — check `sentinel persona --json` before assuming. If the trait is genuinely gone, treat this as `unattributed-extrapolation`. |
+| `wrote-from-rejected` | The article was written from a trait the author rejected. Their `no` is on the file and there is no argument that gets round it: remove the citation, and if that leaves the article unattributed, escalate rather than re-attributing it. |
+| `wrote-from-unconfirmed` | A warning. The article rests on a reading nobody has confirmed. Either the trait needs the author's verdict (`sentinel review` — theirs to run, not yours) or the article should cite an affirmed trait instead. Do not silence it by affirming the trait. |
+
 ### Verdicts — what the user said
 
 `review:` entries record the archive owner's decisions. **You never write one.**

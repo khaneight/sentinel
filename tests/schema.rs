@@ -40,10 +40,17 @@ fn enum_fields_publish_their_accepted_values() {
             .clone()
     };
 
+    let origin_field = field("origin");
+    let origins: Vec<&str> = origin_field["values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
     assert_eq!(
-        field("origin")["values"].as_array().unwrap().len(),
-        3,
-        "origin must publish authored/researched/hybrid"
+        origins,
+        ["authored", "researched", "hybrid", "extrapolated"],
+        "origin must publish every value an article may carry"
     );
     assert_eq!(field("status")["values"].as_array().unwrap().len(), 3);
 }
@@ -98,7 +105,18 @@ fn every_command_that_takes_an_origin_accepts_every_published_value() {
     // so an agent following the published contract got an error.
     let a = Archive::new();
     let v = a.json(&["schema"]);
-    let origins: Vec<String> = v["frontmatter"]
+    // The ingestable set, published separately: an article may be
+    // `extrapolated`, and a raw document may never be, so one list would have
+    // to be wrong for one of them.
+    let origins: Vec<String> = v["ingest_origins"]
+        .as_array()
+        .expect("schema publishes what `ingest -o` accepts")
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect();
+    assert!(origins.len() >= 3, "{origins:?}");
+
+    let article_origins: Vec<&str> = v["frontmatter"]
         .as_array()
         .unwrap()
         .iter()
@@ -107,9 +125,18 @@ fn every_command_that_takes_an_origin_accepts_every_published_value() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|s| s.as_str().unwrap().to_string())
+        .map(|s| s.as_str().unwrap())
         .collect();
-    assert!(origins.len() >= 3, "{origins:?}");
+    for origin in &origins {
+        assert!(
+            article_origins.contains(&origin.as_str()),
+            "`{origin}` can be ingested but is not a legal article origin"
+        );
+    }
+    assert!(
+        origins.len() < article_origins.len(),
+        "if every article origin can be ingested, `raw/` can hold generated work"
+    );
 
     for origin in &origins {
         let src = a.path(&format!("src-{origin}.md"));
@@ -222,6 +249,7 @@ fn the_next_priority_ladder_is_published() {
             "learn",
             "write",
             "connect",
+            "extend",
             "review"
         ]
     );
