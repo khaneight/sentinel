@@ -81,6 +81,11 @@ pub struct TraitFrontmatter {
     pub status: Option<String>,
     pub created: Option<String>,
     pub updated: Option<String>,
+    /// Verdicts the author recorded about this claim, oldest first. `status:`
+    /// above is what a reader sees; this is the history behind it, including
+    /// the note explaining a rejection.
+    #[serde(default)]
+    pub review: Vec<super::review::Entry>,
 }
 
 impl TraitFrontmatter {

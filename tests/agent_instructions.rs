@@ -24,7 +24,17 @@ use std::process::Command;
 /// The two `CLAUDE.md` files are loaded unconditionally; a skill is loaded when
 /// invoked. Both costs are paid per use, so the same ceiling applies — this is
 /// a runaway-growth backstop, not a style rule.
-const MAX_BYTES: usize = 12_000;
+///
+/// Raised from 12,000 when the clone work added a second document schema, a
+/// permission system and a ladder rung, each with an invariant that has to be
+/// in front of an agent before it starts. Raised *after* compressing, not
+/// instead of it: the repository file absorbed all of that and grew by 325
+/// bytes, because `mv`/`rm` and case-sensitivity reasoning moved to
+/// `docs/design-notes.md`, the command reference lost what `--help` already
+/// says, and "derived sets" and "one source of truth" turned out to be one
+/// invariant written twice. If this needs raising again, compress first and
+/// say here what came out.
+const MAX_BYTES: usize = 14_000;
 
 struct Document {
     name: String,

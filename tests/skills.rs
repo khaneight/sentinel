@@ -334,6 +334,11 @@ fn every_command_is_either_reachable_from_a_skill_or_deliberately_not() {
             "publishing is the user's decision. An agent that can publish can \
              publish a draft, and that is not recoverable by re-running it.",
         ),
+        (
+            "review",
+            "records the archive owner's verdict. An agent that can approve its \
+             own work has a permission system in name only.",
+        ),
         ("help", "clap builtin"),
     ];
 

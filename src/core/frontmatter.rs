@@ -24,6 +24,9 @@ pub struct Frontmatter {
     pub created: Option<String>,
     pub updated: Option<String>,
     pub status: Option<String>,
+    /// Verdicts the archive's owner recorded, oldest first. See `core::review`.
+    #[serde(default)]
+    pub review: Vec<super::review::Entry>,
 }
 
 /// A wiki article with parsed frontmatter and body content.
@@ -190,6 +193,25 @@ pub fn block_end(content: &str) -> Option<usize> {
     for line in rest.split_inclusive('\n') {
         if is_fence(line) {
             return Some(prefix + offset + line.len());
+        }
+        offset += line.len();
+    }
+    None
+}
+
+/// The byte range of the YAML between the fences.
+///
+/// `block_end` gives the point past the closing fence, which is where a caller
+/// appends *after* the block. Editing a field means writing inside it, and
+/// deriving one span from the other at three call sites is three chances to be
+/// off by the length of a delimiter.
+pub fn block_span(content: &str) -> Option<(usize, usize)> {
+    let rest = strip_opening_fence(content)?;
+    let start = content.len() - rest.len();
+    let mut offset = 0usize;
+    for line in rest.split_inclusive('\n') {
+        if is_fence(line) {
+            return Some((start, start + offset));
         }
         offset += line.len();
     }

@@ -6,6 +6,7 @@ use super::compilation::{Compilation, SourceIndex};
 use super::links;
 use super::manifest::Manifest;
 use super::persona::{self, LoadedTrait};
+use super::review;
 use super::wiki::LoadedArticle;
 
 /// How much a finding matters.
@@ -153,6 +154,21 @@ pub const RULES: &[RuleInfo] = &[
         rule: "uncompiled-source",
         severity: Severity::Warning,
         description: "A raw document that no wiki article cites in its `sources:`.",
+    },
+    RuleInfo {
+        rule: "invalid-verdict",
+        severity: Severity::Error,
+        description: "A `review:` entry's verdict is not one of approved, rejected, changes-requested, comment. A verdict nothing recognises decides nothing, and `export` reads this to know what may be published.",
+    },
+    RuleInfo {
+        rule: "incomplete-verdict",
+        severity: Severity::Error,
+        description: "A `review:` entry is missing `by` or `at`, or `at` is not a YYYY-MM-DD date. A verdict attributed to nobody, or to no date, is the one thing the review mechanism exists to prevent.",
+    },
+    RuleInfo {
+        rule: "verdict-disagrees-with-status",
+        severity: Severity::Error,
+        description: "A persona trait's `status:` contradicts its own latest verdict — someone edited one and not the other. The visible standing and the recorded history must say the same thing.",
     },
     RuleInfo {
         rule: "invalid-trait-frontmatter",
@@ -433,6 +449,52 @@ pub fn analyze(
         ));
     }
 
+    // Verdicts, on both document kinds. Walked from one list for the same
+    // reason the date rule is: two copies would be two opinions about what a
+    // recorded decision has to carry.
+    let reviewed: Vec<(&str, &[review::Entry])> = articles
+        .iter()
+        .map(|a| (a.rel_path(), a.article.frontmatter.review.as_slice()))
+        .chain(
+            traits
+                .iter()
+                .map(|t| (t.rel_path.as_str(), t.frontmatter.review.as_slice())),
+        )
+        .collect();
+    for (path, entries) in reviewed {
+        for entry in entries {
+            if !review::VERDICTS.contains(&entry.verdict.as_str()) {
+                findings.push(Finding::error(
+                    "invalid-verdict",
+                    path,
+                    format!(
+                        "verdict '{}' is not one of {}",
+                        entry.verdict,
+                        review::VERDICTS.join(", ")
+                    ),
+                ));
+            }
+            if entry.by.trim().is_empty() {
+                findings.push(Finding::error(
+                    "incomplete-verdict",
+                    path,
+                    format!(
+                        "verdict '{}' records no `by` — it is signed by nobody",
+                        entry.verdict
+                    ),
+                ));
+            }
+            match super::frontmatter::parse_date(&entry.at) {
+                Ok(_) => {}
+                Err(why) => findings.push(Finding::error(
+                    "incomplete-verdict",
+                    path,
+                    format!("verdict '{}' has `at`: {why}", entry.verdict),
+                )),
+            }
+        }
+    }
+
     findings.extend(persona_findings(traits, manifest));
 
     sort(&mut findings);
@@ -532,6 +594,27 @@ fn persona_findings(traits: &[LoadedTrait], manifest: &Manifest) -> Vec<Finding>
                      documents it was read out of, or it is a claim about \
                      somebody that nobody can check.",
                     t.id()
+                ),
+            ));
+        }
+
+        // The visible standing against the recorded one. Traits carry both
+        // because `status:` is what a person reads at the top of the file —
+        // deriving it silently would mean a file that says `proposed` while
+        // the archive treats it as affirmed.
+        if let Some(decision) = review::standing(&t.frontmatter.review)
+            && let Some(implied) = review::implied_status(&decision.verdict)
+            && t.status() != implied
+        {
+            findings.push(Finding::error(
+                "verdict-disagrees-with-status",
+                path,
+                format!(
+                    "`status: {}` but the latest verdict is '{}' ({} on {}), which means `{implied}`",
+                    t.status(),
+                    decision.verdict,
+                    decision.by,
+                    decision.at
                 ),
             ));
         }
@@ -699,6 +782,21 @@ mod tests {
                 "persona/research.md",
                 "---\nid: research\nkind: belief\nclaim: c\n\
                  evidence: [raw/philosophy/gathered.md]\n---\n\nbody\n",
+            ),
+            // invalid-verdict + incomplete-verdict (no `by`, unparseable `at`)
+            trait_of(
+                "persona/verdicts.md",
+                "---\nid: verdicts\nkind: style\nclaim: c\n\
+                 evidence: [raw/philosophy/cited.md]\nreview:\n  \
+                 - verdict: nonsense\n    by: \"\"\n    at: not-a-date\n---\n\nbody\n",
+            ),
+            // verdict-disagrees-with-status: the file says one thing, its own
+            // history says another.
+            trait_of(
+                "persona/stale.md",
+                "---\nid: stale\nkind: style\nclaim: c\nstatus: proposed\n\
+                 evidence: [raw/philosophy/cited.md]\nreview:\n  \
+                 - verdict: approved\n    by: someone\n    at: 2026-01-01\n---\n\nbody\n",
             ),
             // duplicate-trait-id: two files, one id
             trait_of(

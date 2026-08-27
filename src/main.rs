@@ -136,6 +136,41 @@ enum Commands {
     /// Print the wiki article contract: frontmatter fields, domains, lint rules
     Schema,
 
+    /// Record what you think of a claim or a piece of work, or see what is
+    /// waiting on you
+    ///
+    /// With no target, lists what needs your answer. This is the only writer of
+    /// `review:`, and no skill invokes it — an agent that can approve its own
+    /// work has a permission system in name only.
+    Review {
+        /// Archive-relative path, article slug, or trait id. Omit to list.
+        target: Option<String>,
+
+        /// Sign this off. Required before `export` will publish generated work.
+        #[arg(long, group = "verdict")]
+        approve: bool,
+
+        /// Refuse it. Durable: it stays on the file so nothing re-proposes it.
+        #[arg(long, group = "verdict")]
+        reject: bool,
+
+        /// Neither publish nor close — send it back with a note
+        #[arg(long = "request-changes", group = "verdict")]
+        request_changes: bool,
+
+        /// Leave a remark without changing where it stands
+        #[arg(long, group = "verdict")]
+        comment: bool,
+
+        /// Why. Recorded alongside the verdict.
+        #[arg(long, value_name = "TEXT")]
+        note: Option<String>,
+
+        /// Who is signing. Defaults to $SENTINEL_REVIEWER, then $USER.
+        #[arg(long, value_name = "NAME")]
+        by: Option<String>,
+    },
+
     /// Show the archive's model of its author: cited traits, and how much of
     /// their own writing it was read from
     Persona {
@@ -319,6 +354,12 @@ fn run(cli: Cli) -> io::Result<i32> {
         | Commands::Index
         | Commands::Mv { .. }
         | Commands::Rm { .. }
+        // Read-modify-write on a document's frontmatter, decided from a
+        // complete view of both layers. An `index` or a second verdict
+        // interleaving could have it resolve a name against a wiki that is
+        // half-rebuilt, and a verdict recorded on the wrong document is worse
+        // than one never recorded.
+        | Commands::Review { .. }
         // Reads the whole wiki and writes a tree from it. Without the lock an
         // `index` running alongside could have it publish a half-rebuilt view.
         | Commands::Export { .. } => Some(core::lock::ArchiveLock::acquire(&paths::meta_dir())?),
@@ -364,6 +405,27 @@ fn run(cli: Cli) -> io::Result<i32> {
             commands::next::run(action).map(|()| 0)
         }
         Commands::Schema => commands::schema::run().map(|()| 0),
+        Commands::Review {
+            target,
+            approve,
+            reject,
+            request_changes,
+            comment,
+            note,
+            by,
+        } => {
+            // Derived from the flags rather than a second list: clap's `group`
+            // already makes them mutually exclusive, so at most one is set.
+            let verdict = [
+                (approve, "approved"),
+                (reject, "rejected"),
+                (request_changes, "changes-requested"),
+                (comment, "comment"),
+            ]
+            .into_iter()
+            .find_map(|(set, name)| set.then_some(name));
+            commands::review::run(target.as_deref(), verdict, note.as_deref(), by.as_deref())
+        }
         Commands::Persona { kind, affirmed } => commands::persona::run(kind.as_deref(), affirmed),
         Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
         Commands::Index => commands::index::run().map(|()| 0),
