@@ -37,8 +37,14 @@ struct RuleCount {
 pub fn run(strict: bool, summary: bool, rule_filter: Option<&str>) -> io::Result<i32> {
     let loaded = wiki::load_all()?;
     let articles = &loaded.articles;
+    let persona = crate::core::persona::load_all()?;
     let manifest = Manifest::load()?;
-    let all = lint::analyze(articles, &manifest, &crate::core::paths::archive_root());
+    let all = lint::analyze(
+        articles,
+        &persona.traits,
+        &manifest,
+        &crate::core::paths::archive_root(),
+    );
 
     // Counts always describe the whole archive; a filter narrows what is
     // listed, never what is counted, so `--rule` cannot make a broken archive

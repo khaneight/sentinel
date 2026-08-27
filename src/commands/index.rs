@@ -22,6 +22,9 @@ pub fn run() -> io::Result<()> {
     // being unreadable would be silently deleted from the indexes and from the
     // manifest's compilation mapping.
     let articles = wiki::load_all()?.require_complete()?;
+    // Same rule as the wiki: this run rewrites derived state, and a trait
+    // that could not be read is indistinguishable from one never written.
+    let traits = crate::core::persona::load_all()?.require_complete()?;
 
     // Build link graph
     let mut graph = LinkGraph::default();
@@ -203,7 +206,8 @@ pub fn run() -> io::Result<()> {
     // A measurement of the archive, after every derived thing is current.
     // Appended only when the counts differ from the last one, so the file is a
     // history of the archive rather than of how often `index` ran.
-    let findings = crate::core::lint::analyze(&articles, &manifest, &paths::archive_root());
+    let findings =
+        crate::core::lint::analyze(&articles, &traits, &manifest, &paths::archive_root());
     let snapshot = crate::core::history::Snapshot {
         at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
         wiki_articles: sorted.len(),

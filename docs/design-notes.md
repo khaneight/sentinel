@@ -266,3 +266,40 @@ every reference is by name, and `tests/skills.rs` drives each rung from the
 published ladder and asserts the suggested command lands on a section that
 exists.
 
+
+## Running the case-sensitive tests
+
+CI covers Linux, which is case-sensitive, and macOS, which usually is not. Slug
+identity is the part that differs — `Ethics.md` and `ethics.md` can coexist on
+one and not the other — so a local pass on APFS is not evidence for both. To
+exercise the case-sensitive path on macOS:
+
+```
+hdiutil create -size 200m -fs "Case-sensitive APFS" -volname CSTEST cs.dmg && hdiutil attach cs.dmg
+TMPDIR=/Volumes/CSTEST cargo test --locked --all-targets
+```
+
+## Why `mv` and `rm` edit text rather than re-serialise
+
+`sentinel mv` repoints every `sources:` citation when a raw document moves, and
+it does so by editing the frontmatter block as text: whole entries, never
+substrings, and never outside the block.
+
+Round-tripping through serde would have been shorter, and wrong. The block is a
+file the user may also open by hand, so reordering its keys and stripping its
+comments to change one path is a diff nobody asked for. Confining the edit to
+the block matters for a different reason: a raw path can legitimately appear in
+an article's prose — quoting where something came from — and a global replace
+would rewrite that sentence.
+
+Citations are matched the way the compile loop matches them, through
+`compilation::SourceIndex`, so `d/x.md` and a bare `x.md` are repointed exactly
+when they would have counted as compiling the document. A second matcher here
+would produce a citation that compiles but does not move. Destinations must
+stay under `raw/`; a case-only rename is allowed.
+
+`sentinel rm` refuses when anything cites the target, and names the citing
+articles rather than a count — most attempts to delete a cited document are a
+rename, and the fix is `mv`. `--force` proceeds and reports each citation it
+orphans, because breaking provenance silently is the one outcome worse than
+refusing.

@@ -47,6 +47,25 @@ Every `severity: "error"` finding, in this order — earlier ones can mask later
 | `missing-raw-document` | The manifest registers a raw document that is not on disk. Do **not** edit the citing articles — they are correct and the file is missing. Restore it (check `git status`, a backup, or an interrupted `sentinel mv`), or `sentinel rm` the entry if it is genuinely gone. |
 | `unresolved-source` | The article cites a raw document that does not exist or is ambiguous. Find the real path with `sentinel uncompiled --json` or by looking in `raw/`. If the source was renamed or moved, use `sentinel mv` from now on — it repoints every citation in one step. If it is genuinely gone, remove the citation and say so in the report; do not invent one. The message names the nearest registered path when there is one — take it, or run `sentinel uncompiled --json` to see what is registered. |
 
+### Persona traits — claims about a person
+
+`persona/*.md` records how the author writes and what they hold. These errors
+are not house style; they are what makes the profile auditable. **The repair is
+never to invent the missing part.**
+
+| Rule | Fix |
+|---|---|
+| `invalid-trait-frontmatter` | Repair the block, exactly as for `invalid-frontmatter`. Do not add fields. |
+| `missing-trait-field` | Add `id`, `kind`, or `claim`. `id` matches the filename stem; `kind` is a value `sentinel schema` lists. |
+| `invalid-kind` / `invalid-confidence` / `invalid-trait-status` | Correct to a value `sentinel schema` lists. |
+| `uncited-claim` | The trait asserts something about the author and cites nothing. **Do not add a plausible-looking citation.** Go and find the passage that supports it in their own writing; if there is none, delete the trait. A claim you cannot source is one the archive made up about a person. |
+| `unresolved-evidence` | The cited path matches no raw document. The message names the nearest registered path when there is one. Take it only if it is genuinely the same document — otherwise treat this as `uncited-claim` and go looking. |
+| `inferred-from-research` | The trait was read out of material an agent gathered, which says what the author read, not what they think. Re-source it from `authored` or `hybrid` material, or delete it. Do not "fix" it by changing the source document's `origin`. |
+| `duplicate-trait-id` | Two traits share an `id`. If they are the same claim, merge them and union their `evidence`. If they are different claims, rename one and its file. |
+
+Never change a trait's `status` to `affirmed`. That field records the author
+agreeing with it, and only they can put it there.
+
 Re-run `sentinel lint` after this pass. It should exit 0.
 
 ## Step 3: Work the warnings that represent real loss
@@ -56,6 +75,7 @@ Not all warnings should be "fixed":
 - **`missing-sources`** — worth fixing. The article's raw document is stranded in the uncompiled queue. Find what it was compiled from and cite it. If it genuinely has no raw source (a pure synthesis article), leave it and note it.
 - **`missing-tags`** — worth fixing, cheaply.
 - **`uncompiled-source`** — do not fix here. That is `/sentinel-compile`'s job; recommend it.
+- **`missing-reasoning`** — worth fixing. The trait cites evidence but never shows what in it supports the claim, so checking one sentence about the author means re-reading whole documents. Quote the passage in the body.
 - **`broken-link`** — **do not fix.** These are the wiki naming its own gaps and are the input to `sentinel next`'s `write` recommendation. Deleting them destroys the signal. The only broken links worth touching are genuine typos, where a near-identical slug already exists — check with `sentinel search` before assuming.
 
 ## Step 4: Improve what lint cannot see
