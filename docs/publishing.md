@@ -130,11 +130,21 @@ strict content policy, and in five years.
 
 It shows:
 
-- **the graph**, laid out by provenance. The core is the source material the
-  author actually wrote; each ring out is a further step from their hand —
-  their compiled thinking, then research, then the clone's work at the rim.
-  Rings are drawn in perspective, so panning gives real parallax rather than a
-  flat slide, and the depth you see is the depth the archive records.
+- **the graph**, in three rings that are the shape of the system: the source
+  material the author wrote at the core, the persona distilled from it in the
+  middle, and the clone's work at the rim. The middle ring is the point — an
+  affirmed trait connects down to every document it was read out of and up to
+  every article written from it, so a claim in a generated essay can be
+  followed back to the sentence in the corpus that supports it. Rings are drawn
+  in perspective, so panning gives real parallax rather than a flat slide.
+- **hovering** follows the arrows, transitively. On a source document you see
+  what came of it — the traits read out of it, and what was written from those.
+  On a piece of the clone's work you see where it came from, back through the
+  persona to the corpus. Connections are coloured by where they leave: gold out
+  of the source material, teal out of the persona, blue between articles.
+- **topic filters** built from the archive's own vocabulary — the domains
+  things are filed under and the tags on them. Traits have no topic of their
+  own, so they stay while anything they touch does.
 - **the documents themselves.** Click any node to read it: the bundle carries
   the published prose, so reading costs no extra request. Cross-references and
   source citations inside the text are live — following one opens that document
