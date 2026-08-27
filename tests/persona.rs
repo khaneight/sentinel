@@ -272,7 +272,7 @@ fn schema_publishes_the_persona_contract_with_its_enums() {
     };
     assert_eq!(
         by_name("kind")["values"],
-        serde_json::json!(["style", "principle", "belief", "pattern"])
+        serde_json::json!(["style", "pattern", "principle", "value", "belief"])
     );
     assert_eq!(
         by_name("status")["values"],

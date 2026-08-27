@@ -34,12 +34,23 @@ use super::wiki::{self, Unreadable};
 
 /// What a trait is about.
 ///
-/// `style` is how the prose reads; `principle` is a rule the author applies;
-/// `belief` is a position they hold; `pattern` is a recurring move in how they
-/// think — reaching for a historical parallel, testing an idea against a
-/// concrete case. Separated because generation uses them differently: style
-/// shapes every sentence, a belief may not be relevant at all.
-pub const KINDS: &[&str] = &["style", "principle", "belief", "pattern"];
+/// Ordered from the surface inwards, which is also the order they are easiest
+/// to read out of a document and the order a reader should meet them in:
+///
+/// - `style` — how the prose reads. Sentence shape, hedging, person, openings.
+/// - `pattern` — a recurring move in how they think: reaching for a historical
+///   parallel, testing an idea against the smallest case, naming the objection
+///   first.
+/// - `principle` — a rule they apply, whether or not they state it as one.
+/// - `value` — what they hold worth having. Distinct from a principle: a
+///   principle says *do this*, a value says *this matters*, and the same value
+///   can produce different rules in different situations. Keeping them apart is
+///   what lets the clone extend a view rather than only repeat its conclusions.
+/// - `belief` — a position they hold about the world.
+///
+/// Separated because generation uses them differently: style shapes every
+/// sentence, a belief may not be relevant at all.
+pub const KINDS: &[&str] = &["style", "pattern", "principle", "value", "belief"];
 
 /// How well the evidence supports the claim.
 pub const CONFIDENCES: &[&str] = &["high", "medium", "low"];
