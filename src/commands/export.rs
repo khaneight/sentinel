@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::core::review;
 use crate::core::{output, paths, slug, wiki};
 
 /// Statuses considered finished enough to publish, in the absence of `--status`.
@@ -43,6 +44,10 @@ struct Report {
     /// Articles held back, and why. The true total, not a sample.
     excluded_count: usize,
     excluded: Vec<Excluded>,
+    /// Of those, how many were finished but unsigned. Counted separately
+    /// because it is the one exclusion the owner can clear in a command, and
+    /// folding it into "status" would read as work that is not ready.
+    held_for_approval: usize,
     /// Wikilinks pointing outside the published set, rewritten to plain text.
     links_defused: usize,
     /// Files already in the destination that this export would not write —
@@ -120,23 +125,39 @@ pub fn run(
         }
     }
 
+    let traits = crate::core::persona::load_all()?.require_complete()?;
+
     let mut published = Vec::new();
     let mut excluded = Vec::new();
+    let mut held_for_approval = 0usize;
     for article in &articles {
-        let status = article
-            .article
-            .frontmatter
-            .status
-            .as_deref()
-            .unwrap_or("unset");
-        if allowed.contains(&status.to_lowercase()) {
-            published.push(article);
-        } else {
+        let fm = &article.article.frontmatter;
+        let status = fm.status.as_deref().unwrap_or("unset");
+        if !allowed.contains(&status.to_lowercase()) {
             excluded.push(Excluded {
                 path: article.rel_path().to_string(),
                 reason: format!("status: {status}"),
             });
+            continue;
         }
+        // The approval gate. A separate axis from maturity: `stable` means
+        // finished, `approved` means the archive's owner signed it. Work the
+        // clone wrote in their voice does not go out on the tool's opinion of
+        // it, and `--status` cannot override this — a flag that could would
+        // make the gate advisory.
+        if fm.is_extrapolated() && !review::is_approved(&fm.review) {
+            let standing = review::standing(&fm.review);
+            held_for_approval += 1;
+            excluded.push(Excluded {
+                path: article.rel_path().to_string(),
+                reason: match standing {
+                    Some(e) => format!("written by the clone; latest verdict is '{}'", e.verdict),
+                    None => "written by the clone and not approved".to_string(),
+                },
+            });
+            continue;
+        }
+        published.push(article);
     }
 
     // Links are defused against the *published* set, not the archive. An
@@ -175,8 +196,15 @@ pub fn run(
     let mut links_defused = 0usize;
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
     for article in &published {
-        let (text, defused) = defuse_links(&article.content, &reachable, &titles);
+        let (mut text, defused) = defuse_links(&article.content, &reachable, &titles);
         links_defused += defused;
+        // Written here, by the exporter, rather than by whatever produced the
+        // article. An agent that composes its own disclosure is an agent that
+        // can leave it out, and this is the notice that stops a reader taking
+        // machine prose for the author's own.
+        if article.article.frontmatter.is_extrapolated() {
+            text = format!("{}\n{}", text.trim_end(), attribution(article, &traits));
+        }
         writes.push((
             destination.join(output_path(article.rel_path(), flat)),
             text,
@@ -219,7 +247,7 @@ pub fn run(
         && !dry_run
     {
         let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
-        let payload = bundle(&published, &reachable, &generated_at)?;
+        let payload = bundle(&published, &articles, &traits, &reachable, &generated_at)?;
         if let Some(parent) = data_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -234,6 +262,7 @@ pub fn run(
     let wrote_landing = !dry_run && !landing.exists();
 
     let report = Report {
+        held_for_approval,
         wrote_landing,
         stale: stale.clone(),
         stale_removed: clean && !dry_run && !stale.is_empty(),
@@ -303,6 +332,21 @@ pub fn run(
             println!("    ... and {} more", report.excluded_count - 5);
         }
     }
+    // Said separately and said plainly. This is the one exclusion the owner
+    // can clear with a single command, and burying it in a list headed "not
+    // publishable" reads as work that is not finished.
+    if report.held_for_approval > 0 {
+        println!(
+            "\n  {} {} article(s) written by the clone are finished but unsigned.",
+            "!".yellow(),
+            report.held_for_approval
+        );
+        println!(
+            "    {}",
+            "sentinel review           # see them\n                 sentinel review <slug> --approve"
+                .dimmed()
+        );
+    }
     if !report.stale.is_empty() {
         if report.stale_removed {
             println!("  {} stale file(s) removed.", report.stale.len());
@@ -352,9 +396,49 @@ struct Bundle {
     /// Only published articles, so the bundle can be served beside them.
     nodes: Vec<Node>,
     edges: Vec<Edge>,
+    /// The author's model of themselves — affirmed traits only.
+    ///
+    /// A `proposed` trait is an unconfirmed reading, and publishing one would
+    /// put a claim about a person in front of readers before the person has
+    /// seen it. The same gate the articles get, for the same reason.
+    persona: Vec<PublishedTrait>,
+    /// What the archive is in the middle of. The point of showing a wiki that
+    /// builds itself is that the building is visible; a bundle of finished
+    /// pages is a website.
+    in_progress: InProgress,
     progress: Vec<crate::core::history::Snapshot>,
     /// Snapshots that could not be parsed. A history with holes should say so.
     unreadable_snapshots: usize,
+}
+
+/// A trait, as a reader outside the archive may see it.
+///
+/// Deliberately not the whole file. `evidence:` is a list of `raw/` paths, and
+/// `raw/` is not published — a bundle naming documents nobody can open would
+/// be citing sources at readers who cannot check them. The count is honest
+/// about how much stands behind the claim without leaking the corpus.
+#[derive(Serialize)]
+struct PublishedTrait {
+    id: String,
+    kind: String,
+    claim: String,
+    confidence: String,
+    evidence_count: usize,
+    /// Published articles written from this trait.
+    expressed_in: Vec<String>,
+}
+
+/// Counts of work in flight, for a front end that shows the loop running.
+#[derive(Serialize)]
+struct InProgress {
+    /// Articles in the archive that this export did not publish.
+    unpublished: usize,
+    /// Generated articles waiting on the owner's verdict.
+    awaiting_approval: usize,
+    /// Traits proposed and not yet answered.
+    unconfirmed_traits: usize,
+    /// Concepts the wiki links to and has not written — what it wants next.
+    wanted: usize,
 }
 
 #[derive(Serialize)]
@@ -364,6 +448,9 @@ struct Node {
     domain: String,
     origin: String,
     status: String,
+    /// Written by the clone. A front end that renders this the same as an
+    /// article its author wrote is a front end that misleads its readers.
+    extrapolated: bool,
     tags: Vec<String>,
     /// Incoming links from other published articles — how central it is.
     inbound: usize,
@@ -378,6 +465,8 @@ struct Edge {
 
 fn bundle(
     published: &[&wiki::LoadedArticle],
+    all: &[wiki::LoadedArticle],
+    traits: &[crate::core::persona::LoadedTrait],
     reachable: &HashSet<String>,
     generated_at: &str,
 ) -> io::Result<Bundle> {
@@ -416,6 +505,7 @@ fn bundle(
                 origin: fm.origin.clone().unwrap_or_default(),
                 status: fm.status.clone().unwrap_or_default(),
                 tags: fm.tags.clone(),
+                extrapolated: fm.is_extrapolated(),
                 inbound: inbound.get(&slug).copied().unwrap_or(0),
                 outbound: outbound.get(&slug).copied().unwrap_or(0),
                 slug,
@@ -423,15 +513,108 @@ fn bundle(
         })
         .collect();
 
+    let persona = traits
+        .iter()
+        .filter(|t| t.is_affirmed())
+        .map(|t| {
+            let id = t.canonical_id();
+            PublishedTrait {
+                kind: t.kind().to_string(),
+                claim: t.frontmatter.claim.clone().unwrap_or_else(|| t.id()),
+                confidence: t
+                    .frontmatter
+                    .confidence
+                    .clone()
+                    .unwrap_or_else(|| "unstated".to_string()),
+                evidence_count: t.frontmatter.evidence.len(),
+                expressed_in: published
+                    .iter()
+                    .filter(|a| {
+                        a.article
+                            .frontmatter
+                            .persona
+                            .iter()
+                            .any(|c| slug::canonical(c) == id)
+                    })
+                    .map(|a| a.canonical_slug())
+                    .collect(),
+                id,
+            }
+        })
+        .collect();
+
+    let in_progress = InProgress {
+        unpublished: all.len().saturating_sub(published.len()),
+        awaiting_approval: all
+            .iter()
+            .filter(|a| a.article.frontmatter.is_extrapolated())
+            .filter(|a| !review::is_approved(&a.article.frontmatter.review))
+            .count(),
+        unconfirmed_traits: traits.iter().filter(|t| t.status() == "proposed").count(),
+        wanted: crate::core::links::wanted(all).len(),
+    };
+
     let (progress, unreadable_snapshots) = crate::core::history::read()?;
     Ok(Bundle {
         generated_at: generated_at.to_string(),
         schema_version: output::SCHEMA_VERSION,
         nodes,
         edges,
+        persona,
+        in_progress,
         progress,
         unreadable_snapshots,
     })
+}
+
+/// The notice appended to every published extrapolated article.
+///
+/// Not composable by an agent and not suppressible by a flag: the exporter
+/// writes it, unconditionally, for anything marked as the clone's own work.
+/// A reader who takes generated prose for the author's own writing is the
+/// harm this whole feature is arranged around.
+fn attribution(
+    article: &wiki::LoadedArticle,
+    traits: &[crate::core::persona::LoadedTrait],
+) -> String {
+    let fm = &article.article.frontmatter;
+    let mut out = String::from(
+        "\n---\n\n*Written by a language model working from this archive, extending its author's own writing rather than reproducing it.",
+    );
+
+    // The claims it was written from, in the author's own words where the
+    // trait records them. A reader who disagrees can then disagree with the
+    // premise rather than only with the conclusion.
+    let claims: Vec<String> = fm
+        .persona
+        .iter()
+        .filter_map(|id| {
+            let wanted = slug::canonical(id);
+            traits
+                .iter()
+                .find(|t| t.canonical_id() == wanted)
+                .map(|t| t.frontmatter.claim.clone().unwrap_or_else(|| t.id()))
+        })
+        // A claim is written as a sentence and usually ends in a full stop.
+        // Joining them with punctuation of our own produced "generalising..".
+        .map(|c| c.trim().trim_end_matches('.').to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if !claims.is_empty() {
+        out.push_str(&format!(" Written from: {}.", claims.join("; ")));
+    }
+
+    match review::standing(&fm.review) {
+        Some(e) if e.verdict == "approved" => {
+            out.push_str(&format!(" Approved by {} on {}.", e.by, e.at));
+        }
+        // Unreachable while the gate above holds; stated rather than assumed,
+        // because a silent fall-through here would publish unsigned work with
+        // a notice implying somebody signed it.
+        _ => out.push_str(" Not approved."),
+    }
+    out.push_str("*\n");
+    out
 }
 
 /// A starting landing page, so the first export serves something at `/`.

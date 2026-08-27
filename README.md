@@ -134,7 +134,9 @@ status: draft | review | stable
 sentinel export --out ./content --flat --clean
 ```
 
-Writes only articles whose `status` qualifies (`stable` by default), rewrites links to unpublished articles as plain text so the output has no dead ends, and never copies `raw/` or `meta/`. It renders no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks.
+Writes only articles whose `status` qualifies (`stable` by default), rewrites links to unpublished articles as plain text so the output has no dead ends, and never copies `raw/` or `meta/`.
+
+Anything the clone wrote (`origin: extrapolated`) publishes **only once you have approved it** — `sentinel review <slug> --approve` — and `export` appends an attribution notice to it that no flag suppresses. Finished is not the same as signed. It renders no HTML — feed it to [Quartz](https://quartz.jzhao.xyz) or any generator that understands wikilinks.
 
 `--data <file>` also emits a JSON bundle — published nodes and edges, plus the growth history from `meta/progress.jsonl` — for a front end to render.
 
