@@ -66,6 +66,7 @@ Symlinked into the archive's `.claude/skills`, these are where the work happens.
 sentinel next                 # what to do next  (--json, --action <rung>)
 sentinel status               # counts and health
 sentinel schema               # frontmatter contract, domains, lint rules
+sentinel persona              # the archive's model of its author  (--kind, --affirmed)
 sentinel lint                 # validate frontmatter, links, manifest  (--summary, --strict, --rule X)
 sentinel index                # rebuild indexes, link graph, dashboard
 sentinel search "query"       # ranked, top 20  (--limit, --matches)

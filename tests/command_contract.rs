@@ -37,6 +37,7 @@ const COMMANDS: &[(&str, Kind)] = &[
     ("status", Kind::Query),
     ("next", Kind::Query),
     ("uncompiled", Kind::Query),
+    ("persona", Kind::Query),
     ("lint", Kind::Query),
     ("search", Kind::Query),
     ("graph", Kind::Query),

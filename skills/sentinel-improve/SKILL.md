@@ -53,6 +53,18 @@ Every `severity: "error"` finding, in this order — earlier ones can mask later
 are not house style; they are what makes the profile auditable. **The repair is
 never to invent the missing part.**
 
+Read the profile before touching it:
+
+```
+sentinel persona --json
+```
+
+Every trait, its evidence, and how much of the author's own writing the profile
+was read from. Worth the call: a trait that looks uncited is sometimes a
+duplicate of one that is cited, and merging beats sourcing it twice. If the
+response carries `unreadable`, some trait could not be opened — the profile you
+are looking at is short, and the fix is the file permissions, not the profile.
+
 | Rule | Fix |
 |---|---|
 | `invalid-trait-frontmatter` | Repair the block, exactly as for `invalid-frontmatter`. Do not add fields. |

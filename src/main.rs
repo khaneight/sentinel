@@ -136,6 +136,19 @@ enum Commands {
     /// Print the wiki article contract: frontmatter fields, domains, lint rules
     Schema,
 
+    /// Show the archive's model of its author: cited traits, and how much of
+    /// their own writing it was read from
+    Persona {
+        /// Show only one kind of trait (style, principle, belief, pattern)
+        #[arg(long, value_name = "KIND")]
+        kind: Option<String>,
+
+        /// Show only traits the author has affirmed — what the clone may
+        /// actually write from
+        #[arg(long)]
+        affirmed: bool,
+    },
+
     /// List raw docs that haven't been compiled into wiki articles
     Uncompiled,
 
@@ -351,6 +364,7 @@ fn run(cli: Cli) -> io::Result<i32> {
             commands::next::run(action).map(|()| 0)
         }
         Commands::Schema => commands::schema::run().map(|()| 0),
+        Commands::Persona { kind, affirmed } => commands::persona::run(kind.as_deref(), affirmed),
         Commands::Uncompiled => commands::uncompiled::run().map(|()| 0),
         Commands::Index => commands::index::run().map(|()| 0),
         Commands::Lint {
