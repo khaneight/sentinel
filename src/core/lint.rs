@@ -823,6 +823,7 @@ mod tests {
                 wiki_articles: vec![],
                 source_type: "document".into(),
                 content_hash: None,
+                publish: false,
             });
         }
         manifest.upsert(ManifestEntry {
@@ -834,6 +835,7 @@ mod tests {
             wiki_articles: vec![],
             source_type: "document".into(),
             content_hash: None,
+            publish: false,
         });
 
         let traits = vec![

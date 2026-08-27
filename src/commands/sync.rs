@@ -192,6 +192,9 @@ pub fn run(dry_run: bool) -> io::Result<()> {
             wiki_articles: vec![],
             source_type: infer_source_type(&path),
             content_hash: hash.clone(),
+            // Never by default. Publishing a source is a decision about
+            // copyright and privacy that nothing about a file can make.
+            publish: false,
         });
     }
 

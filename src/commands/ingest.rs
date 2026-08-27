@@ -16,6 +16,7 @@ pub fn run(
     origin: &str,
     title: Option<&str>,
     filename: Option<&str>,
+    publish: bool,
 ) -> io::Result<()> {
     let source = Path::new(path);
     if !source.exists() {
@@ -136,6 +137,7 @@ pub fn run(
         wiki_articles: vec![],
         source_type: "document".to_string(),
         content_hash: manifest::hash_file(&dest),
+        publish,
     });
     // A save conflict must not leave the copied file behind unregistered:
     // `sync` would adopt it as `authored`, which is the #16 provenance loss.

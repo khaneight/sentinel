@@ -240,6 +240,56 @@ pub fn block_span(content: &str) -> Option<(usize, usize)> {
     None
 }
 
+/// Rewrite a top-level list field inside the frontmatter block.
+///
+/// Textual, and confined to the block, for the reasons `sentinel mv` is: the
+/// file may also be opened by hand, and a serde round trip would reorder its
+/// keys and strip its comments to change one field. An empty `values` removes
+/// the key entirely — a field left as `sources: []` says the article cites
+/// nothing, which is a different claim from not saying.
+///
+/// Only the top level: an indented `sources:` belongs to something else.
+/// Returns the content unchanged when there is no frontmatter block.
+pub fn set_list(content: &str, key: &str, values: &[String]) -> String {
+    let Some((start, end)) = block_span(content) else {
+        return content.to_string();
+    };
+    let yaml = &content[start..end];
+    let prefix = format!("{key}:");
+
+    let mut out = String::with_capacity(yaml.len());
+    let mut skipping = false;
+    let mut replaced = false;
+    for line in yaml.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        let indented = trimmed.starts_with(char::is_whitespace);
+
+        if skipping {
+            // The list's items, and any blank line inside it. A line at the
+            // top level ends the field.
+            if indented || trimmed.trim().is_empty() {
+                continue;
+            }
+            skipping = false;
+        }
+
+        if !replaced && !indented && trimmed.starts_with(&prefix) {
+            replaced = true;
+            skipping = true;
+            if !values.is_empty() {
+                out.push_str(&format!("{key}:\n"));
+                for value in values {
+                    out.push_str(&format!("  - {value}\n"));
+                }
+            }
+            continue;
+        }
+        out.push_str(line);
+    }
+
+    format!("{}{out}{}", &content[..start], &content[end..])
+}
+
 /// Why a file with no frontmatter block looks like it was meant to have one.
 ///
 /// The strictness above is deliberate — a `---` used as a horizontal rule is not
@@ -356,6 +406,66 @@ fn strip_opening_fence(content: &str) -> Option<&str> {
 /// True for a line consisting only of the `---` delimiter.
 fn is_fence(line: &str) -> bool {
     line.trim_end_matches(['\n', '\r']) == "---"
+}
+
+#[cfg(test)]
+mod set_list_tests {
+    use super::set_list;
+
+    fn values(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn a_block_list_is_replaced_wholesale() {
+        let doc =
+            "---\ntitle: T\nsources:\n  - raw/a.md\n  - raw/b.md\nstatus: stable\n---\n\nBody.\n";
+        let out = set_list(doc, "sources", &values(&["sources/a.md"]));
+        assert!(out.contains("- sources/a.md"), "{out}");
+        assert!(!out.contains("raw/b.md"), "the old entries must go:\n{out}");
+        assert!(
+            out.contains("status: stable"),
+            "a later key was eaten:\n{out}"
+        );
+        assert!(out.ends_with("Body.\n"), "{out}");
+    }
+
+    #[test]
+    fn an_empty_replacement_removes_the_key() {
+        // `sources: []` claims the article cites nothing, which is a different
+        // statement from declining to say.
+        let doc = "---\ntitle: T\nsources:\n  - raw/a.md\nstatus: stable\n---\n\nB.\n";
+        let out = set_list(doc, "sources", &[]);
+        assert!(!out.contains("sources"), "{out}");
+        assert!(out.contains("status: stable"), "{out}");
+    }
+
+    #[test]
+    fn an_inline_list_is_replaced_too() {
+        let doc = "---\ntitle: T\nsources: [raw/a.md, raw/b.md]\nstatus: stable\n---\n\nB.\n";
+        let out = set_list(doc, "sources", &values(&["sources/a.md"]));
+        assert!(!out.contains("raw/"), "{out}");
+        assert!(out.contains("- sources/a.md"), "{out}");
+    }
+
+    #[test]
+    fn an_indented_key_of_the_same_name_is_left_alone() {
+        let doc = "---\ntitle: T\nnested:\n  sources: keep me\n---\n\nB.\n";
+        let out = set_list(doc, "sources", &values(&["x"]));
+        assert!(out.contains("  sources: keep me"), "{out}");
+    }
+
+    #[test]
+    fn a_document_without_the_key_is_unchanged() {
+        let doc = "---\ntitle: T\n---\n\nB.\n";
+        assert_eq!(set_list(doc, "sources", &values(&["x"])), doc);
+    }
+
+    #[test]
+    fn a_document_without_frontmatter_is_unchanged() {
+        let doc = "Just prose.\n";
+        assert_eq!(set_list(doc, "sources", &[]), doc);
+    }
 }
 
 #[cfg(test)]

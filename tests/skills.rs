@@ -339,6 +339,12 @@ fn every_command_is_either_reachable_from_a_skill_or_deliberately_not() {
             "records the archive owner's verdict. An agent that can approve its \
              own work has a permission system in name only.",
         ),
+        (
+            "sources",
+            "decides whether a raw document may be published. That is a \
+             judgement about copyright and privacy that nothing in the file \
+             can make, so it is the owner's alone.",
+        ),
         ("help", "clap builtin"),
     ];
 

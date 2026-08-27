@@ -78,8 +78,9 @@ sentinel ingest F -d D        # register a source  (-o origin, -t title, --as na
 sentinel sync                 # register files dropped into raw/ by hand
 sentinel mv old new           # move a source, repointing every citation
 sentinel rm target            # delete a source, refusing if articles cite it
+sentinel sources              # raw docs and which may be published  (--publish, --private)
 sentinel review               # what needs your verdict  (<target> --approve|--reject)
-sentinel export --out DIR     # the publishable subset  (--flat, --clean, --data)
+sentinel export --out DIR     # the publishable subset  (--flat, --clean, --data, --with-sources)
 sentinel log op "detail"      # append to the activity log; bare `log` reads it
 sentinel config               # which archive am I pointed at, and why?
 ```
