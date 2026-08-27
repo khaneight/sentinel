@@ -1,0 +1,486 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archive</title>
+<!--
+  The showcase page for a sentinel archive.
+
+  Reads `bundle.json`, written beside it by `sentinel export --ui <dir>`. No
+  build step, no dependencies, no network beyond that one file: it is a single
+  document you can drop on any static host, and it will still work in five
+  years when whatever framework was fashionable today does not.
+
+  One rule it exists to keep: an article the clone wrote is never rendered as
+  though its author wrote it. That is `extrapolated` in the bundle, and it is
+  marked in the graph, in the list, and on the article panel.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --ink: #1a1a19;
+    --muted: #6b6b66;
+    --line: #e3e3df;
+    --accent: #3d5a80;
+    --machine: #9b5de5;
+    --ok: #2d6a4f;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a;
+      --panel: #1e1e23;
+      --ink: #ececea;
+      --muted: #9a9a94;
+      --line: #303038;
+      --accent: #8fb3d9;
+      --machine: #c79bff;
+      --ok: #74c69d;
+      --warn: #f0a860;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 24px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    align-items: baseline;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 620; letter-spacing: -0.01em; }
+  .stamp { color: var(--muted); font-size: 12.5px; }
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 0;
+    height: calc(100vh - 62px);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    #stage { height: 62vh; }
+  }
+  #stage { position: relative; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  aside {
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    overflow-y: auto;
+    padding: 18px 20px 40px;
+  }
+  @media (max-width: 900px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+  h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 22px 0 10px;
+    font-weight: 600;
+  }
+  h2:first-child { margin-top: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; }
+  .tile b { display: block; font-size: 19px; font-weight: 620; font-variant-numeric: tabular-nums; }
+  .tile span { font-size: 11.5px; color: var(--muted); }
+  .tile.flag b { color: var(--warn); }
+  .trait { border-left: 2px solid var(--line); padding: 2px 0 2px 10px; margin-bottom: 13px; }
+  .trait .claim { font-size: 13.5px; }
+  .trait .meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11.5px; color: var(--muted); }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .machine-note {
+    border: 1px solid var(--machine);
+    border-radius: 7px;
+    padding: 9px 11px;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .machine-note b { color: var(--machine); }
+  #detail .title { font-size: 16px; font-weight: 620; margin-bottom: 3px; }
+  #detail .path { font-size: 12px; color: var(--muted); word-break: break-all; }
+  .tag {
+    display: inline-block;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    color: var(--muted);
+    margin: 4px 4px 0 0;
+  }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  #spark { width: 100%; height: 46px; display: block; }
+  .error { padding: 40px 24px; max-width: 46rem; }
+  .error code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+</style>
+
+<div id="root" class="error">Loading…</div>
+
+<script>
+// The fields this page reads, declared once.
+//
+// Checked against the loaded bundle at runtime, so a mismatch says which key is
+// missing instead of rendering an empty panel — and checked against a real
+// generated bundle by tests/ui.rs, so a renamed field in the exporter fails the
+// test suite rather than this page.
+const CONTRACT = {
+  top: ['generated_at', 'nodes', 'edges', 'persona', 'in_progress', 'progress'],
+  node: ['slug', 'title', 'domain', 'origin', 'status', 'extrapolated', 'tags', 'inbound', 'outbound'],
+  edge: ['from', 'to'],
+  trait: ['id', 'kind', 'claim', 'confidence', 'evidence_count', 'expressed_in'],
+  in_progress: ['unpublished', 'awaiting_approval', 'unconfirmed_traits', 'wanted'],
+  progress: ['at', 'wiki_articles', 'links', 'wanted', 'unmined'],
+};
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
+));
+
+/// Say what is wrong rather than rendering nothing.
+function fail(message, detail) {
+  $('#root').innerHTML =
+    `<h1>This page could not read its data.</h1><p>${esc(message)}</p>` +
+    (detail ? `<p class="hint">${esc(detail)}</p>` : '') +
+    `<p class="hint">It expects <code>bundle.json</code> beside it, written by
+     <code>sentinel export --ui &lt;dir&gt;</code>.</p>`;
+}
+
+/// Which declared fields a loaded bundle is missing.
+function missingFields(b) {
+  const gaps = [];
+  for (const k of CONTRACT.top) if (!(k in b)) gaps.push(k);
+  const sample = (arr, keys, label) => {
+    if (!Array.isArray(arr) || !arr.length) return;
+    for (const k of keys) if (!(k in arr[0])) gaps.push(`${label}.${k}`);
+  };
+  sample(b.nodes, CONTRACT.node, 'nodes');
+  sample(b.edges, CONTRACT.edge, 'edges');
+  sample(b.persona, CONTRACT.trait, 'persona');
+  sample(b.progress, CONTRACT.progress, 'progress');
+  if (b.in_progress) {
+    for (const k of CONTRACT.in_progress) if (!(k in b.in_progress)) gaps.push(`in_progress.${k}`);
+  }
+  return gaps;
+}
+
+const PALETTE = ['#3d5a80', '#2d6a4f', '#9c6644', '#5f4b8b', '#a4243b', '#1b6ca8', '#7d8471'];
+
+function render(b) {
+  const domains = [...new Set(b.nodes.map((n) => n.domain).filter(Boolean))].sort();
+  const colorOf = (n) => (n.extrapolated
+    ? 'var(--machine)'
+    : PALETTE[Math.max(0, domains.indexOf(n.domain)) % PALETTE.length]);
+
+  const generated = b.nodes.filter((n) => n.extrapolated).length;
+  const ip = b.in_progress || {};
+
+  $('#root').outerHTML = `
+    <header>
+      <h1>Archive</h1>
+      <span class="stamp">${b.nodes.length} published · ${b.edges.length} links ·
+        generated ${esc(b.generated_at)}</span>
+    </header>
+    <main>
+      <div id="stage"><canvas id="graph"></canvas></div>
+      <aside>
+        <div id="detail">
+          <h2>Selected</h2>
+          <p class="hint">Click a node in the graph.</p>
+        </div>
+
+        <h2>In progress</h2>
+        <div class="tiles">
+          <div class="tile"><b>${ip.unpublished ?? 0}</b><span>unpublished</span></div>
+          <div class="tile${ip.awaiting_approval ? ' flag' : ''}">
+            <b>${ip.awaiting_approval ?? 0}</b><span>awaiting approval</span></div>
+          <div class="tile"><b>${ip.unconfirmed_traits ?? 0}</b><span>unconfirmed traits</span></div>
+          <div class="tile"><b>${ip.wanted ?? 0}</b><span>wanted</span></div>
+        </div>
+
+        <h2>Growth</h2>
+        <canvas id="spark"></canvas>
+        <p class="hint" id="spark-note"></p>
+
+        <h2>What the clone writes from</h2>
+        ${b.persona.length ? b.persona.map((t) => `
+          <div class="trait">
+            <div class="claim">${esc(t.claim)}</div>
+            <div class="meta">${esc(t.kind)} · ${esc(t.confidence)} confidence ·
+              ${t.evidence_count} source(s) ·
+              ${t.expressed_in.length} article(s)</div>
+          </div>`).join('') : '<p class="hint">No affirmed traits published.</p>'}
+
+        <h2>Legend</h2>
+        <div class="legend">
+          ${domains.map((d, i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${esc(d)}</span>`).join('')}
+          <span><i style="background:var(--machine)"></i>written by the clone</span>
+        </div>
+      </aside>
+    </main>`;
+
+  if (generated) {
+    $('#detail').insertAdjacentHTML('beforebegin', `
+      <div class="machine-note"><b>${generated}</b> of these ${b.nodes.length}
+        page(s) were written by a language model from this archive, and approved
+        by its owner. They are shown in purple.</div>`);
+  }
+
+  drawSpark(b.progress);
+  return { colorOf };
+}
+
+/// The growth curve. Deliberately tiny and unlabelled beyond its endpoints —
+/// it is there to show the archive moving, not to be read off precisely.
+function drawSpark(series) {
+  const c = $('#spark');
+  const note = $('#spark-note');
+  if (!series || series.length < 2) {
+    c.remove();
+    note.textContent = series && series.length
+      ? 'One measurement so far. Run `sentinel index` again after some work.'
+      : 'No history recorded yet.';
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth || 300;
+  const h = 46;
+  c.width = w * dpr;
+  c.height = h * dpr;
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  const vals = series.map((s) => s.wiki_articles);
+  const max = Math.max(...vals, 1);
+  g.beginPath();
+  vals.forEach((v, i) => {
+    const x = (i / (vals.length - 1)) * (w - 2) + 1;
+    const y = h - 4 - (v / max) * (h - 10);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  });
+  g.strokeStyle = getComputedStyle(document.body).getPropertyValue('--accent');
+  g.lineWidth = 1.6;
+  g.stroke();
+  const first = series[0];
+  const last = series[series.length - 1];
+  note.textContent =
+    `${first.wiki_articles} → ${last.wiki_articles} articles, ` +
+    `${first.links} → ${last.links} links, since ${first.at.split(' ')[0]}.`;
+}
+
+/// A small force-directed layout.
+///
+/// Hand-rolled rather than pulled in: the whole page is one file with no
+/// network access, and Fruchterman-Reingold is forty lines. It runs to a fixed
+/// step count and stops, so an idle tab does not spin a core.
+///
+/// The ideal edge length is derived from the space available and the number of
+/// nodes, `k = sqrt(area / n)`. A fixed constant looked right on the archive it
+/// was written against and left four nodes huddled in the middle of a 1400px
+/// canvas on a bigger one.
+function layout(nodes, edges, w, h) {
+  const idx = new Map(nodes.map((n, i) => [n.slug, i]));
+  const n = nodes.length;
+  const pad = 46;
+  const inner = { w: Math.max(80, w - pad * 2), h: Math.max(80, h - pad * 2) };
+  // Bounded above as well as derived. `sqrt(area / n)` alone gives a five-node
+  // archive a 260px ideal edge on a wide canvas, which spreads it into a
+  // sparse string across the whole stage — technically filling the space and
+  // much harder to read than a compact cluster.
+  const k = Math.min(
+    Math.sqrt((inner.w * inner.h) / Math.max(n, 2)) * 0.55,
+    Math.min(inner.w, inner.h) * 0.22,
+  );
+
+  // Seeded from a circle rather than at random, so the same archive lays out
+  // the same way twice — a graph that reshuffles on every reload is one nobody
+  // can build a mental map of.
+  const pts = nodes.map((node, i) => ({
+    x: w / 2 + Math.cos((i / n) * 6.283) * Math.min(inner.w, inner.h) * 0.32,
+    y: h / 2 + Math.sin((i / n) * 6.283) * Math.min(inner.w, inner.h) * 0.32,
+    dx: 0, dy: 0, n: node,
+  }));
+  const links = edges
+    .map((e) => [idx.get(e.from), idx.get(e.to)])
+    .filter(([a, b]) => a !== undefined && b !== undefined && a !== b);
+
+  const STEPS = 300;
+  let temp = Math.min(inner.w, inner.h) * 0.18;
+  for (let step = 0; step < STEPS; step++) {
+    for (const p of pts) { p.dx = 0; p.dy = 0; }
+
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = pts[i].x - pts[j].x;
+        let dy = pts[i].y - pts[j].y;
+        let d = Math.hypot(dx, dy);
+        if (d < 0.01) { dx = (i % 2 ? 1 : -1) * 0.5; dy = 0.5; d = 0.71; }
+        const f = (k * k) / d;
+        pts[i].dx += (dx / d) * f; pts[i].dy += (dy / d) * f;
+        pts[j].dx -= (dx / d) * f; pts[j].dy -= (dy / d) * f;
+      }
+    }
+    for (const [a, b] of links) {
+      const dx = pts[a].x - pts[b].x;
+      const dy = pts[a].y - pts[b].y;
+      const d = Math.hypot(dx, dy) || 0.01;
+      const f = (d * d) / k;
+      pts[a].dx -= (dx / d) * f; pts[a].dy -= (dy / d) * f;
+      pts[b].dx += (dx / d) * f; pts[b].dy += (dy / d) * f;
+    }
+    // A weak pull to the middle. Without it a disconnected node drifts to a
+    // corner and the graph reads as though it were cut off by the viewport.
+    for (const p of pts) {
+      p.dx += (w / 2 - p.x) * 0.012;
+      p.dy += (h / 2 - p.y) * 0.012;
+      const d = Math.hypot(p.dx, p.dy) || 0.01;
+      const move = Math.min(d, temp);
+      p.x += (p.dx / d) * move;
+      p.y += (p.dy / d) * move;
+      p.x = Math.max(pad, Math.min(w - pad, p.x));
+      p.y = Math.max(pad, Math.min(h - pad, p.y));
+    }
+    temp *= 0.975;
+  }
+
+  // Fill the stage. The simulation settles into a shape; scaling it to the
+  // space afterwards means a four-node archive is as legible as a four-hundred
+  // node one, instead of a speck in the middle of a wide canvas.
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const span = { x: Math.max(...xs) - Math.min(...xs), y: Math.max(...ys) - Math.min(...ys) };
+  if (span.x > 1 && span.y > 1) {
+    // Centred and nudged outward, not stretched to the edges. Beyond about
+    // half again, a small graph stops looking connected.
+    const scale = Math.min(inner.w / span.x, inner.h / span.y, 1.4);
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    for (const p of pts) {
+      p.x = w / 2 + (p.x - cx) * scale;
+      p.y = h / 2 + (p.y - cy) * scale;
+    }
+  }
+  return { pts, links };
+}
+
+function graph(b, colorOf) {
+  const canvas = $('#graph');
+  const stage = $('#stage');
+  let placed = null;
+  let selected = null;
+
+  const radius = (n) => 4 + Math.min(9, Math.sqrt(n.inbound + n.outbound) * 2.6);
+
+  function paint() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = stage.clientWidth, h = stage.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const g = canvas.getContext('2d');
+    g.scale(dpr, dpr);
+    g.clearRect(0, 0, w, h);
+    if (!placed) return;
+
+    const style = getComputedStyle(document.body);
+    g.strokeStyle = style.getPropertyValue('--line');
+    g.lineWidth = 1;
+    for (const [a, bIdx] of placed.links) {
+      g.beginPath();
+      g.moveTo(placed.pts[a].x, placed.pts[a].y);
+      g.lineTo(placed.pts[bIdx].x, placed.pts[bIdx].y);
+      g.stroke();
+    }
+    for (const p of placed.pts) {
+      g.beginPath();
+      g.arc(p.x, p.y, radius(p.n), 0, 6.284);
+      g.fillStyle = colorOf(p.n).startsWith('var(')
+        ? style.getPropertyValue('--machine')
+        : colorOf(p.n);
+      g.fill();
+      if (selected === p.n.slug) {
+        g.lineWidth = 2;
+        g.strokeStyle = style.getPropertyValue('--ink');
+        g.stroke();
+        g.lineWidth = 1;
+      }
+      if (placed.pts.length <= 60 || radius(p.n) > 7) {
+        g.fillStyle = style.getPropertyValue('--muted');
+        g.font = '11px ui-sans-serif, sans-serif';
+        g.textAlign = 'center';
+        g.fillText(p.n.title, p.x, p.y - radius(p.n) - 4);
+      }
+    }
+  }
+
+  function relayout() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    placed = b.nodes.length ? layout(b.nodes, b.edges, w, h) : null;
+    paint();
+  }
+
+  canvas.addEventListener('click', (ev) => {
+    if (!placed) return;
+    const r = canvas.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    let hit = null;
+    for (const p of placed.pts) {
+      const rr = radius(p.n) + 6;
+      if ((p.x - x) ** 2 + (p.y - y) ** 2 <= rr * rr) hit = p.n;
+    }
+    selected = hit ? hit.slug : null;
+    detail(hit);
+    paint();
+  });
+
+  function detail(n) {
+    const el = $('#detail');
+    if (!n) {
+      el.innerHTML = '<h2>Selected</h2><p class="hint">Click a node in the graph.</p>';
+      return;
+    }
+    const traits = b.persona.filter((t) => t.expressed_in.includes(n.slug));
+    el.innerHTML = `
+      <h2>Selected</h2>
+      <div class="title">${esc(n.title)}</div>
+      <div class="path">${esc(n.domain)}/${esc(n.slug)}</div>
+      ${n.extrapolated ? `
+        <div class="machine-note" style="margin-top:10px">
+          <b>Written by the clone.</b> A language model produced this from the
+          archive, extending its author's writing rather than reproducing it.
+          ${traits.length ? `Written from: ${traits.map((t) => esc(t.claim)).join(' ')}` : ''}
+        </div>` : ''}
+      <p class="hint" style="margin:8px 0 0">
+        ${n.inbound} link(s) in · ${n.outbound} out · ${esc(n.status)}</p>
+      <div>${(n.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>`;
+  }
+
+  relayout();
+  let timer;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(relayout, 180);
+  });
+}
+
+fetch('bundle.json')
+  .then((r) => {
+    if (!r.ok) throw new Error(`bundle.json returned ${r.status}`);
+    return r.json();
+  })
+  .then((b) => {
+    const gaps = missingFields(b);
+    if (gaps.length) {
+      fail('The bundle is missing fields this page needs.', gaps.join(', '));
+      return;
+    }
+    const { colorOf } = render(b);
+    graph(b, colorOf);
+  })
+  .catch((e) => fail('Could not load bundle.json.', e.message));
+</script>

@@ -111,3 +111,55 @@ does not delete even with `--clean`.
 `export` is deliberately not reachable from any skill. An agent that can publish
 can publish a draft, and unlike everything else in this archive that is not
 recoverable by running the command again.
+
+## The showcase page
+
+The markdown export is for *reading* — a static site generator turns it into a
+wiki. The showcase is a different artifact: one page that shows the archive as a
+working system, which is what a generator cannot do from markdown alone.
+
+```bash
+sentinel export --out ./content --flat --ui ./showcase
+```
+
+That writes `showcase/index.html` and `showcase/bundle.json`. Copy both to any
+static host — a subdomain, an S3 bucket, a `docs/` folder on GitHub Pages. There
+is no build step and no dependency: the page is a single self-contained
+document that reads its own JSON and nothing else, so it works offline, behind a
+strict content policy, and in five years.
+
+It shows:
+
+- **the graph** of published articles, sized by how connected each one is
+- **what the clone writes from** — the persona traits the author has affirmed,
+  with how much evidence stands behind each and what has been written from it
+- **what is in flight** — unpublished drafts, work awaiting the owner's
+  approval, unconfirmed traits, and concepts the wiki has named but not written
+- **growth** — articles and links over time, from `meta/progress.jsonl`
+
+Articles the clone wrote are drawn in a different colour, called out above the
+panel, and labelled on selection. That is not decoration: the bundle carries
+`extrapolated` on every node precisely so a front end cannot render machine
+prose as though its author wrote it.
+
+### Keeping the two in step
+
+`--ui` writes its own `bundle.json` beside the page, so the two cannot get out
+of step with each other. Re-run the same command after any `sentinel index` and
+both are current.
+
+The page itself lives at `ui/index.html` in this repository and is compiled into
+the binary, so a released `sentinel` always writes a page that matches the
+bundle it produces. Editing `ui/index.html` requires a rebuild to take effect.
+
+### Using both together
+
+They serve different visitors and can live at different addresses:
+
+| | |
+|---|---|
+| `wiki.example.com` | the Quartz site, for reading the articles |
+| `wiki.example.com/showcase/` | the page above, for seeing how it was built |
+
+Nothing links them automatically — add a link to your Quartz landing page if you
+want one.
