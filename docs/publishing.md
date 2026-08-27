@@ -130,15 +130,29 @@ strict content policy, and in five years.
 
 It shows:
 
-- **the graph** of published articles, sized by how connected each one is
+- **the graph**, laid out by provenance. The core is the source material the
+  author actually wrote; each ring out is a further step from their hand —
+  their compiled thinking, then research, then the clone's work at the rim.
+  Rings are drawn in perspective, so panning gives real parallax rather than a
+  flat slide, and the depth you see is the depth the archive records.
+- **the documents themselves.** Click any node to read it: the bundle carries
+  the published prose, so reading costs no extra request. Cross-references and
+  source citations inside the text are live — following one opens that document
+  and moves the graph to it. There is a fullscreen view for reading properly.
 - **what the clone writes from** — the persona traits the author has affirmed,
   with how much evidence stands behind each and what has been written from it
 - **what is in flight** — unpublished drafts, work awaiting the owner's
   approval, unconfirmed traits, and concepts the wiki has named but not written
 - **growth** — articles and links over time, from `meta/progress.jsonl`
 
-Articles the clone wrote are drawn in a different colour, called out above the
-panel, and labelled on selection. That is not decoration: the bundle carries
+Drag to pan, scroll to zoom toward the cursor, arrow keys to move, `0` to fit.
+Source documents appear only when you exported with `--with-sources`; without
+it the graph is articles alone and the core is simply the author's own writing.
+
+Articles the clone wrote are drawn in a different colour, sit at the outermost
+ring, and open with the attribution notice — the exporter's own wording, lifted
+from the foot of the document to the top, because on screen the foot is after
+you have read the thing believing it might be theirs. That is not decoration: the bundle carries
 `extrapolated` on every node precisely so a front end cannot render machine
 prose as though its author wrote it.
 

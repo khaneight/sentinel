@@ -274,3 +274,104 @@ fn an_ordinary_export_names_no_source_paths_at_all() {
         "the rest of the article must survive:\n{text}"
     );
 }
+
+// --- the bundle's provenance layers ----------------------------------------
+
+#[test]
+fn published_sources_are_nodes_at_the_core() {
+    // The showcase draws depth as distance from the author's hand. A source
+    // document is layer 0 because it is the thing they actually wrote; if it
+    // were absent the picture would open with the archive's *reading* of them
+    // at the centre.
+    let a = archive();
+    a.run(&["sources", "raw/philosophy/open.md", "--publish"]);
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--with-sources",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+
+    let node = bundle["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["kind"] == "source")
+        .expect("a published source is in the graph");
+    assert_eq!(node["layer"], 0);
+    assert_eq!(node["slug"], "src:philosophy/open");
+    assert!(
+        node["body"].as_str().unwrap().contains("happy to share"),
+        "the source's own text travels with it so it can be read:\n{node:#}"
+    );
+
+    // And the citing article points at it.
+    let cited = bundle["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["from"] == "essay" && e["to"] == "src:philosophy/open");
+    assert!(
+        cited,
+        "the citation should be an edge:\n{:#}",
+        bundle["edges"]
+    );
+}
+
+#[test]
+fn a_withheld_source_is_not_a_node_either() {
+    // The graph is published output like everything else. A node for a document
+    // nobody opted in would put its title and domain on the site.
+    let a = archive();
+    a.run(&["sources", "raw/philosophy/open.md", "--publish"]);
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--with-sources",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let text = std::fs::read_to_string(ui.join("bundle.json")).unwrap();
+    assert!(
+        !text.contains("private"),
+        "a withheld source leaked into the bundle"
+    );
+}
+
+#[test]
+fn without_the_flag_the_graph_holds_only_articles() {
+    let a = archive();
+    a.run(&["sources", "raw/philosophy/open.md", "--publish"]);
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+    assert!(
+        bundle["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|n| n["kind"] == "article"),
+        "sources appear only when they were asked for"
+    );
+}
