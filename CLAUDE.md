@@ -169,34 +169,37 @@ it.
 Behaviour a reader would not guess. Everything else is in `--help`, and the
 reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.md).
 
-- **`mv`** rewrites every `sources:` citation, matching them the way the
-  compile loop does. **`rm`** refuses when anything cites the target and points
-  at `mv`; `--force` reports each citation it orphans. Both edit text inside the
+- **`mv`** rewrites every `sources:` citation, matched the way the compile loop
+  does. **`rm`** refuses when anything cites the target and points at `mv`;
+  `--force` reports each citation it orphans. Both edit text inside the
   frontmatter block only.
-- **`search`** ranks title 1000 / slug 500 / tag 200 / body line 1.
-  **`graph`** bare dumps the whole topology, for humans. **`log`** reads with no
-  arguments and appends with them.
+- **`search`** ranks title 1000 / slug 500 / tag 200 / body line 1. **`graph`**
+  bare dumps the whole topology. **`log`** reads with no arguments, appends with
+  them.
 - **`export`** writes the publishable subset, rewriting `[[links]]` to
-  unpublished pages as plain text. **An `extrapolated` article publishes only
-  when its latest verdict is `approved`** — no `--status` opens that gate — and
-  the *exporter* appends the attribution notice, because an agent that composes
-  its own disclosure can leave it out. The `--data` bundle carries affirmed
-  traits only, never their `raw/` paths. It renders no HTML, refuses to write under
+  unpublished pages as plain text. It renders no HTML, refuses to write under
   `wiki/`, `raw/` or `index/`, and — publishing not being recoverable by
-  re-running — refuses on a partial view. `--data` emits the front-end bundle,
-  including `meta/progress.jsonl`: one snapshot per `index` **that changed
-  something**, so it records the archive, not how often a command ran.
-  `--ui <dir>` writes the showcase page (`ui/index.html`, `include_str!`d so it
-  cannot drift from the bundle shape) plus its own `bundle.json`, since a page
-  without its data is a site whose only content is an error message.
-  [`docs/publishing.md`](docs/publishing.md) has the workflow.
+  re-running — refuses on a partial view. **An `extrapolated` article publishes
+  only when its latest verdict is `approved`**; no `--status` opens that gate,
+  and the *exporter* appends the attribution notice, because an agent that
+  composes its own disclosure can leave it out.
+  `--data`/`--ui` emit the front-end bundle. It publishes `LAYERS` — source
+  material, persona, the clone's work — and every node's `layer`, so a page
+  cannot invent its own account of what the archive is made of. **Affirmed
+  traits are nodes**, edged down to their evidence and up to the work written
+  from them; `proposed` ones are absent, as they are from `persona`. Never
+  `raw/` paths. `--ui` also writes `ui/index.html` (`include_str!`d, so page and
+  bundle cannot drift) and its own `bundle.json`, since a page without its data
+  is a site whose only content is an error message.
+  [`docs/publishing.md`](docs/publishing.md) has the workflow, and
+  `meta/progress.jsonl` — one snapshot per `index` **that changed something** —
+  is the growth series it carries.
 - **`index`** regenerates every `index/` page, the link graph and the manifest's
-  compilation mapping. `_dashboard.md` is the human page, generated from
+  compilation mapping. `_dashboard.md` is the human page — from
   `next::recommend`, `status::summarize`, `lint::analyze` and `schema`, never a
   second definition, and capped so it cannot become `_master.md`. Agents use
-  `sentinel next --json`: same facts, less context.
-  `paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come from
-  disk.
+  `sentinel next --json` instead. `paths::DEFAULT_DOMAINS` is only what `init`
+  creates; live domains come from disk.
 
 ## Skills
 
