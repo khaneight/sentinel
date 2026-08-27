@@ -290,6 +290,13 @@ fn the_loop_terminates_on_an_archive_with_nothing_left_to_do() {
             ),
         );
     }
+    // The `learn` rung counts documents registered as the author's own writing
+    // that nothing has read for voice. A "complete" archive has to satisfy that
+    // rung too, or this test asserts the loop stops while work remains.
+    a.write(
+        "persona/plain.md",
+        &common::trait_citing("plain", &["raw/philosophy/s.md"]),
+    );
     a.run(&["index"]);
 
     let v = a.json(&["next"]);

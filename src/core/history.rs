@@ -37,6 +37,12 @@ pub struct Snapshot {
     pub warnings: usize,
     /// Concepts linked but not yet written — the backlog the `write` rung works.
     pub wanted: usize,
+    /// Documents the author wrote that no persona trait has been read from —
+    /// the backlog the `learn` rung works. Defaulted, because histories
+    /// recorded before the persona layer existed have no such field and a
+    /// history that will not parse is a history that is gone.
+    #[serde(default)]
+    pub unmined: usize,
     pub links: usize,
 }
 
@@ -112,8 +118,21 @@ mod tests {
             errors: 0,
             warnings: 0,
             wanted: 0,
+            unmined: 0,
             links: 0,
         }
+    }
+
+    #[test]
+    fn a_history_written_before_a_field_existed_still_parses() {
+        // `meta/progress.jsonl` is append-only and never rewritten, so every
+        // line ever written has to keep deserialising. A field added without a
+        // default would make the whole file unreadable at once.
+        let old_line = r#"{"at":"2026-01-01 10:00","wiki_articles":5,"raw_documents":1,
+            "uncompiled":0,"orphans":0,"errors":0,"warnings":0,"wanted":0,"links":0}"#;
+        let parsed: Snapshot =
+            serde_json::from_str(old_line).expect("an older snapshot must still parse");
+        assert_eq!(parsed.unmined, 0);
     }
 
     #[test]
@@ -168,12 +187,16 @@ mod tests {
                 ..base.clone()
             },
             Snapshot {
+                unmined: 9,
+                ..base.clone()
+            },
+            Snapshot {
                 links: 9,
                 ..base.clone()
             },
         ];
         // One per field, `at` excluded.
-        let fields = 8;
+        let fields = 9;
         assert_eq!(mutations.len(), fields, "a field was added without a case");
         for m in mutations {
             assert!(!base.same_state(&m), "a change went unnoticed: {m:?}");

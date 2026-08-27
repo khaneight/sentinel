@@ -123,12 +123,16 @@ an empty result, so a typo cannot read as a clean rule.
 A `broken-link` is a **warning**: the compile workflow forward-declares links
 deliberately, so an archive full of them is healthy.
 
-**`sentinel next`** — priority `fix-errors` → `compile` → `write` → `connect` →
-`review`. It ranks; it does not schedule.
+**`sentinel next`** — priority `fix-errors` → `compile` → `learn` → `write` →
+`connect` → `review`, from `Action::LADDER`, which is the one ordering:
+`schema`'s published list and its numbering are derived from it. It ranks; it
+does not schedule.
 **Every action in the ladder must move a progress counter** — `fix-errors`→`errors`,
-`compile`→`uncompiled`, `write`→`wiki_articles`, `connect`→`orphans`,
-`review`→`drafts` — or a correct iteration of it reads as no progress and halts
-the loop. A new action needs a counter. `--action <name>` reaches any
+`compile`→`uncompiled`, `learn`→`unmined`, `write`→`wiki_articles`,
+`connect`→`orphans`, `review`→`drafts` — or a correct iteration of it reads as
+no progress and halts the loop. A new action needs a counter, and one that only
+fires for archives that opted into it, or `next` never says "nothing
+outstanding" again. `--action <name>` reaches any
 category, `backlog` counts them all, and `progress` reports what the archive
 *contains*. Measure loop progress by `progress`, never by backlog size.
 
@@ -172,21 +176,19 @@ disk.
 ## Skills
 
 `skills/{name}/SKILL.md`, prefixed `sentinel-`, symlinked into the archive's
-`.claude/skills`. Flat, not `/sentinel <verb>`: a skill loads whole, so a
-dispatcher would cost every caller all five (31 KB) — see
-[`docs/design-notes.md`](docs/design-notes.md).
-A section serving a `next` rung names it, and references between skills are by
-section title, never step number. `sentinel-grow` runs the maintenance loop; `ask`, `compile`,
+`.claude/skills`. Flat, not `/sentinel <verb>` — a skill loads whole, so a
+dispatcher costs every caller all of them. A section serving a `next` rung
+names it, and references between skills are by section title, never step
+number. `sentinel-grow` runs the maintenance loop; `ask`, `clone`, `compile`,
 `research`, `improve` do one job each.
 
 `tests/skill_flows.rs` executes every `sentinel …` line in a skill's fenced
 blocks against a real archive — naming a command that exists is not the same as
-publishing a sequence that runs. `tests/skills.rs` enforces the rest: frontmatter, `name` matching the directory,
-that every `sentinel <cmd>` named exists, that none send an agent to
-`index/_master.md`, that each defines empty-`$ARGUMENTS` behaviour and defers to
-`sentinel schema`, that every mutating command and every lint rule is reachable
-from some skill, and that any skill invoking a command which can refuse says
-what to do about it.
+publishing a sequence that runs. `tests/skills.rs` enforces the rest: that every
+command named exists, that every mutating command and every lint rule is
+reachable from some skill, that each skill defines empty-`$ARGUMENTS` behaviour
+and defers to `sentinel schema`, and that any skill invoking a command which can
+refuse says what to do about it.
 
 **A new failure mode in the CLI is a change to the skills — and to the
 `CLAUDE.md` `init` writes into the archive**, which is the same kind of

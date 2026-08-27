@@ -104,8 +104,8 @@ not a weak essay, it is the archive asserting a belief you do not hold.
 | | action | means | counter |
 |---|---|---|---|
 | 1 | `fix-errors` | the archive is malformed | `errors` |
-| 2 | `learn` | **new** — authored sources no trait cites | `unmined` |
-| 3 | `compile` | raw documents no article cites | `uncompiled` |
+| 2 | `compile` | raw documents no article cites | `uncompiled` |
+| 3 | `learn` | **new** — `authored` sources no trait cites | `unmined` |
 | 4 | `write` | concepts linked but unwritten | `wiki_articles` |
 | 5 | `connect` | orphaned articles | `orphans` |
 | 6 | `extend` | **new** — affirmed traits nothing has written from | `unexpressed` |
@@ -119,13 +119,22 @@ and `revise` is what that rung always actually did. This is a breaking change
 to the `--action` vocabulary and to the JSON payload, so `SCHEMA_VERSION` goes
 to 2.
 
-**`learn` is placed above `compile`** deliberately. Compiling first produces a
-wiki the clone cannot write in the voice of. The persona is the foundation, and
-a corpus read after the fact is a corpus that shaped nothing.
+**`learn` sits below `compile` and above `write`.** This document first argued
+for the top of the ladder — "a corpus read after the fact shaped nothing" — and
+building it showed that was overstated, in two ways. Compiling a document *is*
+the close reading that makes mining it cheap, so `compile` first is the cheaper
+order. And what a thin profile actually degrades is *generated* work, which is
+`extend`, four rungs down. What `learn` does earn is a place above `write`: the
+profile shapes how the next article is written.
 
-**`extend` is placed below `connect`** for the opposite reason: it is the
-payoff, not the maintenance, and generating new work on top of a malformed or
-disconnected archive compounds whatever is wrong with it.
+The rung fires only on documents registered `origin: authored` or `hybrid`, so
+an archive that holds only research never sees it. That matters more than it
+sounds: a backlog category the people it applies to cannot satisfy would mean
+`sentinel next` never says "nothing outstanding" again.
+
+**`extend` is placed below `connect`**: it is the payoff, not the maintenance,
+and generating new work on top of a malformed or disconnected archive compounds
+whatever is wrong with it.
 
 **Awaiting approval is not a rung.** The agent cannot approve its own work.
 It surfaces as `progress.awaiting_approval` and as a stop condition in
@@ -168,7 +177,7 @@ Each is a PR, stacked, each independently reviewable.
 1. **this document**
 2. `persona/` — the layer, its loader, its lint rules, `init`, `schema`
 3. `sentinel persona` — read the profile; coverage against the corpus
-4. `learn` rung + `sentinel corpus` — the mining queue
+4. the `learn` rung + `/sentinel-clone`, the skill that works it
 5. `sentinel review` — verdicts on traits and articles
 6. `origin: extrapolated` + the `extend` rung + the ladder rename
 7. `export` — approval gate, attribution, opted-in sources, richer bundle

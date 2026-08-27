@@ -218,6 +218,10 @@ fn two_articles_restore_connect_as_real_work() {
             "Body with no links.",
         );
     }
+    // `learn` outranks `connect`, and the ingested source is registered as the
+    // author's own writing. This test is about orphans, so it satisfies the
+    // rung above rather than asserting past it.
+    common::mine_corpus(&j.archive);
     j.run(&["index"]);
 
     let v = j.archive.json(&["next"]);

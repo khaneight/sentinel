@@ -216,8 +216,24 @@ fn the_next_priority_ladder_is_published() {
         .collect();
     assert_eq!(
         actions,
-        ["fix-errors", "compile", "write", "connect", "review"]
+        [
+            "fix-errors",
+            "compile",
+            "learn",
+            "write",
+            "connect",
+            "review"
+        ]
     );
+
+    // The numbering is derived from the ladder, not written beside it.
+    let priorities: Vec<u64> = v["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["priority"].as_u64().unwrap())
+        .collect();
+    assert_eq!(priorities, (1..=actions.len() as u64).collect::<Vec<_>>());
 }
 
 #[test]
