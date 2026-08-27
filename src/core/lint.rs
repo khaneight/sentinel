@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::Serialize;
 
-use super::compilation::Compilation;
+use super::compilation::{Compilation, SourceIndex};
 use super::links;
 use super::manifest::Manifest;
+use super::persona::{self, LoadedTrait};
 use super::wiki::LoadedArticle;
 
 /// How much a finding matters.
@@ -153,6 +154,56 @@ pub const RULES: &[RuleInfo] = &[
         severity: Severity::Warning,
         description: "A raw document that no wiki article cites in its `sources:`.",
     },
+    RuleInfo {
+        rule: "invalid-trait-frontmatter",
+        severity: Severity::Error,
+        description: "A persona trait's `---` block is present but is not valid YAML.",
+    },
+    RuleInfo {
+        rule: "missing-trait-field",
+        severity: Severity::Error,
+        description: "A persona trait is missing a required field (id, kind, claim). Without them it is a claim about a person that cannot be cited, ranked, or read.",
+    },
+    RuleInfo {
+        rule: "invalid-kind",
+        severity: Severity::Error,
+        description: "A persona trait's `kind` is not one of style, principle, belief, pattern.",
+    },
+    RuleInfo {
+        rule: "invalid-confidence",
+        severity: Severity::Error,
+        description: "A persona trait's `confidence` is not one of high, medium, low.",
+    },
+    RuleInfo {
+        rule: "invalid-trait-status",
+        severity: Severity::Error,
+        description: "A persona trait's `status` is not one of proposed, affirmed, rejected.",
+    },
+    RuleInfo {
+        rule: "uncited-claim",
+        severity: Severity::Error,
+        description: "A persona trait cites no `evidence:`. An uncited claim about a person is the archive inventing them, and a profile that cannot be audited cannot be corrected.",
+    },
+    RuleInfo {
+        rule: "unresolved-evidence",
+        severity: Severity::Error,
+        description: "A persona trait's `evidence:` entry matches no raw document in the manifest, so the claim behind it cannot be checked against anything.",
+    },
+    RuleInfo {
+        rule: "inferred-from-research",
+        severity: Severity::Error,
+        description: "A persona trait cites a `researched` document as evidence. Research says what the author read, not what they think; a profile built from a reading list describes somebody else.",
+    },
+    RuleInfo {
+        rule: "missing-reasoning",
+        severity: Severity::Warning,
+        description: "A persona trait has no body. The `evidence:` paths say where to look; the body is where the agent shows what in them supports the claim. Without it, auditing the profile means re-reading whole documents.",
+    },
+    RuleInfo {
+        rule: "duplicate-trait-id",
+        severity: Severity::Error,
+        description: "Two persona traits share an id, so a citation to it is ambiguous about which claim was drawn on.",
+    },
 ];
 
 /// Run every check against a loaded archive.
@@ -165,6 +216,7 @@ pub const RULES: &[RuleInfo] = &[
 /// installed, and a global read here made three of them panic.
 pub fn analyze(
     articles: &[LoadedArticle],
+    traits: &[LoadedTrait],
     manifest: &Manifest,
     root: &std::path::Path,
 ) -> Vec<Finding> {
@@ -295,11 +347,21 @@ pub fn analyze(
     // `updated`, and silently skipped any it could not parse — so a draft dated
     // `01/02/2024` was invisible to the review step no matter how long it sat.
     // A future date hides one the same way, by never becoming stale.
+    // Walked over both document kinds from one list. Persona traits carry the
+    // same two date fields, and a second copy of this loop for them would be a
+    // second opinion about what a date is.
     let today = chrono::Local::now().date_naive();
-    for article in articles {
-        let path = article.rel_path().to_string();
-        let fm = &article.article.frontmatter;
-        for (field, value) in fm.dates() {
+    let dated: Vec<(String, super::frontmatter::Dates<'_>)> = articles
+        .iter()
+        .map(|a| (a.rel_path().to_string(), a.article.frontmatter.dates()))
+        .chain(
+            traits
+                .iter()
+                .map(|t| (t.rel_path.clone(), t.frontmatter.dates())),
+        )
+        .collect();
+    for (path, dates) in dated {
+        for (field, value) in dates {
             let Some(value) = value else {
                 continue;
             };
@@ -371,7 +433,152 @@ pub fn analyze(
         ));
     }
 
+    findings.extend(persona_findings(traits, manifest));
+
     sort(&mut findings);
+    findings
+}
+
+/// The `persona/` rules.
+///
+/// Separated because they are not house style — they are the safeguards the
+/// clone design turns on, and they are worth being able to read in one place.
+/// Two of them (`uncited-claim`, `inferred-from-research`) are the reason the
+/// profile can be trusted at all: without them the archive can assert anything
+/// about its author and cite nothing, or cite their reading list.
+fn persona_findings(traits: &[LoadedTrait], manifest: &Manifest) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    let mut owners: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for t in traits {
+        owners
+            .entry(t.canonical_id())
+            .or_default()
+            .push(t.rel_path.as_str());
+    }
+    for (id, paths) in &owners {
+        if paths.len() > 1 {
+            findings.push(Finding::global(
+                Severity::Error,
+                "duplicate-trait-id",
+                format!(
+                    "duplicate trait id '{id}': {} — a citation to it cannot say which claim it drew on",
+                    paths.join(", ")
+                ),
+            ));
+        }
+    }
+
+    // Evidence is matched the way `sources:` is, so `raw/essays/x.md` and a
+    // bare `x.md` resolve identically. A second matcher here would mean a
+    // citation that compiles but does not count as evidence, or the reverse.
+    let index = SourceIndex::new(manifest);
+
+    for t in traits {
+        let path = t.rel_path.as_str();
+
+        if let Some(error) = &t.frontmatter_error {
+            findings.push(Finding::error(
+                "invalid-trait-frontmatter",
+                path,
+                format!("invalid frontmatter — {error}"),
+            ));
+            continue;
+        }
+
+        for field in t.frontmatter.missing() {
+            findings.push(Finding::error(
+                "missing-trait-field",
+                path,
+                format!("missing '{field}' in frontmatter"),
+            ));
+        }
+
+        for (rule, value, allowed) in [
+            (
+                "invalid-kind",
+                t.frontmatter.kind.as_deref(),
+                persona::KINDS,
+            ),
+            (
+                "invalid-confidence",
+                t.frontmatter.confidence.as_deref(),
+                persona::CONFIDENCES,
+            ),
+            (
+                "invalid-trait-status",
+                t.frontmatter.status.as_deref(),
+                persona::STATUSES,
+            ),
+        ] {
+            if let Some(value) = value
+                && !allowed.contains(&value)
+            {
+                findings.push(Finding::error(
+                    rule,
+                    path,
+                    format!("invalid value '{value}' (expected {})", allowed.join("/")),
+                ));
+            }
+        }
+
+        // Safeguard 1: no uncited claim about a person.
+        if t.frontmatter.evidence.is_empty() {
+            findings.push(Finding::error(
+                "uncited-claim",
+                path,
+                format!(
+                    "no evidence cited for '{}'. Every trait names the raw \
+                     documents it was read out of, or it is a claim about \
+                     somebody that nobody can check.",
+                    t.id()
+                ),
+            ));
+        }
+
+        // Cited but unexplained. A warning, not an error: the claim is still
+        // checkable, just expensively — and a half-written trait is unfinished
+        // work, which is what warnings are for.
+        if t.body.trim().is_empty() && !t.frontmatter.evidence.is_empty() {
+            findings.push(Finding::warning(
+                "missing-reasoning",
+                path,
+                "cites evidence but shows nothing from it — quote what supports the claim",
+            ));
+        }
+
+        for cited in &t.frontmatter.evidence {
+            let Some(resolved) = index.resolve(cited) else {
+                let hint = match index.suggest(cited) {
+                    Some(p) => format!(". Did you mean '{p}'?"),
+                    None => String::new(),
+                };
+                findings.push(Finding::error(
+                    "unresolved-evidence",
+                    path,
+                    format!("evidence '{cited}' matches no raw document in the manifest{hint}"),
+                ));
+                continue;
+            };
+            // Safeguard 2: beliefs come only from the author's own writing.
+            let Some(entry) = manifest.entries.get(&resolved) else {
+                continue;
+            };
+            if !persona::EVIDENCE_ORIGINS.contains(&entry.origin.as_str()) {
+                findings.push(Finding::error(
+                    "inferred-from-research",
+                    path,
+                    format!(
+                        "evidence '{resolved}' has origin '{}' — it says what the author read, \
+                         not what they think. Cite {} material.",
+                        entry.origin,
+                        persona::EVIDENCE_ORIGINS.join(" or ")
+                    ),
+                ));
+            }
+        }
+    }
+
     findings
 }
 
@@ -423,12 +630,29 @@ mod tests {
         }
     }
 
+    /// A persona trait built the way the loader builds one — through the real
+    /// frontmatter parser, so a fixture cannot pass by constructing a struct
+    /// the parser would never produce.
+    fn trait_of(path: &str, content: &str) -> LoadedTrait {
+        let parsed = crate::core::frontmatter::parse_as::<persona::TraitFrontmatter>(content);
+        LoadedTrait {
+            frontmatter: parsed.frontmatter,
+            rel_path: path.to_string(),
+            path: std::path::PathBuf::from(path),
+            body: parsed.body,
+            frontmatter_error: parsed.error,
+        }
+    }
+
     /// An archive rigged to trip every rule at once.
-    fn everything_wrong() -> (Vec<LoadedArticle>, Manifest) {
+    fn everything_wrong() -> (Vec<LoadedArticle>, Vec<LoadedTrait>, Manifest) {
         let mut manifest = Manifest::default();
         // `missing-raw-document`: nothing in this fixture exists on disk, so
         // every entry fires it. That is the point — the rule compares the
         // manifest with the filesystem, and there is no filesystem here.
+        // `gathered.md` is `researched`, which is what `inferred-from-research`
+        // needs: a document that resolves cleanly and still must not count as
+        // evidence for what its owner believes.
         for raw in ["raw/philosophy/cited.md", "raw/philosophy/stranded.md"] {
             manifest.upsert(ManifestEntry {
                 raw_path: raw.to_string(),
@@ -441,6 +665,53 @@ mod tests {
                 content_hash: None,
             });
         }
+        manifest.upsert(ManifestEntry {
+            raw_path: "raw/philosophy/gathered.md".into(),
+            title: "Gathered".into(),
+            domain: "philosophy".into(),
+            origin: "researched".into(),
+            ingested_at: "2026-01-01 00:00:00".into(),
+            wiki_articles: vec![],
+            source_type: "document".into(),
+            content_hash: None,
+        });
+
+        let traits = vec![
+            // invalid-trait-frontmatter
+            trait_of("persona/broken.md", "---\n\tid: [oops\n---\n\nbody\n"),
+            // missing-trait-field (id/kind/claim) + uncited-claim
+            trait_of("persona/bare.md", "---\nconfidence: high\n---\n\nbody\n"),
+            // invalid-kind + invalid-confidence + invalid-trait-status,
+            // and no body at all: missing-reasoning
+            trait_of(
+                "persona/enums.md",
+                "---\nid: enums\nkind: nonsense\nclaim: c\nconfidence: nonsense\n\
+                 status: nonsense\nevidence: [raw/philosophy/cited.md]\n---\n",
+            ),
+            // unresolved-evidence
+            trait_of(
+                "persona/evidence.md",
+                "---\nid: evidence\nkind: belief\nclaim: c\n\
+                 evidence: [raw/philosophy/nowhere.md]\n---\n\nbody\n",
+            ),
+            // inferred-from-research: resolves, but to material the author read
+            trait_of(
+                "persona/research.md",
+                "---\nid: research\nkind: belief\nclaim: c\n\
+                 evidence: [raw/philosophy/gathered.md]\n---\n\nbody\n",
+            ),
+            // duplicate-trait-id: two files, one id
+            trait_of(
+                "persona/first.md",
+                "---\nid: shared\nkind: style\nclaim: c\n\
+                 evidence: [raw/philosophy/cited.md]\n---\n\nbody\n",
+            ),
+            trait_of(
+                "persona/second.md",
+                "---\nid: shared\nkind: style\nclaim: c\n\
+                 evidence: [raw/philosophy/cited.md]\n---\n\nbody\n",
+            ),
+        ];
 
         let articles = vec![
             // invalid-frontmatter
@@ -495,14 +766,15 @@ mod tests {
                 None,
             ),
         ];
-        (articles, manifest)
+        (articles, traits, manifest)
     }
 
     #[test]
     fn every_documented_rule_can_actually_fire() {
-        let (articles, manifest) = everything_wrong();
+        let (articles, traits, manifest) = everything_wrong();
         let emitted: BTreeSet<&str> = analyze(
             &articles,
+            &traits,
             &manifest,
             std::path::Path::new("/nonexistent-archive"),
         )
@@ -520,10 +792,11 @@ mod tests {
 
     #[test]
     fn every_emitted_rule_is_documented() {
-        let (articles, manifest) = everything_wrong();
+        let (articles, traits, manifest) = everything_wrong();
         let documented: BTreeSet<&str> = RULES.iter().map(|r| r.rule).collect();
         for finding in analyze(
             &articles,
+            &traits,
             &manifest,
             std::path::Path::new("/nonexistent-archive"),
         ) {
@@ -537,9 +810,10 @@ mod tests {
 
     #[test]
     fn documented_severity_matches_emitted_severity() {
-        let (articles, manifest) = everything_wrong();
+        let (articles, traits, manifest) = everything_wrong();
         for finding in analyze(
             &articles,
+            &traits,
             &manifest,
             std::path::Path::new("/nonexistent-archive"),
         ) {

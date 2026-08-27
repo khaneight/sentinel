@@ -218,11 +218,23 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
     // files that could not be read, so `next` ranked the whole archive from
     // whatever happened to be legible and said nothing about the rest.
     let loaded = wiki::load_all()?;
-    let unreadable = loaded.unreadable.clone();
+    let persona = crate::core::persona::load_all()?;
+    // Both directories feed one disclosure. A trait that could not be read
+    // costs the same thing an article does — every count below is computed
+    // without it — so it belongs in the same list rather than a second one a
+    // caller has to remember to check.
+    let mut unreadable = loaded.unreadable.clone();
+    unreadable.extend(persona.unreadable.iter().cloned());
+    unreadable.sort_by(|a, b| a.path.cmp(&b.path));
     let articles = loaded.articles;
     let manifest = Manifest::load()?;
 
-    let findings = lint::analyze(&articles, &manifest, &crate::core::paths::archive_root());
+    let findings = lint::analyze(
+        &articles,
+        &persona.traits,
+        &manifest,
+        &crate::core::paths::archive_root(),
+    );
     let errors: Vec<_> = findings
         .iter()
         .filter(|f| f.severity == Severity::Error)
