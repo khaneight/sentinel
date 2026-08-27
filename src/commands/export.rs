@@ -587,6 +587,8 @@ struct Bundle {
     schema_version: u32,
     /// The layers, in order, with the names a reader should see.
     layers: &'static [Layer],
+    /// The kinds of connection between them.
+    edge_kinds: &'static [EdgeKind],
     /// Only published articles, so the bundle can be served beside them.
     nodes: Vec<Node>,
     edges: Vec<Edge>,
@@ -725,10 +727,58 @@ fn layer_of(_origin: &str) -> u8 {
     2
 }
 
-#[derive(Serialize)]
+/// A connection, always pointing **outward** — from what something came from
+/// towards what came of it.
+///
+/// The direction is the claim. A source document did not cite an article; the
+/// article was compiled from it. A trait did not reference a source; it was
+/// distilled out of one. Recording the arrows the other way round would draw a
+/// picture in which the work produced the corpus.
+#[derive(Clone, Serialize)]
 struct Edge {
     from: String,
     to: String,
+    /// What kind of connection, so a reader is not left inferring it from the
+    /// endpoints and a front end does not have to reimplement the layer rules
+    /// to colour it.
+    kind: &'static str,
+}
+
+/// Every edge kind, published so a page can key its colours off the set rather
+/// than off a guess about what the endpoints mean.
+pub const EDGE_KINDS: &[EdgeKind] = &[
+    EdgeKind {
+        id: "distils",
+        from_layer: 0,
+        to_layer: 1,
+        description: "A persona trait was read out of this document.",
+    },
+    EdgeKind {
+        id: "writes",
+        from_layer: 1,
+        to_layer: 2,
+        description: "This article was written from that trait.",
+    },
+    EdgeKind {
+        id: "compiles",
+        from_layer: 0,
+        to_layer: 2,
+        description: "This article was compiled from that document, without passing through the persona.",
+    },
+    EdgeKind {
+        id: "links",
+        from_layer: 2,
+        to_layer: 2,
+        description: "One article's [[wikilink]] to another.",
+    },
+];
+
+#[derive(Serialize, Clone, Copy)]
+pub struct EdgeKind {
+    pub id: &'static str,
+    pub from_layer: u8,
+    pub to_layer: u8,
+    pub description: &'static str,
 }
 
 /// Everything `bundle` needs. A struct because it is nine values, and at that
@@ -808,14 +858,17 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             edges.push(Edge {
                 from: from.clone(),
                 to,
+                kind: "links",
             });
         }
     }
-    // Citation edges, article → source. The same `sources:` the compile loop
-    // reads, resolved the same way, so the graph shows the provenance the
-    // archive records rather than a second reading of it.
+    // Compilation edges, source → article. Written outward: the article was
+    // compiled from the document, so the arrow runs from the document. The
+    // same `sources:` the compile loop reads, resolved the same way, so the
+    // graph shows the provenance the archive records rather than a second
+    // reading of it.
     for article in published {
-        let from = article.canonical_slug();
+        let to = article.canonical_slug();
         for cited in &article.article.frontmatter.sources {
             let Some(resolved) = index.resolve(cited) else {
                 continue;
@@ -823,12 +876,13 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             let Some(out_rel) = public_sources.get(&resolved) else {
                 continue;
             };
-            let to = source_slug(out_rel);
+            let from = source_slug(out_rel);
             *outbound.entry(from.clone()).or_default() += 1;
             *inbound.entry(to.clone()).or_default() += 1;
             edges.push(Edge {
-                from: from.clone(),
-                to,
+                from,
+                to: to.clone(),
+                kind: "compiles",
             });
         }
     }
@@ -840,9 +894,11 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
     // `proposed` trait is an unconfirmed reading, and drawing one in the middle
     // of the picture asserts it to every reader before the author has seen it.
     //
-    // Its edges are the two claims the layer makes. Down to the documents it
-    // was read out of, so a viewer can check it; up to the work written from
-    // it, so they can see what it produced.
+    // Its edges are the two claims the layer makes, both pointing outward: the
+    // documents it was distilled from flow into it, and it flows into the work
+    // written from it. Following those arrows from a source document is the
+    // whole story — this is what I read, this is what I concluded from it,
+    // this is what got written.
     for t in traits.iter().filter(|t| t.is_affirmed()) {
         let id = trait_slug(&t.id());
         for cited in &t.frontmatter.evidence {
@@ -852,12 +908,13 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             let Some(out_rel) = public_sources.get(&resolved) else {
                 continue;
             };
-            let to = source_slug(out_rel);
-            *outbound.entry(id.clone()).or_default() += 1;
-            *inbound.entry(to.clone()).or_default() += 1;
+            let from = source_slug(out_rel);
+            *outbound.entry(from.clone()).or_default() += 1;
+            *inbound.entry(id.clone()).or_default() += 1;
             edges.push(Edge {
-                from: id.clone(),
-                to,
+                from,
+                to: id.clone(),
+                kind: "distils",
             });
         }
         for article in published {
@@ -875,6 +932,7 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
                 edges.push(Edge {
                     from: id.clone(),
                     to,
+                    kind: "writes",
                 });
             }
         }
@@ -1004,6 +1062,7 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
         generated_at: generated_at.to_string(),
         schema_version: output::SCHEMA_VERSION,
         layers: LAYERS,
+        edge_kinds: EDGE_KINDS,
         nodes,
         edges,
         persona,

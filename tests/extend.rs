@@ -677,23 +677,108 @@ fn an_affirmed_trait_is_a_node_between_its_evidence_and_its_work() {
         "the claim is the title"
     );
 
-    let edge = |from: &str, to: &str| {
+    // Both arrows point outward, which is the claim: the document produced the
+    // trait, the trait produced the article. Recorded the other way round the
+    // graph would say the work produced the corpus.
+    let edge = |from: &str, to: &str| -> Option<String> {
         bundle["edges"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|e| e["from"] == from && e["to"] == to)
+            .find(|e| e["from"] == from && e["to"] == to)
+            .map(|e| e["kind"].as_str().unwrap().to_string())
     };
-    assert!(
-        edge("trait:held", "src:philosophy/mine"),
-        "down to the document it was read out of:\n{:#}",
+    assert_eq!(
+        edge("src:philosophy/mine", "trait:held").as_deref(),
+        Some("distils"),
+        "the document it was read out of points at it:\n{:#}",
         bundle["edges"]
     );
-    assert!(
-        edge("trait:held", "new"),
-        "up to the work written from it:\n{:#}",
+    assert_eq!(
+        edge("trait:held", "new").as_deref(),
+        Some("writes"),
+        "and it points at the work written from it:\n{:#}",
         bundle["edges"]
     );
+}
+
+#[test]
+fn every_edge_points_away_from_the_author() {
+    // The invariant behind the picture. Enumerated from the published edge
+    // kinds rather than from a list here, so a kind added later has to declare
+    // which layers it joins and cannot quietly run inward.
+    let a = archive();
+    a.run(&["sources", "raw/philosophy/mine.md", "--publish"]);
+    a.write(
+        "wiki/philosophy/new.md",
+        &extrapolated("New", &["held"]).replace("status: draft", "status: stable"),
+    );
+    a.run(&["index"]);
+    approve(&a, "new");
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--with-sources",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+
+    let layer_of = |slug: &str| -> u64 {
+        bundle["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["slug"] == slug)
+            .unwrap_or_else(|| panic!("{slug} is a node"))["layer"]
+            .as_u64()
+            .unwrap()
+    };
+    let kinds = bundle["edge_kinds"].as_array().unwrap();
+    assert!(kinds.len() >= 4, "the edge kinds should be published");
+    for k in kinds {
+        assert!(
+            k["from_layer"].as_u64().unwrap() <= k["to_layer"].as_u64().unwrap(),
+            "edge kind `{}` runs inward",
+            k["id"]
+        );
+    }
+
+    let declared: std::collections::HashMap<&str, (u64, u64)> = kinds
+        .iter()
+        .map(|k| {
+            (
+                k["id"].as_str().unwrap(),
+                (
+                    k["from_layer"].as_u64().unwrap(),
+                    k["to_layer"].as_u64().unwrap(),
+                ),
+            )
+        })
+        .collect();
+
+    let edges = bundle["edges"].as_array().unwrap();
+    assert!(!edges.is_empty(), "the fixture should produce edges");
+    for e in edges {
+        let kind = e["kind"].as_str().unwrap();
+        let (from, to) = declared
+            .get(kind)
+            .unwrap_or_else(|| panic!("edge kind `{kind}` is emitted but not published"));
+        assert_eq!(
+            (
+                layer_of(e["from"].as_str().unwrap()),
+                layer_of(e["to"].as_str().unwrap())
+            ),
+            (*from, *to),
+            "a `{kind}` edge joined the wrong layers: {e:#}"
+        );
+    }
 }
 
 #[test]

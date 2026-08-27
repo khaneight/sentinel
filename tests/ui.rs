@@ -121,6 +121,7 @@ fn every_field_the_page_reads_exists_in_a_real_bundle() {
             "top" => bundle.clone(),
             "in_progress" => bundle["in_progress"].clone(),
             "layer" => bundle["layers"][0].clone(),
+            "edge_kind" => bundle["edge_kinds"][0].clone(),
             "node" => bundle["nodes"][0].clone(),
             "edge" => bundle["edges"][0].clone(),
             "trait" => bundle["persona"][0].clone(),

@@ -137,7 +137,11 @@ It shows:
   every article written from it, so a claim in a generated essay can be
   followed back to the sentence in the corpus that supports it. Rings are drawn
   in perspective, so panning gives real parallax rather than a flat slide.
-- **hovering** a node lights up what it is related to and dims everything else.
+- **hovering** follows the arrows, transitively. On a source document you see
+  what came of it — the traits read out of it, and what was written from those.
+  On a piece of the clone's work you see where it came from, back through the
+  persona to the corpus. Connections are coloured by where they leave: gold out
+  of the source material, teal out of the persona, blue between articles.
 - **topic filters** built from the archive's own vocabulary — the domains
   things are filed under and the tags on them. Traits have no topic of their
   own, so they stay while anything they touch does.
