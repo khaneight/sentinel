@@ -140,8 +140,10 @@ It shows:
 - **hovering** follows the arrows, transitively. On a source document you see
   what came of it — the traits read out of it, and what was written from those.
   On a piece of the clone's work you see where it came from, back through the
-  persona to the corpus. Connections are coloured by where they leave: gold out
-  of the source material, teal out of the persona, blue between articles.
+  persona to the corpus. Colour is the layer and nothing else — gold for source
+  material, blue for the persona, purple for the clone's work — and a
+  connection takes the colour of the layer it leaves, so a hue means the same
+  thing on a dot and on a line.
 - **topic filters** built from the archive's own vocabulary — the domains
   things are filed under and the tags on them. Traits have no topic of their
   own, so they stay while anything they touch does.
@@ -159,8 +161,11 @@ Drag to pan, scroll to zoom toward the cursor, arrow keys to move, `0` to fit.
 Source documents appear only when you exported with `--with-sources`; without
 it the graph is articles alone and the core is simply the author's own writing.
 
-Articles the clone wrote are drawn in a different colour, sit at the outermost
-ring, and open with the attribution notice — the exporter's own wording, lifted
+Because hue now carries the layer, it can no longer be what marks generated
+work — so on the outer ring a **filled** dot is something a language model
+wrote and a **hollow** one was compiled from a source. Filled is the one that
+draws the eye, which is the right way round. Those articles also open with the
+attribution notice — the exporter's own wording, lifted
 from the foot of the document to the top, because on screen the foot is after
 you have read the thing believing it might be theirs. That is not decoration: the bundle carries
 `extrapolated` on every node precisely so a front end cannot render machine

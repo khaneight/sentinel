@@ -32,7 +32,7 @@
     --accent: #3d5a80;
     --machine: #9b5de5;
     --core: #b07d3f;
-    --trait: #2a7f7f;
+    --persona: #2f6fb5;
     --warn: #b45309;
     --shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
   }
@@ -46,7 +46,7 @@
       --accent: #8fb3d9;
       --machine: #c79bff;
       --core: #e0b063;
-      --trait: #5fc9c9;
+      --persona: #7fb3e8;
       --warn: #f0a860;
       --shadow: 0 16px 52px rgba(0, 0, 0, 0.62);
     }
@@ -152,6 +152,7 @@
   .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11.5px; color: var(--muted); }
   .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
   .legend i.rule { width: 16px; height: 2px; border-radius: 1px; margin-bottom: 3px; }
+  .legend i.hollow { background: transparent; border: 2px solid; }
   .legend span { display: block; }
   .machine-note {
     border: 1px solid var(--machine);
@@ -429,24 +430,22 @@ function markdown(src, isLinked) {
 }
 
 // --- provenance -------------------------------------------------------------
-const PALETTE = ['#3d5a80', '#2d6a4f', '#9c6644', '#5f4b8b', '#a4243b', '#1b6ca8', '#7d8471'];
-
-// Keyed by the layer ids the bundle publishes, so a layer renamed there does
-// not silently lose its colour here.
+// One hue per layer, keyed by the ids the bundle publishes so a layer renamed
+// there does not silently lose its colour here. Gold is what the author wrote,
+// blue is the model of them, purple is what the archive produced.
 const LAYER_INK = {
   source: 'var(--core)',
-  persona: 'var(--trait)',
-  work: 'var(--accent)',
+  persona: 'var(--persona)',
+  work: 'var(--machine)',
 };
 
-// A connection is coloured by where it comes *from*, so the eye can follow one
-// hue outward: gold leaves the corpus, teal leaves the persona, blue is the
-// work referring to itself.
+// A connection takes the colour of the layer it leaves, so hue means the same
+// thing on a dot and on a line, and the eye can follow one colour outward.
 const EDGE_INK = {
   distils: 'var(--core)',
   compiles: 'var(--core)',
-  writes: 'var(--trait)',
-  links: 'var(--accent)',
+  writes: 'var(--persona)',
+  links: 'var(--machine)',
 };
 
 const PROVENANCE = {
@@ -469,7 +468,6 @@ function describe(n) {
 let APP = null;
 
 function render(b) {
-  const domains = [...new Set(b.nodes.map((n) => n.domain).filter(Boolean))].sort();
   const generated = b.nodes.filter((n) => n.extrapolated).length;
   const ip = b.in_progress || {};
 
@@ -531,8 +529,8 @@ function render(b) {
               <span>${esc(l.description)}</span></div>`).join('')}
         </div>
         <div class="legend" style="margin-top:10px">
-          ${domains.map((d, i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${esc(d)}</span>`).join('')}
-          <span><i style="background:var(--machine)"></i>written by the clone</span>
+          <span><i style="background:var(--machine)"></i>written by a language model</span>
+          <span><i class="hollow" style="border-color:var(--machine)"></i>compiled from a source</span>
         </div>
 
         <h2>Connections</h2>
@@ -564,11 +562,12 @@ function render(b) {
     $('#detail').insertAdjacentHTML('beforebegin', `
       <div class="machine-note"><b>${generated}</b> of these ${b.nodes.length}
         page(s) were written by a language model from this archive, and approved
-        by its owner. They sit at the outer edge, in purple.</div>`);
+        by its owner. They are the <b>filled</b> dots on the outer ring; hollow
+        ones were compiled from a source.</div>`);
   }
 
   drawSpark(b.progress);
-  return { domains };
+  return {};
 }
 
 function drawSpark(series) {
@@ -846,12 +845,12 @@ function graph(b, onOpen) {
     };
   }
 
+  // Colour is the layer, and nothing else. It used to carry domain as well,
+  // which meant a reader had to know which of two things a hue was telling
+  // them; the topic filter answers that question better.
   function colorOf(n, style) {
-    if (n.kind === 'source') return style.getPropertyValue('--core').trim();
-    if (n.kind === 'trait') return style.getPropertyValue('--trait').trim();
-    if (n.extrapolated) return style.getPropertyValue('--machine').trim();
-    const domains = APP.domains;
-    return PALETTE[Math.max(0, domains.indexOf(n.domain)) % PALETTE.length];
+    const ink = LAYER_INK[b.layers[n.layer]?.id] ?? 'var(--accent)';
+    return style.getPropertyValue(ink.replace(/^var\(|\)$/g, '')).trim();
   }
 
   function paint() {
@@ -928,13 +927,27 @@ function graph(b, onOpen) {
       g.globalAlpha = visible ? (related ? 1 - p.ring * 0.08 : 0.16) : 0.08;
       g.beginPath();
       g.arc(at.x, at.y, r, 0, 6.284);
-      g.fillStyle = colorOf(p.n, style);
-      g.fill();
+      const hue = colorOf(p.n, style);
+      // Hue is the layer, so it can no longer be what marks generated work —
+      // and that distinction is not decoration. A filled dot is something a
+      // language model wrote; a hollow one was compiled from a source. Filled
+      // is the one that draws the eye, which is the right way round.
+      if (p.n.layer === 2 && !p.n.extrapolated) {
+        g.strokeStyle = hue;
+        g.lineWidth = 2;
+        g.stroke();
+        g.lineWidth = 1;
+      } else {
+        g.fillStyle = hue;
+        g.fill();
+      }
 
       if (selected === p.n.slug || hover === p.n.slug) {
         g.globalAlpha = 1;
         g.lineWidth = 2;
         g.strokeStyle = style.getPropertyValue('--ink');
+        g.beginPath();
+        g.arc(at.x, at.y, r + 2.5, 0, 6.284);
         g.stroke();
         g.lineWidth = 1;
       }
