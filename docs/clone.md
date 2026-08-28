@@ -104,8 +104,8 @@ not a weak essay, it is the archive asserting a belief you do not hold.
 | | action | means | counter |
 |---|---|---|---|
 | 1 | `fix-errors` | the archive is malformed | `errors` |
-| 2 | `compile` | raw documents no article cites | `uncompiled` |
-| 3 | `learn` | **new** — `authored` sources no trait cites | `unmined` |
+| 2 | `learn` | **new** — `authored` sources no trait cites | `unmined` |
+| 3 | `compile` | raw documents no article cites | `uncompiled` |
 | 4 | `write` | concepts linked but unwritten | `wiki_articles` |
 | 5 | `connect` | orphaned articles | `orphans` |
 | 6 | `extend` | **new** — affirmed traits nothing has written from | `unexpressed` |
@@ -119,13 +119,15 @@ and `revise` is what that rung always actually did. This is a breaking change
 to the `--action` vocabulary and to the JSON payload, so `SCHEMA_VERSION` goes
 to 2.
 
-**`learn` sits below `compile` and above `write`.** This document first argued
-for the top of the ladder — "a corpus read after the fact shaped nothing" — and
-building it showed that was overstated, in two ways. Compiling a document *is*
-the close reading that makes mining it cheap, so `compile` first is the cheaper
-order. And what a thin profile actually degrades is *generated* work, which is
-`extend`, four rungs down. What `learn` does earn is a place above `write`: the
-profile shapes how the next article is written.
+**`learn` sits above `compile`**, which is where this document first put it. It
+spent a while below, on the argument that compiling a document *is* the close
+reading that makes mining it cheap. That is true, and it answers the wrong
+question: the order should follow what the tool is for. Somebody hands over a
+corpus, it is read for who they are, and only then does the clone write
+anything. Summarising a corpus into articles before anyone has read it for voice
+is a step inherited from the knowledge base this used to be —
+[the proposal](proposals/does-everything-flow-through-the-persona.md) has the
+argument.
 
 The rung fires only on documents registered `origin: authored` or `hybrid`, so
 an archive that holds only research never sees it. That matters more than it

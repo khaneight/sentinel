@@ -321,7 +321,7 @@ fn published_sources_are_nodes_at_the_core() {
         .iter()
         .find(|e| e["from"] == "src:philosophy/open" && e["to"] == "essay")
         .unwrap_or_else(|| panic!("the citation should be an edge:\n{:#}", bundle["edges"]));
-    assert_eq!(cited["kind"], "compiles");
+    assert_eq!(cited["kind"], "grounds");
 }
 
 #[test]

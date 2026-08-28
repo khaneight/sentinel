@@ -53,7 +53,14 @@ Stop and report when **any** of these holds. Do not push past one.
 4. **Same target twice** — the top target is one you already worked on this run. You did not actually complete it; investigate rather than retry.
 5. **Judgement required** — the recommended action needs a decision that is the
    user's to make (see *Escalate* below).
-6. **Something could not be read** — either a command refuses (see *After
+6. **The corpus has been read and not answered** — `sentinel next` returns
+   `action: "none"` with a non-zero `progress.unconfirmed_traits` and a reason
+   naming your verdict. Not a rung, and not something to work around:
+   everything below `learn` is the clone writing, and writing through a reading
+   of somebody that nobody has confirmed is exactly what the verdict exists to
+   prevent. Report what is waiting and how to answer it (`sentinel review`),
+   and stop.
+7. **Something could not be read** — either a command refuses (see *After
    acting* below) **or `sentinel next` returns a non-empty `progress.unreadable`**.
    Read commands do not refuse; they rank what they could load and disclose the
    rest. That disclosure is the same stop condition: every count in `progress`
@@ -102,7 +109,7 @@ sentinel next --action write --json
 ```
 
 `--action` accepts any rung `sentinel schema` lists — currently `fix-errors`,
-`compile`, `learn`, `write`, `connect`, `extend`, `review` — and returns that category's
+`learn`, `compile`, `write`, `connect`, `extend`, `review` — and returns that category's
 targets regardless of priority. The response is marked
 `requested: true` so the log records that it was your scheduling choice rather
 than sentinel's advice.

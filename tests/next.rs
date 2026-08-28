@@ -28,6 +28,7 @@ fn an_uncompiled_source_is_the_next_thing_to_compile() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
 
     let v = a.json(&["next"]);
     assert_eq!(v["action"], "compile");
@@ -129,8 +130,11 @@ fn a_stalled_draft_is_surfaced_last() {
     );
     a.write(
         "wiki/philosophy/beta.md",
-        &article_with("Beta", &["raw/philosophy/meditations.md"], "See [[alpha]].")
-            .replace("updated: 2026-01-01", "updated: 2020-01-01"),
+        &common::voiced(
+            &article_with("Beta", &["raw/philosophy/meditations.md"], "See [[alpha]].")
+                .replace("updated: 2026-01-01", "updated: 2020-01-01"),
+        )
+        .replace("sources: [raw/philosophy/meditations.md]", ""),
     );
     a.run(&["index"]);
 
@@ -181,6 +185,7 @@ fn human_output_names_the_command_to_run() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
 
     let out = a.run(&["next"]);
     assert!(out.contains("compile"), "{out}");
@@ -194,6 +199,7 @@ fn next_works_before_index_has_ever_run() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
 
     let v = a.json(&["next"]);
     assert_eq!(v["action"], "compile", "{v}");
@@ -226,6 +232,7 @@ fn a_large_ingest_makes_compile_dominate_the_recommendation() {
     // Not a defect — it is why `--action` has to exist. Pinning it so the
     // reason for `--action` stays visible if the ladder is ever retuned.
     let a = ingested_corpus();
+    common::mine_corpus(&a);
     let v = a.json(&["next"]);
     assert_eq!(v["action"], "compile", "{v}");
     let counts: Vec<(&str, u64)> = v["backlog"]
@@ -393,6 +400,7 @@ fn targets_that_have_no_referrers_omit_the_fields_entirely() {
     let a = Archive::new();
     a.write("raw/philosophy/meditations.md", "notes");
     a.run(&["sync"]);
+    common::mine_corpus(&a);
 
     let v = a.json(&["next"]);
     assert_eq!(v["action"], "compile");
@@ -547,16 +555,22 @@ fn completed_archive(status: &str) -> Archive {
     a.write("raw/philosophy/src.md", "text");
     a.run(&["sync"]);
     for (slug, other) in [("alpha", "beta"), ("beta", "alpha")] {
-        a.write(
-            &format!("wiki/philosophy/{slug}.md"),
-            &article_with(
-                slug,
-                &["raw/philosophy/src.md"],
-                &format!("See [[{other}]]."),
-            )
-            .replace("status: draft", &format!("status: {status}"))
-            .replace("updated: 2026-01-01", &format!("updated: {today}")),
-        );
+        let article = article_with(
+            slug,
+            &["raw/philosophy/src.md"],
+            &format!("See [[{other}]]."),
+        )
+        .replace("status: draft", &format!("status: {status}"))
+        .replace("updated: 2026-01-01", &format!("updated: {today}"));
+        // One of them is the clone's own work, written from the affirmed trait
+        // below. Without that the archive has an affirmed trait nothing has
+        // written from, which is `extend` work and not a terminal state.
+        let article = if slug == "beta" {
+            common::voiced(&article)
+        } else {
+            article
+        };
+        a.write(&format!("wiki/philosophy/{slug}.md"), &article);
     }
     // A terminal archive has to satisfy every rung, `learn` included — the
     // source is registered as the author's own writing, and nothing had read

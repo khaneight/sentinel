@@ -752,24 +752,28 @@ pub const EDGE_KINDS: &[EdgeKind] = &[
         from_layer: 0,
         to_layer: 1,
         description: "A persona trait was read out of this document.",
+        primary: true,
     },
     EdgeKind {
         id: "writes",
         from_layer: 1,
         to_layer: 2,
         description: "This article was written from that trait.",
+        primary: true,
     },
     EdgeKind {
-        id: "compiles",
+        id: "grounds",
         from_layer: 0,
         to_layer: 2,
-        description: "This article was compiled from that document, without passing through the persona.",
+        description: "This article is evidenced by that document — what it cites, not what wrote it.",
+        primary: false,
     },
     EdgeKind {
         id: "links",
         from_layer: 2,
         to_layer: 2,
         description: "One article's [[wikilink]] to another.",
+        primary: true,
     },
 ];
 
@@ -779,6 +783,13 @@ pub struct EdgeKind {
     pub from_layer: u8,
     pub to_layer: u8,
     pub description: &'static str,
+    /// Whether this is part of the chain the picture is about.
+    ///
+    /// Authorship radiates: corpus → persona → work, and every piece of work
+    /// arrives along it. A citation is a different relation — it reaches back
+    /// past whatever produced the text to whatever the text rests on — so it is
+    /// drawn as a secondary connection rather than as another way in.
+    pub primary: bool,
 }
 
 /// Everything `bundle` needs. A struct because it is nine values, and at that
@@ -862,11 +873,11 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             });
         }
     }
-    // Compilation edges, source → article. Written outward: the article was
-    // compiled from the document, so the arrow runs from the document. The
-    // same `sources:` the compile loop reads, resolved the same way, so the
-    // graph shows the provenance the archive records rather than a second
-    // reading of it.
+    // Grounding edges, source → article. Not authorship: the document did not
+    // write the article, the clone did, through the persona. This records what
+    // the article rests on, which is a citation and legitimately reaches back
+    // past whatever produced the text. The same `sources:` the compile loop
+    // reads, resolved the same way.
     for article in published {
         let to = article.canonical_slug();
         for cited in &article.article.frontmatter.sources {
@@ -882,7 +893,7 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             edges.push(Edge {
                 from,
                 to: to.clone(),
-                kind: "compiles",
+                kind: "grounds",
             });
         }
     }

@@ -295,8 +295,9 @@ fn the_loop_terminates_on_an_archive_with_nothing_left_to_do() {
             &format!("wiki/philosophy/{slug}.md"),
             &format!(
                 "---\ntitle: {slug}\ndomain: philosophy\norigin: authored\n\
-                 status: stable\ntags: [t]\nsources: [raw/philosophy/s.md]\n---\n\n\
-                 Links to [[{other}]].\n"
+                 status: stable\ntags: [t]\nsources: [raw/philosophy/s.md]\n\
+                 persona:\n  - plain\n---\n\n\
+                 Links to [[{other}]] and [[voiced]].\n"
             ),
         );
     }
@@ -306,6 +307,14 @@ fn the_loop_terminates_on_an_archive_with_nothing_left_to_do() {
     a.write(
         "persona/plain.md",
         &common::trait_citing("plain", &["raw/philosophy/s.md"]),
+    );
+    // And expressed: an affirmed trait nothing has written from is `extend`
+    // work, so an archive that has not written from it is not complete.
+    a.write(
+        "wiki/philosophy/voiced.md",
+        "---\ntitle: Voiced\ndomain: philosophy\norigin: extrapolated\n\
+         status: stable\ntags: [t]\npersona:\n  - plain\n---\n\n\
+         Links to [[alpha]].\n",
     );
     a.run(&["index"]);
 

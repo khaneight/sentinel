@@ -153,6 +153,12 @@
   .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
   .legend i.rule { width: 16px; height: 2px; border-radius: 1px; margin-bottom: 3px; }
   .legend i.hollow { background: transparent; border: 2px solid; }
+  .legend i.rule.dashed {
+    background: none;
+    border-top: 2px dashed;
+    border-color: inherit;
+    height: 0;
+  }
   .legend span { display: block; }
   .machine-note {
     border: 1px solid var(--machine);
@@ -334,7 +340,7 @@ const CONTRACT = {
   layer: ['index', 'id', 'name', 'description'],
   node: ['slug', 'title', 'domain', 'origin', 'status', 'kind', 'layer', 'extrapolated', 'tags', 'body', 'inbound', 'outbound'],
   edge: ['from', 'to', 'kind'],
-  edge_kind: ['id', 'from_layer', 'to_layer', 'description'],
+  edge_kind: ['id', 'from_layer', 'to_layer', 'description', 'primary'],
   trait: ['id', 'kind', 'claim', 'confidence', 'evidence_count', 'expressed_in'],
   in_progress: ['unpublished', 'awaiting_approval', 'unconfirmed_traits', 'wanted'],
   progress: ['at', 'wiki_articles', 'links', 'wanted', 'unmined'],
@@ -443,7 +449,7 @@ const LAYER_INK = {
 // thing on a dot and on a line, and the eye can follow one colour outward.
 const EDGE_INK = {
   distils: 'var(--core)',
-  compiles: 'var(--core)',
+  grounds: 'var(--core)',
   writes: 'var(--persona)',
   links: 'var(--machine)',
 };
@@ -535,7 +541,7 @@ function render(b) {
 
         <h2>Connections</h2>
         <div class="legend">
-          ${b.edge_kinds.map((k) => `<span><i class="rule"
+          ${b.edge_kinds.map((k) => `<span><i class="rule${k.primary ? '' : ' dashed'}"
             style="background:${EDGE_INK[k.id] ?? 'var(--line)'}"></i>${esc(k.description)}</span>`).join('')}
         </div>
         <p class="hint" style="margin-top:8px">
@@ -739,7 +745,13 @@ function graph(b, onOpen) {
   // outward arrows, in opposite directions, and both are transitive. Stopping
   // at one hop would show a trait without the essay it produced, which is the
   // half worth seeing.
-  const PROVENANCE_EDGE = new Set(['distils', 'writes', 'compiles']);
+  // The chain, from the bundle's own `primary` flag rather than a list here.
+  // A grounding citation is not a way into the outer ring and following it as
+  // one would put a source document in an article's ancestry when the persona
+  // is what actually wrote it.
+  const PROVENANCE_EDGE = new Set(
+    b.edge_kinds.filter((k) => k.primary).map((k) => k.id),
+  );
   const down = new Map(b.nodes.map((n) => [n.slug, []]));
   const up = new Map(b.nodes.map((n) => [n.slug, []]));
   const sideways = new Map(b.nodes.map((n) => [n.slug, []]));
@@ -877,6 +889,7 @@ function graph(b, onOpen) {
 
     const chained = hover ? chain(hover) : null;
     const shown = (slug) => matches(byId.get(slug) ?? {});
+    const primary = PROVENANCE_EDGE;
     const ink = (kind) => style.getPropertyValue(
       (EDGE_INK[kind] ?? 'var(--line)').replace(/^var\(|\)$/g, ''),
     ).trim();
@@ -887,6 +900,9 @@ function graph(b, onOpen) {
       const visible = shown(from) && shown(to);
       const related = chained && chained.edges.has(link.ei);
 
+      // Dashed for a citation, solid for authorship. The eye follows solid
+      // lines, and the solid ones are the chain the page is about.
+      g.setLineDash(primary.has(link.kind) ? [] : [3, 4]);
       if (related) {
         g.globalAlpha = 1;
         g.lineWidth = 1.8;
@@ -908,6 +924,7 @@ function graph(b, onOpen) {
       g.lineTo(screen[link.b].x, screen[link.b].y);
       g.stroke();
     }
+    g.setLineDash([]);
     g.globalAlpha = 1;
     g.lineWidth = 1;
 

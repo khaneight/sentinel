@@ -245,8 +245,8 @@ fn the_next_priority_ladder_is_published() {
         actions,
         [
             "fix-errors",
-            "compile",
             "learn",
+            "compile",
             "write",
             "connect",
             "extend",
