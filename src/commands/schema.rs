@@ -209,7 +209,7 @@ pub const PERSONA_FIELDS: &[Field] = &[
         required: true,
         kind: "enum",
         values: Some(persona::KINDS),
-        description: "style = how the prose reads; principle = a rule the author applies; belief = a position they hold; pattern = a recurring move in how they think.",
+        description: "Ordered surface inwards. style = how the prose reads; pattern = a recurring move in how they think; principle = a rule they apply; value = what they hold worth having (a principle says do this, a value says this matters); belief = a position about the world.",
     },
     Field {
         name: "claim",

@@ -313,17 +313,15 @@ fn published_sources_are_nodes_at_the_core() {
         "the source's own text travels with it so it can be read:\n{node:#}"
     );
 
-    // And the citing article points at it.
+    // And it points at the article compiled from it — outward, because that is
+    // the direction the work actually flowed.
     let cited = bundle["edges"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|e| e["from"] == "essay" && e["to"] == "src:philosophy/open");
-    assert!(
-        cited,
-        "the citation should be an edge:\n{:#}",
-        bundle["edges"]
-    );
+        .find(|e| e["from"] == "src:philosophy/open" && e["to"] == "essay")
+        .unwrap_or_else(|| panic!("the citation should be an edge:\n{:#}", bundle["edges"]));
+    assert_eq!(cited["kind"], "compiles");
 }
 
 #[test]

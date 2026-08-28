@@ -62,20 +62,31 @@ what let them check a sentence about themselves without re-reading an essay.
 with a claim about themselves. Leave it `proposed`. Writing it yourself is the
 clone approving its own reading of the person it is modelling.
 
-## Reading a document
+## Distilling a document
 
-Read the whole thing before writing anything. You are looking for four
-different things, and `sentinel schema` publishes what each `kind` means:
+Read the whole thing before writing anything. Then go through it **once per
+kind**, because each one is found by asking a different question and they are
+easy to conflate. `sentinel schema` publishes the list; this is how to work it.
 
-- **style** — how the prose actually reads. Sentence length, whether they hedge,
-  whether they use the first person, how they open and close, what they do with
-  examples. Be specific enough to be falsifiable: "writes plainly" is not a
-  trait, "states the conclusion first and spends the paragraph defending it" is.
-- **principle** — a rule they apply, whether or not they state it as one.
-- **belief** — a position they hold about the world.
-- **pattern** — a recurring move in how they think. Reaching for a historical
-  parallel; testing an idea against the smallest case; naming the strongest
-  objection before their own argument.
+| kind | the question to ask | the test |
+|---|---|---|
+| **style** | How does this *read*? | Could a reader tell their paragraph from someone else's on this alone? |
+| **pattern** | What move do they keep making? | Can you point at it happening more than once? |
+| **principle** | What rule are they applying? | Can you state it as *do this* and have them recognise it? |
+| **value** | What do they treat as worth having? | Does it survive when the rule it produced would not? |
+| **belief** | What do they hold to be the case? | Is it a claim about the world that could be false? |
+
+The two that get confused are **principle** and **value**. A principle says
+*do this*; a value says *this matters*. "Open with the concrete case" is a
+principle. "Understanding beats agreement" is the value underneath it, and the
+same value produces a different rule in a different setting. Record both when
+both are there — the value is what lets the clone extend their thinking to
+something they never wrote about, rather than only repeat conclusions.
+
+**Be specific enough to be falsifiable.** "Writes plainly" is not a trait;
+"states the conclusion first and spends the paragraph defending it" is. If you
+cannot imagine the user reading a claim and saying *no, not quite* — it is too
+vague to be worth their time answering.
 
 ### What not to record
 
@@ -91,9 +102,14 @@ different things, and `sentinel schema` publishes what each `kind` means:
 
 ### One document, few traits
 
-Two to four traits from a document is normal. A document that yields twelve
-usually means you are recording the document's contents rather than its
-author's habits.
+Two to four traits from a document is normal, and they will not be evenly
+spread across the kinds — most documents show style and one or two patterns,
+and only some state a principle or a value clearly enough to record. **Do not
+fill the table.** A trait invented to complete the set is exactly the kind of
+claim the user then has to spend time rejecting.
+
+A document that yields twelve usually means you are recording the document's
+contents rather than its author's habits.
 
 Prefer **adding evidence to an existing trait** over writing a near-duplicate.
 If `sentinel persona` already lists a claim and this document supports it too,
@@ -106,9 +122,21 @@ worth more than three claims seen once.
 One file per trait at `persona/<id>.md`, where `<id>` matches the `id:` field.
 `templates/persona-trait.md` is generated from the contract.
 
-Set `confidence` honestly: `high` for something the document makes unmissable
-and other documents corroborate, `low` for a reading you would defend but not
-insist on. A profile of uniformly `high` traits is a profile nobody calibrated.
+Set `confidence` honestly, because it is the only signal the user has about how
+hard to look before answering:
+
+- **high** — the document makes it unmissable *and* a second document
+  corroborates it. Two sources in two contexts is what `high` means here.
+- **medium** — clear in one document, or clear across two but stated once.
+- **low** — a reading you would defend but not insist on. Say in the body what
+  the weaker reading is, so they can judge between them rather than only
+  judging you.
+
+A profile of uniformly `high` traits is a profile nobody calibrated.
+
+The `id` should read as the trait, not as the document: `argues-from-cases`,
+not `on-teaching-style-1`. It is what an article cites when it says what it was
+written from, and it is the label on the graph.
 
 ## After writing
 
@@ -142,6 +170,15 @@ Stop and ask the user when:
 - A document registered `origin: authored` plainly is not theirs — a paper, a
   quotation file, someone else's essay ingested without `-o researched`. Say so
   and recommend fixing the origin; do not mine it, and do not edit `raw/`.
+
+## Where this goes
+
+Traits are the middle layer of the archive: source material at the core, the
+persona distilled from it, and the clone's work written from that. An affirmed
+trait becomes a node in the published graph with an edge down to each document
+it was read out of and up to each article written from it — so a reader can
+follow a claim in a generated essay back to the sentence in the corpus that
+supports it. That chain is only as good as the `evidence:` you record.
 
 ## Report
 
