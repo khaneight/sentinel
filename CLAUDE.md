@@ -51,35 +51,32 @@ Each of these was a bug. Breaking one reintroduces it.
 characters dropped. Use `canonical_slug()`, never `slug()`, which is for display.
 Plurals and the Turkish dotted `İ` are deliberately *not* folded.
 
-**Nothing uncited about a person.** `persona/` holds claims about the author. A
-trait with no `evidence:` is a lint **error**, and every entry must resolve to a
-raw document whose `origin` is `authored` or `hybrid` — research records what
-they read, not what they think. The repair for either is never to supply the
-missing part. [`docs/clone.md`](docs/clone.md).
-
-**Generated work is traceable.** `origin: extrapolated` marks what the clone
-wrote. It must name the `persona:` traits it rests on
-(`unattributed-extrapolation`), those must resolve, and they must be ones the
-author *affirmed* — writing from a rejected trait is an error, from an
-unconfirmed one a warning. `INGESTABLE_ORIGINS` is a strict subset of `ORIGINS`:
-`raw/` can never hold extrapolated work, or the archive could learn a person
-from its own output.
+**The citation chain, corpus to output.** Every link is a lint **error** to
+break; the repair is never to supply the missing part.
+A `persona/` trait must cite `evidence:`, and every entry must resolve to a raw
+document whose `origin` is `authored` or `hybrid` — research records what they
+read, not what they think. An `origin: extrapolated` article must name the
+`persona:` traits it rests on (`unattributed-extrapolation`), those must
+resolve, and they must be ones the author *affirmed*; from a rejected trait is
+an error, from an unconfirmed one a warning. `INGESTABLE_ORIGINS` is a strict
+subset of `ORIGINS`, so `raw/` can never hold extrapolated work — otherwise the
+archive could learn a person from its own output.
+[`docs/clone.md`](docs/clone.md).
 
 **`raw/` is published one document at a time.** `export --with-sources` copies
-only entries marked `publish: true` by `sentinel sources`, default false.
-Nothing about a file says whether its owner may publish it, so there is no flag
-that takes the directory. The published copy of an article has its `sources:`
-rewritten to name only what a reader can open — a withheld filename is often
-the private part.
+only entries marked `publish: true` by `sentinel sources`, default false —
+nothing about a file says whether its owner may publish it, so no flag takes
+the directory. A published article's `sources:` is rewritten to name only what
+a reader can open; a withheld filename is often the private part.
 
-**The owner's word.** `review:` entries are the archive owner's verdicts, and
-`sentinel review` is their only writer — no skill invokes it, because an agent
-that can approve its own work has a permission system in name only. Entries
-append; the operative one is the latest that *decided* something, and a
-`comment` decides nothing. A verdict is never attributed to a default: with no
-`--by`, `SENTINEL_REVIEWER` or `USER`, the command refuses. A persona trait
-carries its standing twice — `status:` is what a reader sees, `review:` is the
-history — and `verdict-disagrees-with-status` reports them drifting.
+**The owner's word.** `review:` entries are the owner's verdicts and `sentinel
+review` is their only writer — no skill invokes it, because an agent that can
+approve its own work has a permission system in name only. Entries append; the
+operative one is the latest that *decided* something, and a `comment` decides
+nothing. A verdict is never attributed to a default: with no `--by`,
+`SENTINEL_REVIEWER` or `USER` it refuses. A trait carries its standing twice —
+`status:` is what a reader sees, `review:` the history — and
+`verdict-disagrees-with-status` reports them drifting.
 
 **Derivation.** A raw document is compiled when some article names it in
 `sources:`. That mapping is derived live by `compilation::Compilation`, never
@@ -169,34 +166,39 @@ it.
 Behaviour a reader would not guess. Everything else is in `--help`, and the
 reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.md).
 
-- **`mv`** rewrites every `sources:` citation, matching them the way the
-  compile loop does. **`rm`** refuses when anything cites the target and points
-  at `mv`; `--force` reports each citation it orphans. Both edit text inside the
+- **`mv`** rewrites every `sources:` citation, matched the way the compile loop
+  does. **`rm`** refuses when anything cites the target and points at `mv`;
+  `--force` reports each citation it orphans. Both edit text inside the
   frontmatter block only.
-- **`search`** ranks title 1000 / slug 500 / tag 200 / body line 1.
-  **`graph`** bare dumps the whole topology, for humans. **`log`** reads with no
-  arguments and appends with them.
+- **`search`** ranks title 1000 / slug 500 / tag 200 / body line 1. **`graph`**
+  bare dumps the whole topology. **`log`** reads with no arguments, appends with
+  them.
 - **`export`** writes the publishable subset, rewriting `[[links]]` to
-  unpublished pages as plain text. **An `extrapolated` article publishes only
-  when its latest verdict is `approved`** — no `--status` opens that gate — and
-  the *exporter* appends the attribution notice, because an agent that composes
-  its own disclosure can leave it out. The `--data` bundle carries affirmed
-  traits only, never their `raw/` paths. It renders no HTML, refuses to write under
+  unpublished pages as plain text. It renders no HTML, refuses to write under
   `wiki/`, `raw/` or `index/`, and — publishing not being recoverable by
-  re-running — refuses on a partial view. `--data` emits the front-end bundle,
-  including `meta/progress.jsonl`: one snapshot per `index` **that changed
-  something**, so it records the archive, not how often a command ran.
-  `--ui <dir>` writes the showcase page (`ui/index.html`, `include_str!`d so it
-  cannot drift from the bundle shape) plus its own `bundle.json`, since a page
-  without its data is a site whose only content is an error message.
-  [`docs/publishing.md`](docs/publishing.md) has the workflow.
+  re-running — refuses on a partial view. **An `extrapolated` article publishes
+  only when its latest verdict is `approved`**; no `--status` opens that gate,
+  and the *exporter* appends the attribution notice, because an agent that
+  composes its own disclosure can leave it out.
+  `--data`/`--ui` emit the front-end bundle. `LAYERS` (source material, persona,
+  the clone's work) and each node's `layer` are published, so a page cannot
+  invent its own account of what the archive is made of. **Affirmed traits are
+  nodes**; `proposed` ones are absent, as from `persona`. Never `raw/` paths.
+  **Every edge points outward** and declares its `EDGE_KINDS` entry —
+  `distils`, `writes`, `compiles`, `links` — because the arrow is the claim, and
+  reversed the graph says the work produced the corpus; a test asserts every
+  emitted edge joins the layers its kind declares. `--ui` also writes
+  `ui/index.html` (`include_str!`d, so page and bundle cannot drift) beside its
+  own `bundle.json`, since a page without data is a site of one error message.
+  [`docs/publishing.md`](docs/publishing.md) has the workflow, and
+  `meta/progress.jsonl` — one snapshot per `index` **that changed something** —
+  is the growth series it carries.
 - **`index`** regenerates every `index/` page, the link graph and the manifest's
-  compilation mapping. `_dashboard.md` is the human page, generated from
+  compilation mapping. `_dashboard.md` is the human page — from
   `next::recommend`, `status::summarize`, `lint::analyze` and `schema`, never a
   second definition, and capped so it cannot become `_master.md`. Agents use
-  `sentinel next --json`: same facts, less context.
-  `paths::DEFAULT_DOMAINS` is only what `init` creates; live domains come from
-  disk.
+  `sentinel next --json` instead. `paths::DEFAULT_DOMAINS` is only what `init`
+  creates; live domains come from disk.
 
 ## Skills
 
@@ -224,12 +226,11 @@ that the archive file stays small enough to be per-session context.
 
 - Integration tests drive the compiled binary against temp archives and scrub
   `SENTINEL_ARCHIVE`/`SENTINEL_CONFIG` so they cannot read the developer's own.
-- **`tests/onboarding.rs` tests journeys, not commands.** `tests/common/journey.rs`
-  records a whole session and asserts over the transcript. Two defects it exists
-  for were invisible one command at a time: `next` telling a brand-new archive
-  "Nothing outstanding", and `connect` asking a one-article archive for an
-  incoming link forever. Add a step when a change alters what a user sees *in
-  sequence*.
+- **`tests/onboarding.rs` tests journeys, not commands**, over a recorded
+  transcript. Two defects it exists for were invisible one command at a time:
+  `next` telling a brand-new archive "Nothing outstanding", and `connect`
+  asking a one-article archive for an incoming link forever. Add a step when a
+  change alters what a user sees *in sequence*.
 - **When a test enumerates, enumerate from the source of truth** — from
   `--help`, from `schema`, from `RULES` — not from the case in front of you.
   Three bugs got through guards that checked only the site being written.

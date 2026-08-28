@@ -585,6 +585,10 @@ pub fn run(options: Options<'_>) -> io::Result<i32> {
 struct Bundle {
     generated_at: String,
     schema_version: u32,
+    /// The layers, in order, with the names a reader should see.
+    layers: &'static [Layer],
+    /// The kinds of connection between them.
+    edge_kinds: &'static [EdgeKind],
     /// Only published articles, so the bundle can be served beside them.
     nodes: Vec<Node>,
     edges: Vec<Edge>,
@@ -675,23 +679,106 @@ struct Node {
 }
 
 /// How far a piece of work sits from the author's own hand.
-fn layer_of(origin: &str) -> u8 {
-    match origin {
-        "authored" => 1,
-        "hybrid" => 2,
-        "researched" => 3,
-        crate::core::frontmatter::EXTRAPOLATED => 4,
-        // An origin the contract does not know. Placed with the machine work
-        // rather than at the core: whatever it is, nothing has established it
-        // is theirs.
-        _ => 4,
-    }
+/// The three layers, published so a front end can name them without inventing
+/// its own account of what the archive is made of.
+///
+/// This is the shape of the whole system, not a display choice: the author
+/// writes, the archive distils a model of them from it, and the clone produces
+/// work from that model. Each layer is derived from *what a document is*, never
+/// from anything a page decides.
+pub const LAYERS: &[Layer] = &[
+    Layer {
+        index: 0,
+        id: "source",
+        name: "Source material",
+        description: "Documents the author wrote. Nothing here was produced by the archive.",
+    },
+    Layer {
+        index: 1,
+        id: "persona",
+        name: "Persona",
+        description: "Cited traits distilled from that writing — how they argue and what they hold. Each one names the documents it was read out of.",
+    },
+    Layer {
+        index: 2,
+        id: "work",
+        name: "The clone's work",
+        description: "Articles the archive produced: compiled from sources, or written from the persona and signed off by the author.",
+    },
+];
+
+#[derive(Serialize, Clone, Copy)]
+pub struct Layer {
+    pub index: u8,
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
 }
 
-#[derive(Serialize)]
+/// Which layer a wiki article belongs to.
+///
+/// All of them: an article is the archive's output whether it was compiled from
+/// a source or extrapolated from the persona. The difference between those two
+/// is carried by `origin` and `extrapolated`, which is what marks generated
+/// work — depth answers a different question, and conflating the two would put
+/// a compiled article and a machine-written one on different rings while
+/// claiming the rings mean provenance layer.
+fn layer_of(_origin: &str) -> u8 {
+    2
+}
+
+/// A connection, always pointing **outward** — from what something came from
+/// towards what came of it.
+///
+/// The direction is the claim. A source document did not cite an article; the
+/// article was compiled from it. A trait did not reference a source; it was
+/// distilled out of one. Recording the arrows the other way round would draw a
+/// picture in which the work produced the corpus.
+#[derive(Clone, Serialize)]
 struct Edge {
     from: String,
     to: String,
+    /// What kind of connection, so a reader is not left inferring it from the
+    /// endpoints and a front end does not have to reimplement the layer rules
+    /// to colour it.
+    kind: &'static str,
+}
+
+/// Every edge kind, published so a page can key its colours off the set rather
+/// than off a guess about what the endpoints mean.
+pub const EDGE_KINDS: &[EdgeKind] = &[
+    EdgeKind {
+        id: "distils",
+        from_layer: 0,
+        to_layer: 1,
+        description: "A persona trait was read out of this document.",
+    },
+    EdgeKind {
+        id: "writes",
+        from_layer: 1,
+        to_layer: 2,
+        description: "This article was written from that trait.",
+    },
+    EdgeKind {
+        id: "compiles",
+        from_layer: 0,
+        to_layer: 2,
+        description: "This article was compiled from that document, without passing through the persona.",
+    },
+    EdgeKind {
+        id: "links",
+        from_layer: 2,
+        to_layer: 2,
+        description: "One article's [[wikilink]] to another.",
+    },
+];
+
+#[derive(Serialize, Clone, Copy)]
+pub struct EdgeKind {
+    pub id: &'static str,
+    pub from_layer: u8,
+    pub to_layer: u8,
+    pub description: &'static str,
 }
 
 /// Everything `bundle` needs. A struct because it is nine values, and at that
@@ -719,6 +806,14 @@ fn strip_frontmatter(text: &str) -> String {
         Some(end) => text[end..].trim_start().to_string(),
         None => text.trim_start().to_string(),
     }
+}
+
+/// The identity a persona trait goes by in the graph.
+///
+/// Prefixed for the same reason sources are: node ids share one namespace, and
+/// a trait called `virtue` must not collide with an article about it.
+fn trait_slug(id: &str) -> String {
+    format!("trait:{}", crate::core::slug::canonical(id))
 }
 
 /// The identity a published source document goes by in the graph.
@@ -763,14 +858,17 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             edges.push(Edge {
                 from: from.clone(),
                 to,
+                kind: "links",
             });
         }
     }
-    // Citation edges, article → source. The same `sources:` the compile loop
-    // reads, resolved the same way, so the graph shows the provenance the
-    // archive records rather than a second reading of it.
+    // Compilation edges, source → article. Written outward: the article was
+    // compiled from the document, so the arrow runs from the document. The
+    // same `sources:` the compile loop reads, resolved the same way, so the
+    // graph shows the provenance the archive records rather than a second
+    // reading of it.
     for article in published {
-        let from = article.canonical_slug();
+        let to = article.canonical_slug();
         for cited in &article.article.frontmatter.sources {
             let Some(resolved) = index.resolve(cited) else {
                 continue;
@@ -778,13 +876,65 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             let Some(out_rel) = public_sources.get(&resolved) else {
                 continue;
             };
-            let to = source_slug(out_rel);
+            let from = source_slug(out_rel);
             *outbound.entry(from.clone()).or_default() += 1;
             *inbound.entry(to.clone()).or_default() += 1;
             edges.push(Edge {
-                from: from.clone(),
-                to,
+                from,
+                to: to.clone(),
+                kind: "compiles",
             });
+        }
+    }
+    edges.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
+    edges.dedup_by(|a, b| a.from == b.from && a.to == b.to);
+
+    // The persona, between the corpus and the work. Affirmed traits only — the
+    // same gate the `persona` list downstream uses, and for the same reason: a
+    // `proposed` trait is an unconfirmed reading, and drawing one in the middle
+    // of the picture asserts it to every reader before the author has seen it.
+    //
+    // Its edges are the two claims the layer makes, both pointing outward: the
+    // documents it was distilled from flow into it, and it flows into the work
+    // written from it. Following those arrows from a source document is the
+    // whole story — this is what I read, this is what I concluded from it,
+    // this is what got written.
+    for t in traits.iter().filter(|t| t.is_affirmed()) {
+        let id = trait_slug(&t.id());
+        for cited in &t.frontmatter.evidence {
+            let Some(resolved) = index.resolve(cited) else {
+                continue;
+            };
+            let Some(out_rel) = public_sources.get(&resolved) else {
+                continue;
+            };
+            let from = source_slug(out_rel);
+            *outbound.entry(from.clone()).or_default() += 1;
+            *inbound.entry(id.clone()).or_default() += 1;
+            edges.push(Edge {
+                from,
+                to: id.clone(),
+                kind: "distils",
+            });
+        }
+        for article in published {
+            let canonical = t.canonical_id();
+            if article
+                .article
+                .frontmatter
+                .persona
+                .iter()
+                .any(|c| slug::canonical(c) == canonical)
+            {
+                let to = article.canonical_slug();
+                *outbound.entry(id.clone()).or_default() += 1;
+                *inbound.entry(to.clone()).or_default() += 1;
+                edges.push(Edge {
+                    from: id.clone(),
+                    to,
+                    kind: "writes",
+                });
+            }
         }
     }
     edges.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
@@ -824,6 +974,27 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
         })
         .collect();
     nodes.sort_by(|a, b| a.slug.cmp(&b.slug));
+
+    nodes.extend(traits.iter().filter(|t| t.is_affirmed()).map(|t| {
+        let slug = trait_slug(&t.id());
+        Node {
+            title: t.frontmatter.claim.clone().unwrap_or_else(|| t.id()),
+            domain: String::new(),
+            origin: t.kind().to_string(),
+            status: t.status().to_string(),
+            kind: "trait",
+            layer: 1,
+            extrapolated: false,
+            tags: vec![t.kind().to_string()],
+            // The reasoning behind the claim, which is what makes the trait
+            // checkable rather than merely asserted. Same rule as everywhere
+            // else here: `evidence:` names `raw/` paths and is left out.
+            body: t.body.clone(),
+            inbound: inbound.get(&slug).copied().unwrap_or(0),
+            outbound: outbound.get(&slug).copied().unwrap_or(0),
+            slug,
+        }
+    }));
 
     nodes.extend(published.iter().map(|a| {
         let slug = a.canonical_slug();
@@ -890,6 +1061,8 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
     Ok(Bundle {
         generated_at: generated_at.to_string(),
         schema_version: output::SCHEMA_VERSION,
+        layers: LAYERS,
+        edge_kinds: EDGE_KINDS,
         nodes,
         edges,
         persona,

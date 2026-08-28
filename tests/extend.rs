@@ -535,10 +535,44 @@ fn the_notice_reads_as_a_sentence() {
 }
 
 #[test]
-fn provenance_becomes_depth_in_the_bundle() {
-    // What the showcase draws as distance from the author. Asserted here rather
-    // than left to the page, so a front end cannot invent its own opinion about
-    // whose work something is.
+fn the_bundle_publishes_three_layers_in_order() {
+    // The shape of the whole system, and the thing the picture claims. Named
+    // here rather than in the page, so a front end cannot invent its own
+    // account of what the archive is made of.
+    let a = archive();
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+    let ids: Vec<&str> = bundle["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["source", "persona", "work"]);
+    for (i, l) in bundle["layers"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(l["index"], i as u64, "index must match position");
+        assert!(!l["name"].as_str().unwrap().is_empty());
+        assert!(!l["description"].as_str().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn every_article_sits_in_the_work_layer_whatever_its_origin() {
+    // Depth answers "what kind of thing is this", not "how was it written".
+    // Origin answers the second, and `extrapolated` is what marks generated
+    // work — splitting the rings by origin would put a compiled article and a
+    // machine-written one at different depths while the legend claims depth
+    // means layer.
     let a = archive();
     for (slug, origin) in [
         ("mine", "authored"),
@@ -583,10 +617,200 @@ fn provenance_becomes_depth_in_the_bundle() {
             .as_u64()
             .unwrap()
     };
-    assert_eq!(layer("mine"), 1, "their own thinking sits nearest");
-    assert_eq!(layer("ours"), 2);
-    assert_eq!(layer("theirs"), 3);
-    assert_eq!(layer("machine"), 4, "the clone's work sits furthest out");
+    for slug in ["mine", "ours", "theirs", "machine"] {
+        assert_eq!(layer(slug), 2, "{slug} belongs to the work layer");
+    }
+
+    // And the distinction that does matter is still carried.
+    let node = |slug: &str| -> serde_json::Value {
+        bundle["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["slug"] == slug)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(node("machine")["extrapolated"], true);
+    assert_eq!(node("mine")["extrapolated"], false);
+}
+
+#[test]
+fn an_affirmed_trait_is_a_node_between_its_evidence_and_its_work() {
+    // The middle layer is the point of the whole picture: it is what connects
+    // what the author wrote to what the archive produced from it. A graph that
+    // showed sources and articles but not the traits would be claiming the
+    // clone works directly from the corpus, which is not what happens.
+    let a = archive();
+    a.run(&["sources", "raw/philosophy/mine.md", "--publish"]);
+    a.write(
+        "wiki/philosophy/new.md",
+        &extrapolated("New", &["held"]).replace("status: draft", "status: stable"),
+    );
+    a.run(&["index"]);
+    approve(&a, "new");
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--with-sources",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+
+    let t = bundle["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["kind"] == "trait")
+        .expect("an affirmed trait is in the graph");
+    assert_eq!(t["layer"], 1);
+    assert_eq!(t["slug"], "trait:held");
+    assert_eq!(
+        t["title"], "The author holds held.",
+        "the claim is the title"
+    );
+
+    // Both arrows point outward, which is the claim: the document produced the
+    // trait, the trait produced the article. Recorded the other way round the
+    // graph would say the work produced the corpus.
+    let edge = |from: &str, to: &str| -> Option<String> {
+        bundle["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["from"] == from && e["to"] == to)
+            .map(|e| e["kind"].as_str().unwrap().to_string())
+    };
+    assert_eq!(
+        edge("src:philosophy/mine", "trait:held").as_deref(),
+        Some("distils"),
+        "the document it was read out of points at it:\n{:#}",
+        bundle["edges"]
+    );
+    assert_eq!(
+        edge("trait:held", "new").as_deref(),
+        Some("writes"),
+        "and it points at the work written from it:\n{:#}",
+        bundle["edges"]
+    );
+}
+
+#[test]
+fn every_edge_points_away_from_the_author() {
+    // The invariant behind the picture. Enumerated from the published edge
+    // kinds rather than from a list here, so a kind added later has to declare
+    // which layers it joins and cannot quietly run inward.
+    let a = archive();
+    a.run(&["sources", "raw/philosophy/mine.md", "--publish"]);
+    a.write(
+        "wiki/philosophy/new.md",
+        &extrapolated("New", &["held"]).replace("status: draft", "status: stable"),
+    );
+    a.run(&["index"]);
+    approve(&a, "new");
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--with-sources",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+
+    let layer_of = |slug: &str| -> u64 {
+        bundle["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["slug"] == slug)
+            .unwrap_or_else(|| panic!("{slug} is a node"))["layer"]
+            .as_u64()
+            .unwrap()
+    };
+    let kinds = bundle["edge_kinds"].as_array().unwrap();
+    assert!(kinds.len() >= 4, "the edge kinds should be published");
+    for k in kinds {
+        assert!(
+            k["from_layer"].as_u64().unwrap() <= k["to_layer"].as_u64().unwrap(),
+            "edge kind `{}` runs inward",
+            k["id"]
+        );
+    }
+
+    let declared: std::collections::HashMap<&str, (u64, u64)> = kinds
+        .iter()
+        .map(|k| {
+            (
+                k["id"].as_str().unwrap(),
+                (
+                    k["from_layer"].as_u64().unwrap(),
+                    k["to_layer"].as_u64().unwrap(),
+                ),
+            )
+        })
+        .collect();
+
+    let edges = bundle["edges"].as_array().unwrap();
+    assert!(!edges.is_empty(), "the fixture should produce edges");
+    for e in edges {
+        let kind = e["kind"].as_str().unwrap();
+        let (from, to) = declared
+            .get(kind)
+            .unwrap_or_else(|| panic!("edge kind `{kind}` is emitted but not published"));
+        assert_eq!(
+            (
+                layer_of(e["from"].as_str().unwrap()),
+                layer_of(e["to"].as_str().unwrap())
+            ),
+            (*from, *to),
+            "a `{kind}` edge joined the wrong layers: {e:#}"
+        );
+    }
+}
+
+#[test]
+fn an_unaffirmed_trait_is_not_in_the_graph() {
+    // Same gate as everywhere else. Drawing a `proposed` trait in the middle of
+    // the picture asserts an unconfirmed reading of a person to every reader
+    // before that person has seen it.
+    let a = archive();
+    a.write("persona/guessed.md", &trait_file("guessed", "proposed"));
+    a.write("persona/refused.md", &trait_file("refused", "rejected"));
+    a.run(&["index"]);
+
+    let out = tempfile::tempdir().unwrap();
+    let ui = out.path().join("ui");
+    a.run(&[
+        "export",
+        "--out",
+        &out.path().join("site").display().to_string(),
+        "--flat",
+        "--ui",
+        &ui.display().to_string(),
+    ]);
+    let bundle: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ui.join("bundle.json")).unwrap()).unwrap();
+    let slugs: Vec<&str> = bundle["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["kind"] == "trait")
+        .map(|n| n["slug"].as_str().unwrap())
+        .collect();
+    assert_eq!(slugs, ["trait:held"], "only the affirmed one");
 }
 
 #[test]

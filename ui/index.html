@@ -32,6 +32,7 @@
     --accent: #3d5a80;
     --machine: #9b5de5;
     --core: #b07d3f;
+    --persona: #2f6fb5;
     --warn: #b45309;
     --shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
   }
@@ -45,6 +46,7 @@
       --accent: #8fb3d9;
       --machine: #c79bff;
       --core: #e0b063;
+      --persona: #7fb3e8;
       --warn: #f0a860;
       --shadow: 0 16px 52px rgba(0, 0, 0, 0.62);
     }
@@ -149,6 +151,9 @@
   .trait .meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
   .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11.5px; color: var(--muted); }
   .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .legend i.rule { width: 16px; height: 2px; border-radius: 1px; margin-bottom: 3px; }
+  .legend i.hollow { background: transparent; border: 2px solid; }
+  .legend span { display: block; }
   .machine-note {
     border: 1px solid var(--machine);
     border-radius: 7px;
@@ -281,6 +286,29 @@
     color: var(--muted);
     margin: 0 0 20px;
   }
+  .badge.trait { border-color: var(--trait); color: var(--trait); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font: 11.5px/1.4 ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .chip:hover { border-color: var(--muted); color: var(--ink); }
+  .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .chip .n { opacity: 0.55; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .chip.clear { border-style: dashed; }
+  .layer-key { font-size: 12px; }
+  .layer-key div { margin-bottom: 7px; }
+  .layer-key b { color: var(--ink); font-weight: 600; }
+  .layer-key i {
+    width: 9px; height: 9px; border-radius: 50%;
+    display: inline-block; margin-right: 6px;
+  }
+  .layer-key span { color: var(--muted); }
   .tag {
     display: inline-block;
     border: 1px solid var(--line);
@@ -302,9 +330,11 @@
 // generated bundle by tests/ui.rs, so a renamed field in the exporter fails the
 // test suite rather than this page.
 const CONTRACT = {
-  top: ['generated_at', 'nodes', 'edges', 'persona', 'in_progress', 'progress'],
+  top: ['generated_at', 'layers', 'edge_kinds', 'nodes', 'edges', 'persona', 'in_progress', 'progress'],
+  layer: ['index', 'id', 'name', 'description'],
   node: ['slug', 'title', 'domain', 'origin', 'status', 'kind', 'layer', 'extrapolated', 'tags', 'body', 'inbound', 'outbound'],
-  edge: ['from', 'to'],
+  edge: ['from', 'to', 'kind'],
+  edge_kind: ['id', 'from_layer', 'to_layer', 'description'],
   trait: ['id', 'kind', 'claim', 'confidence', 'evidence_count', 'expressed_in'],
   in_progress: ['unpublished', 'awaiting_approval', 'unconfirmed_traits', 'wanted'],
   progress: ['at', 'wiki_articles', 'links', 'wanted', 'unmined'],
@@ -330,8 +360,10 @@ function missingFields(b) {
     if (!Array.isArray(arr) || !arr.length) return;
     for (const k of keys) if (!(k in arr[0])) gaps.push(`${label}.${k}`);
   };
+  sample(b.layers, CONTRACT.layer, 'layers');
   sample(b.nodes, CONTRACT.node, 'nodes');
   sample(b.edges, CONTRACT.edge, 'edges');
+  sample(b.edge_kinds, CONTRACT.edge_kind, 'edge_kinds');
   sample(b.persona, CONTRACT.trait, 'persona');
   sample(b.progress, CONTRACT.progress, 'progress');
   if (b.in_progress) {
@@ -398,10 +430,27 @@ function markdown(src, isLinked) {
 }
 
 // --- provenance -------------------------------------------------------------
-const PALETTE = ['#3d5a80', '#2d6a4f', '#9c6644', '#5f4b8b', '#a4243b', '#1b6ca8', '#7d8471'];
+// One hue per layer, keyed by the ids the bundle publishes so a layer renamed
+// there does not silently lose its colour here. Gold is what the author wrote,
+// blue is the model of them, purple is what the archive produced.
+const LAYER_INK = {
+  source: 'var(--core)',
+  persona: 'var(--persona)',
+  work: 'var(--machine)',
+};
+
+// A connection takes the colour of the layer it leaves, so hue means the same
+// thing on a dot and on a line, and the eye can follow one colour outward.
+const EDGE_INK = {
+  distils: 'var(--core)',
+  compiles: 'var(--core)',
+  writes: 'var(--persona)',
+  links: 'var(--machine)',
+};
 
 const PROVENANCE = {
   source: ['the author’s own document', 'core'],
+  trait: ['a trait the author affirmed', 'trait'],
   authored: ['distilled from their writing', ''],
   hybrid: ['their thinking, with research', ''],
   researched: ['gathered by an agent', ''],
@@ -409,16 +458,17 @@ const PROVENANCE = {
 };
 
 function describe(n) {
-  const key = n.kind === 'source' ? 'source' : n.origin;
-  return PROVENANCE[key] ?? [n.origin || 'unknown', ''];
+  if (n.kind === 'source') return PROVENANCE.source;
+  // A trait's `origin` carries its kind — style, principle, value, belief,
+  // pattern — which is more use to a reader than the word "trait".
+  if (n.kind === 'trait') return [`${n.origin || 'trait'} the author affirmed`, 'trait'];
+  return PROVENANCE[n.origin] ?? [n.origin || 'unknown', ''];
 }
 
 let APP = null;
 
 function render(b) {
-  const domains = [...new Set(b.nodes.map((n) => n.domain).filter(Boolean))].sort();
   const generated = b.nodes.filter((n) => n.extrapolated).length;
-  const sources = b.nodes.filter((n) => n.kind === 'source').length;
   const ip = b.in_progress || {};
 
   $('#root').outerHTML = `
@@ -467,15 +517,31 @@ function render(b) {
               ${t.evidence_count} source(s) · ${t.expressed_in.length} article(s)</div>
           </div>`).join('') : '<p class="hint">No affirmed traits published.</p>'}
 
-        <h2>Legend</h2>
-        <div class="legend">
-          ${sources ? '<span><i style="background:var(--core)"></i>source material</span>' : ''}
-          ${domains.map((d, i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${esc(d)}</span>`).join('')}
-          <span><i style="background:var(--machine)"></i>written by the clone</span>
+        <h2>Topics</h2>
+        <div class="chips" id="topics"></div>
+        <p class="hint" id="topic-note" style="margin-top:8px"></p>
+
+        <h2>The three layers</h2>
+        <div class="layer-key">
+          ${b.layers.map((l) => `
+            <div><i style="background:${LAYER_INK[l.id] ?? 'var(--accent)'}"></i>
+              <b>${esc(l.name)}</b><br>
+              <span>${esc(l.description)}</span></div>`).join('')}
         </div>
-        <p class="hint" style="margin-top:10px">
-          Depth is provenance: the core is what the author wrote, and each layer
-          out is a further step from their hand.
+        <div class="legend" style="margin-top:10px">
+          <span><i style="background:var(--machine)"></i>written by a language model</span>
+          <span><i class="hollow" style="border-color:var(--machine)"></i>compiled from a source</span>
+        </div>
+
+        <h2>Connections</h2>
+        <div class="legend">
+          ${b.edge_kinds.map((k) => `<span><i class="rule"
+            style="background:${EDGE_INK[k.id] ?? 'var(--line)'}"></i>${esc(k.description)}</span>`).join('')}
+        </div>
+        <p class="hint" style="margin-top:8px">
+          Every arrow points away from the author. Hover a document to follow
+          them: a source shows what came of it, a piece of the clone's work
+          shows where it came from.
         </p>
       </aside>
     </main>
@@ -496,11 +562,12 @@ function render(b) {
     $('#detail').insertAdjacentHTML('beforebegin', `
       <div class="machine-note"><b>${generated}</b> of these ${b.nodes.length}
         page(s) were written by a language model from this archive, and approved
-        by its owner. They sit at the outer edge, in purple.</div>`);
+        by its owner. They are the <b>filled</b> dots on the outer ring; hollow
+        ones were compiled from a source.</div>`);
   }
 
   drawSpark(b.progress);
-  return { domains };
+  return {};
 }
 
 function drawSpark(series) {
@@ -639,8 +706,8 @@ function layout(nodes, edges) {
 
   const idx = new Map(pts.map((p, i) => [p.n.slug, i]));
   const links = edges
-    .map((e) => [idx.get(e.from), idx.get(e.to)])
-    .filter(([a, b]) => a !== undefined && b !== undefined && a !== b);
+    .map((e, ei) => ({ a: idx.get(e.from), b: idx.get(e.to), kind: e.kind, ei }))
+    .filter((l) => l.a !== undefined && l.b !== undefined && l.a !== l.b);
 
   return { pts, links, rings: present.length };
 }
@@ -663,6 +730,109 @@ function graph(b, onOpen) {
   let hover = null;
   let selected = null;
 
+  const byId = new Map(b.nodes.map((n) => [n.slug, n]));
+
+  // Hovering should answer a question, and which question depends on what is
+  // under the cursor. On a source document: what came of this — which traits
+  // were read out of it, and what was written from those. On a piece of the
+  // clone's work: where did this come from. Both are walks along the same
+  // outward arrows, in opposite directions, and both are transitive. Stopping
+  // at one hop would show a trait without the essay it produced, which is the
+  // half worth seeing.
+  const PROVENANCE_EDGE = new Set(['distils', 'writes', 'compiles']);
+  const down = new Map(b.nodes.map((n) => [n.slug, []]));
+  const up = new Map(b.nodes.map((n) => [n.slug, []]));
+  const sideways = new Map(b.nodes.map((n) => [n.slug, []]));
+  b.edges.forEach((e, ei) => {
+    if (PROVENANCE_EDGE.has(e.kind)) {
+      down.get(e.from)?.push({ next: e.to, ei });
+      up.get(e.to)?.push({ next: e.from, ei });
+    } else {
+      sideways.get(e.from)?.push({ next: e.to, ei });
+      sideways.get(e.to)?.push({ next: e.from, ei });
+    }
+  });
+
+  // Everything the hovered node is related to, and the edges that say so.
+  function chain(slug) {
+    const node = byId.get(slug);
+    if (!node) return { nodes: new Set(), edges: new Set() };
+    const nodes = new Set([slug]);
+    const edges = new Set();
+
+    const walk = (graph) => {
+      const queue = [slug];
+      const seen = new Set([slug]);
+      while (queue.length) {
+        for (const { next, ei } of graph.get(queue.shift()) ?? []) {
+          edges.add(ei);
+          nodes.add(next);
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+    };
+
+    if (node.layer === 0) walk(down);          // what came of it
+    else if (node.layer === 1) { walk(up); walk(down); }  // both are its story
+    else walk(up);                             // provenance, back to the corpus
+
+    // Direct references, one hop only. Transitive here would light most of the
+    // wiki and say nothing.
+    for (const { next, ei } of sideways.get(slug) ?? []) {
+      edges.add(ei);
+      nodes.add(next);
+    }
+    return { nodes, edges };
+  }
+
+  // Kept for the topic filter, which only asks whether a trait is attached to
+  // anything that survives and does not care which way the arrow runs.
+  const near = new Map(b.nodes.map((n) => [n.slug, new Set()]));
+  for (const e of b.edges) {
+    near.get(e.from)?.add(e.to);
+    near.get(e.to)?.add(e.from);
+  }
+
+  // Topics are the author's own vocabulary: the domains they filed things
+  // under, plus the tags they wrote. Nothing here is a fixed list.
+  const topics = new Map();
+  for (const n of b.nodes) {
+    for (const t of [n.domain, ...(n.tags || [])]) {
+      if (!t || n.kind === 'trait') continue;
+      topics.set(t, (topics.get(t) ?? 0) + 1);
+    }
+  }
+  const active = new Set();
+
+  function matches(n) {
+    if (!active.size) return true;
+    if (n.domain && active.has(n.domain)) return true;
+    if ((n.tags || []).some((t) => active.has(t))) return true;
+    // A trait has no topic of its own — it is a claim about a person, not
+    // about a subject. It stays while anything it connects to stays, so
+    // filtering to one topic still shows what the clone drew on for it.
+    if (n.kind === 'trait') {
+      for (const other of near.get(n.slug) ?? []) {
+        const q = byId.get(other);
+        if (q && q.kind !== 'trait' && matches(q)) return true;
+      }
+    }
+    return false;
+  }
+
+  // What to write beside a dot. A trait's title is its *claim*, a whole
+  // sentence — right in the reader, unreadable strung across a graph — so the
+  // graph uses its id instead. Everything else is capped rather than truncated
+  // at some arbitrary pixel, so labels stay comparable in length.
+  const LABEL_MAX = 32;
+  function labelOf(n) {
+    const raw = n.kind === 'trait' ? n.slug.replace(/^trait:/, '') : n.title;
+    return raw.length > LABEL_MAX ? `${raw.slice(0, LABEL_MAX - 1).trimEnd()}…` : raw;
+  }
+
   const persp = (ring) => FOCAL / (FOCAL + ring * LAYER_GAP);
   const radius = (p) => 5 + Math.min(11, Math.sqrt(p.n.inbound + p.n.outbound) * 2.7);
 
@@ -675,11 +845,12 @@ function graph(b, onOpen) {
     };
   }
 
+  // Colour is the layer, and nothing else. It used to carry domain as well,
+  // which meant a reader had to know which of two things a hue was telling
+  // them; the topic filter answers that question better.
   function colorOf(n, style) {
-    if (n.kind === 'source') return style.getPropertyValue('--core').trim();
-    if (n.extrapolated) return style.getPropertyValue('--machine').trim();
-    const domains = APP.domains;
-    return PALETTE[Math.max(0, domains.indexOf(n.domain)) % PALETTE.length];
+    const ink = LAYER_INK[b.layers[n.layer]?.id] ?? 'var(--accent)';
+    return style.getPropertyValue(ink.replace(/^var\(|\)$/g, '')).trim();
   }
 
   function paint() {
@@ -704,17 +875,41 @@ function graph(b, onOpen) {
 
     const screen = placed.pts.map((p) => project(p, w, h));
 
-    g.lineWidth = 1;
-    for (const [a, bIdx] of placed.links) {
-      const far = Math.max(placed.pts[a].ring, placed.pts[bIdx].ring);
-      g.globalAlpha = 0.55 - far * 0.07;
-      g.strokeStyle = style.getPropertyValue('--line');
+    const chained = hover ? chain(hover) : null;
+    const shown = (slug) => matches(byId.get(slug) ?? {});
+    const ink = (kind) => style.getPropertyValue(
+      (EDGE_INK[kind] ?? 'var(--line)').replace(/^var\(|\)$/g, ''),
+    ).trim();
+
+    for (const link of placed.links) {
+      const from = placed.pts[link.a].n.slug;
+      const to = placed.pts[link.b].n.slug;
+      const visible = shown(from) && shown(to);
+      const related = chained && chained.edges.has(link.ei);
+
+      if (related) {
+        g.globalAlpha = 1;
+        g.lineWidth = 1.8;
+        g.strokeStyle = ink(link.kind);
+      } else if (visible && !chained) {
+        // At rest the connections still carry their colour, faintly. A grey web
+        // that only becomes meaningful on hover hides the structure the rest of
+        // the page is about.
+        g.globalAlpha = 0.3;
+        g.lineWidth = 1;
+        g.strokeStyle = ink(link.kind);
+      } else {
+        g.globalAlpha = visible ? 0.1 : 0.04;
+        g.lineWidth = 1;
+        g.strokeStyle = style.getPropertyValue('--line');
+      }
       g.beginPath();
-      g.moveTo(screen[a].x, screen[a].y);
-      g.lineTo(screen[bIdx].x, screen[bIdx].y);
+      g.moveTo(screen[link.a].x, screen[link.a].y);
+      g.lineTo(screen[link.b].x, screen[link.b].y);
       g.stroke();
     }
     g.globalAlpha = 1;
+    g.lineWidth = 1;
 
     // Back to front, so the core lands on top of what it produced.
     const order = placed.pts
@@ -727,27 +922,44 @@ function graph(b, onOpen) {
       const r = radius(p) * cam.zoom * at.s;
       if (at.x < -80 || at.x > w + 80 || at.y < -80 || at.y > h + 80) continue;
 
-      g.globalAlpha = 1 - p.ring * 0.1;
+      const visible = matches(p.n);
+      const related = !chained || chained.nodes.has(p.n.slug);
+      g.globalAlpha = visible ? (related ? 1 - p.ring * 0.08 : 0.16) : 0.08;
       g.beginPath();
       g.arc(at.x, at.y, r, 0, 6.284);
-      g.fillStyle = colorOf(p.n, style);
-      g.fill();
+      const hue = colorOf(p.n, style);
+      // Hue is the layer, so it can no longer be what marks generated work —
+      // and that distinction is not decoration. A filled dot is something a
+      // language model wrote; a hollow one was compiled from a source. Filled
+      // is the one that draws the eye, which is the right way round.
+      if (p.n.layer === 2 && !p.n.extrapolated) {
+        g.strokeStyle = hue;
+        g.lineWidth = 2;
+        g.stroke();
+        g.lineWidth = 1;
+      } else {
+        g.fillStyle = hue;
+        g.fill();
+      }
 
       if (selected === p.n.slug || hover === p.n.slug) {
         g.globalAlpha = 1;
         g.lineWidth = 2;
         g.strokeStyle = style.getPropertyValue('--ink');
+        g.beginPath();
+        g.arc(at.x, at.y, r + 2.5, 0, 6.284);
         g.stroke();
         g.lineWidth = 1;
       }
 
-      const label = r > 6 || hover === p.n.slug || selected === p.n.slug;
-      if (label && cam.zoom > 0.45) {
-        g.globalAlpha = Math.min(1, 1 - p.ring * 0.11);
+      const label = r > 6 || hover === p.n.slug || selected === p.n.slug
+        || (chained && chained.nodes.has(p.n.slug));
+      if (label && cam.zoom > 0.45 && visible) {
+        g.globalAlpha = related ? Math.min(1, 1 - p.ring * 0.09) : 0.2;
         g.fillStyle = style.getPropertyValue('--muted');
         g.font = `${Math.max(10, 11 * at.s)}px ui-sans-serif, sans-serif`;
         g.textAlign = 'center';
-        g.fillText(p.n.title, at.x, at.y - r - 5);
+        g.fillText(labelOf(p.n), at.x, at.y - r - 5);
       }
     }
     g.globalAlpha = 1;
@@ -763,6 +975,7 @@ function graph(b, onOpen) {
       .sort((i, j) => placed.pts[i].ring - placed.pts[j].ring);
     for (const i of order) {
       const p = placed.pts[i];
+      if (!matches(p.n)) continue;
       const at = project(p, w, h);
       const r = radius(p) * cam.zoom * at.s + 7;
       if ((at.x - px) ** 2 + (at.y - py) ** 2 <= r * r) return p.n;
@@ -863,6 +1076,36 @@ function graph(b, onOpen) {
       fit();
     }
   });
+
+  // --- topics ---
+  // The chips are built from the bundle, so an archive with domains this page
+  // has never heard of filters exactly the same way.
+  function drawTopics() {
+    const host = $('#topics');
+    const ordered = [...topics.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    host.innerHTML = ordered
+      .map(([t, n]) => `<button class="chip" data-topic="${esc(t)}"
+        aria-pressed="${active.has(t)}">${esc(t)}<span class="n">${n}</span></button>`)
+      .join('') + (active.size
+        ? '<button class="chip clear" data-topic="">clear</button>'
+        : '');
+    const hidden = b.nodes.filter((n) => !matches(n)).length;
+    $('#topic-note').textContent = active.size
+      ? `${b.nodes.length - hidden} of ${b.nodes.length} shown. Traits stay while anything they touch does.`
+      : 'Domains and tags, from the archive. Pick any number.';
+  }
+
+  $('#topics').addEventListener('click', (ev) => {
+    const chip = ev.target.closest('.chip');
+    if (!chip) return;
+    const topic = chip.dataset.topic;
+    if (!topic) active.clear();
+    else if (active.has(topic)) active.delete(topic);
+    else active.add(topic);
+    drawTopics();
+    paint();
+  });
+  drawTopics();
 
   $('#zoom-in').onclick = () => { cam.zoom = clamp(cam.zoom * 1.25, MIN_ZOOM, MAX_ZOOM); paint(); };
   $('#zoom-out').onclick = () => { cam.zoom = clamp(cam.zoom / 1.25, MIN_ZOOM, MAX_ZOOM); paint(); };
