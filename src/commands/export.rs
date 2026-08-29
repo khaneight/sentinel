@@ -752,28 +752,28 @@ pub const EDGE_KINDS: &[EdgeKind] = &[
         from_layer: 0,
         to_layer: 1,
         description: "A persona trait was read out of this document.",
-        primary: true,
+        role: "authorship",
     },
     EdgeKind {
         id: "writes",
         from_layer: 1,
         to_layer: 2,
         description: "This article was written from that trait.",
-        primary: true,
+        role: "authorship",
     },
     EdgeKind {
         id: "grounds",
         from_layer: 0,
         to_layer: 2,
         description: "This article is evidenced by that document — what it cites, not what wrote it.",
-        primary: false,
+        role: "citation",
     },
     EdgeKind {
         id: "links",
         from_layer: 2,
         to_layer: 2,
         description: "One article's [[wikilink]] to another.",
-        primary: true,
+        role: "reference",
     },
 ];
 
@@ -783,13 +783,22 @@ pub struct EdgeKind {
     pub from_layer: u8,
     pub to_layer: u8,
     pub description: &'static str,
-    /// Whether this is part of the chain the picture is about.
+    /// What kind of relation this is, which decides both how it is drawn and
+    /// whether following it tells you where something came from.
     ///
-    /// Authorship radiates: corpus → persona → work, and every piece of work
-    /// arrives along it. A citation is a different relation — it reaches back
-    /// past whatever produced the text to whatever the text rests on — so it is
-    /// drawn as a secondary connection rather than as another way in.
-    pub primary: bool,
+    /// - `authorship` — corpus → persona → work. The chain, walked
+    ///   transitively: everything upstream of a piece of work genuinely
+    ///   produced it.
+    /// - `reference` — one article citing another. Real, and drawn solid, but
+    ///   *not* ancestry. Walking it transitively would report an article as
+    ///   descended from a trait because something it links to was.
+    /// - `citation` — what a piece of work rests on. Reaches back past
+    ///   whatever produced the text, so it is drawn dashed and never followed
+    ///   as a way in.
+    ///
+    /// A single "is this important" flag conflated the second and the third and
+    /// made `concrete-first` claim six articles downstream when it wrote four.
+    pub role: &'static str,
 }
 
 /// Everything `bundle` needs. A struct because it is nine values, and at that

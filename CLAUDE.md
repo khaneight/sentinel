@@ -184,11 +184,13 @@ reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.
   the clone's work) and each node's `layer` are published, so a page cannot
   invent its own account of what the archive is made of. **Affirmed traits are
   nodes**; `proposed` ones are absent, as from `persona`. Never `raw/` paths.
-  **Every edge points outward** and declares its `EDGE_KINDS` entry;
-  a test asserts each joins the layers its kind names. Authorship is the chain —
-  `distils`, `writes`, `links`, all `primary` — while `grounds` (an article's
-  `sources:`) is a *citation*, not a second way in: the document did not write
-  the article, the clone did, through the persona. `--ui` also writes
+  **Every edge points outward** and declares its `EDGE_KINDS` entry with a
+  `role`; a test asserts each joins the layers its kind names. Only
+  `authorship` (`distils`, `writes`) is ancestry and walked transitively.
+  `links` is a `reference` — real, drawn solid, but one hop: following it as
+  ancestry made a trait claim work it had not written. `grounds` (an article's
+  `sources:`) is a `citation`, drawn dashed and never a way in — the document
+  did not write the article, the clone did, through the persona. `--ui` also writes
   `ui/index.html` (`include_str!`d, so page and bundle cannot drift) beside its
   own `bundle.json`, since a page without data is a site of one error message.
   [`docs/publishing.md`](docs/publishing.md) has the workflow, and
