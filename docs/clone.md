@@ -26,8 +26,8 @@ A fourth layer, `persona/`, and a second kind of output.
 ```
 raw/       source documents — immutable
 persona/   traits: how you write, what you hold — each one cited to raw/
-wiki/      articles compiled from sources (what you know)
-           + articles extrapolated by the clone (what you might say)
+wiki/      articles compiled from sources (derived: what your material says)
+           + articles extrapolated by the clone (invented: what you might say)
 index/     generated
 meta/      machine state
 ```

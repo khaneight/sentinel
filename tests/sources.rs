@@ -313,15 +313,17 @@ fn published_sources_are_nodes_at_the_core() {
         "the source's own text travels with it so it can be read:\n{node:#}"
     );
 
-    // And it points at the article compiled from it — outward, because that is
-    // the direction the work actually flowed.
+    // And it points at the article compiled from it — outward, and as
+    // *authorship*: a compiled article sets down what the document says, so the
+    // document is where its claims come from. Only work that no source contains
+    // gets a `grounds` citation instead.
     let cited = bundle["edges"]
         .as_array()
         .unwrap()
         .iter()
         .find(|e| e["from"] == "src:philosophy/open" && e["to"] == "essay")
         .unwrap_or_else(|| panic!("the citation should be an edge:\n{:#}", bundle["edges"]));
-    assert_eq!(cited["kind"], "grounds");
+    assert_eq!(cited["kind"], "distils");
 }
 
 #[test]
