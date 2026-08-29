@@ -182,18 +182,16 @@ reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.
   composes its own disclosure can leave it out.
   `--data`/`--ui` emit the front-end bundle. `LAYERS` (source material, persona,
   the clone's work) and each node's `layer` are published, so a page cannot
-  invent its own account of what the archive is made of. **Affirmed traits are
-  nodes**; `proposed` ones are absent, as from `persona`. Never `raw/` paths.
-  **Every edge points outward** and declares its `EDGE_KINDS` entry with a
-  `role`; a test asserts each joins the layers its kind names. Only
-  `authorship` (`distils`, `writes`) is ancestry and walked transitively.
-  `links` is a `reference` — real, drawn solid, but one hop: following it as
-  ancestry made a trait claim work it had not written. `grounds` (an article's
-  `sources:`) is a `citation`, drawn dashed and never a way in — the document
-  did not write the article, the clone did, through the persona. `--ui` also writes
-  `ui/index.html` (`include_str!`d, so page and bundle cannot drift) beside its
-  own `bundle.json`, since a page without data is a site of one error message.
-  [`docs/publishing.md`](docs/publishing.md) has the workflow, and
+  invent its own account of the archive. **Affirmed traits are nodes**;
+  `proposed` ones are absent, as from `persona`. Never `raw/` paths.
+  **Every edge points outward** with an `EDGE_KINDS` `role`; a test asserts each
+  joins the layers it names. Only `authorship` (`distils`, `writes`) is ancestry
+  and walked transitively — `links` is a `reference`, one hop, and following it
+  as ancestry made a trait claim work it had not written; `grounds` (`sources:`)
+  is a `citation`, never a way in, because the clone wrote the article through
+  the persona, not the document. `--ui` also writes `ui/index.html`
+  (`include_str!`d, so page and bundle cannot drift) beside its own
+  `bundle.json`. [`docs/publishing.md`](docs/publishing.md) has the workflow;
   `meta/progress.jsonl` — one snapshot per `index` **that changed something** —
   is the growth series it carries.
 - **`index`** regenerates every `index/` page, the link graph and the manifest's
