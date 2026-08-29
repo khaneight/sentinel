@@ -563,36 +563,92 @@ fn reading_a_document_moves_the_counter_the_loop_measures_by() {
 }
 
 #[test]
-fn learn_sits_below_compile_and_above_write() {
-    // The one thing about this rung a reader is most likely to disagree with,
-    // asserted rather than described. Compiling a document is the close reading
-    // that makes mining it cheap; the profile then shapes how the next article
-    // is written.
+fn reading_the_corpus_comes_before_compiling_it() {
+    // The order the tool exists for: somebody hands over a corpus, it is read
+    // for who they are, and only then does the clone write anything. This rung
+    // spent a while below `compile` on a cost argument — compiling a document
+    // *is* the close reading that makes mining it cheap — which is true and
+    // answers a different question.
     let a = archive();
-    // Nothing compiled yet, and nothing read.
-    assert_eq!(a.json(&["next"])["action"], "compile");
+    assert_eq!(
+        a.json(&["next"])["action"],
+        "learn",
+        "a fresh corpus is read before it is summarised:\n{}",
+        a.run(&["next"])
+    );
 
+    // Read, and answered — because a `proposed` trait is the archive waiting on
+    // its owner, and `next` stops there rather than writing through a voice
+    // nobody has confirmed.
     a.write(
-        "wiki/philosophy/notes.md",
-        "---\ntitle: Notes\ndomain: philosophy\norigin: authored\ntags: [t]\n\
-         sources:\n  - raw/philosophy/mine.md\n  - raw/philosophy/theirs.md\n---\n\n\
-         See [[an-unwritten-gap]].\n",
+        "persona/plain.md",
+        &trait_file("plain", &["raw/philosophy/mine.md"])
+            .replace("status: proposed", "status: affirmed"),
     );
     a.run(&["index"]);
-    let v = a.json(&["next"]);
     assert_eq!(
-        v["action"], "learn",
-        "with a gap outstanding, learn should still come first:\n{v}"
+        a.json(&["next"])["action"],
+        "compile",
+        "and only then is there anything to compile:\n{}",
+        a.run(&["next"])
     );
+}
 
+#[test]
+fn a_corpus_that_has_been_read_but_not_answered_stops_and_asks() {
+    // The step the whole review mechanism exists for. Everything below `learn`
+    // is the clone writing, and writing through an unconfirmed reading of
+    // somebody is what the verdict is there to prevent.
+    let a = archive();
     a.write(
         "persona/plain.md",
         &trait_file("plain", &["raw/philosophy/mine.md"]),
     );
+    a.run(&["index"]);
+
+    let v = a.json(&["next"]);
+    assert_eq!(v["action"], "none", "{v}");
+    assert_eq!(v["progress"]["unconfirmed_traits"], 1);
+    assert_eq!(v["suggested_command"], "sentinel review");
+    assert!(
+        v["reason"]
+            .as_str()
+            .unwrap()
+            .contains("waiting on your verdict"),
+        "{v}"
+    );
+    assert!(
+        v["backlog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["action"] == "compile"),
+        "the work is still reported, it is just not recommended:\n{v}"
+    );
+}
+
+#[test]
+fn an_archive_with_no_persona_at_all_is_not_blocked() {
+    // Nobody is waiting on anything. Stopping here would make the tool unusable
+    // for someone who has not opted into the clone.
+    let a = Archive::new();
+    let f = a.path("paper.md");
+    std::fs::write(&f, "Somebody else's paper.\n").unwrap();
+    a.run(&[
+        "ingest",
+        &f.display().to_string(),
+        "-d",
+        "philosophy",
+        "-o",
+        "researched",
+        "--as",
+        "paper.md",
+    ]);
     assert_eq!(
         a.json(&["next"])["action"],
-        "write",
-        "and hand over to write once the corpus is read"
+        "compile",
+        "{}",
+        a.run(&["next"])
     );
 }
 

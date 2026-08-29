@@ -161,6 +161,11 @@ pub const RULES: &[RuleInfo] = &[
         description: "An `origin: extrapolated` article names no `persona:` traits. Generated prose that cannot be traced to a claim the author actually made is prose written in their voice on nobody's authority.",
     },
     RuleInfo {
+        rule: "unvoiced-article",
+        severity: Severity::Warning,
+        description: "A wiki article names no `persona:` traits in an archive that has some. Everything under wiki/ is the clone's writing, so it should say which voice it was written through. A warning, not an error: an article written before the persona existed is unfinished rather than malformed, and the repair is to cite the traits it genuinely exhibits — never to attach plausible ones.",
+    },
+    RuleInfo {
         rule: "unresolved-trait",
         severity: Severity::Error,
         description: "A `persona:` entry names no trait in persona/. The attribution points at nothing, so the article cannot be checked against what it claims to have been written from.",
@@ -478,9 +483,23 @@ pub fn analyze(
     // actually said — asked four ways.
     let by_id: BTreeMap<String, &LoadedTrait> =
         traits.iter().map(|t| (t.canonical_id(), t)).collect();
+    // Only once there is a voice to have been written through. Warning on
+    // every article in an archive that has not built a persona yet would be
+    // noise about work nobody could have done.
+    let has_persona = traits.iter().any(persona::LoadedTrait::is_affirmed);
     for article in articles {
         let fm = &article.article.frontmatter;
         let path = article.rel_path();
+
+        if !fm.is_extrapolated() && fm.persona.is_empty() && has_persona {
+            findings.push(Finding::warning(
+                "unvoiced-article",
+                path,
+                "names no `persona:` traits — everything under wiki/ is the \
+                 clone's writing, so it should say which voice it was written \
+                 through",
+            ));
+        }
 
         if fm.is_extrapolated() && fm.persona.is_empty() {
             findings.push(Finding::error(
@@ -876,6 +895,13 @@ mod tests {
                 "---\nid: stale\nkind: style\nclaim: c\nstatus: proposed\n\
                  evidence: [raw/philosophy/cited.md]\nreview:\n  \
                  - verdict: approved\n    by: someone\n    at: 2026-01-01\n---\n\nbody\n",
+            ),
+            // An affirmed trait, so the archive has a voice — which is what
+            // `unvoiced-article` needs before it will say anything.
+            trait_of(
+                "persona/settled.md",
+                "---\nid: settled\nkind: style\nclaim: c\nstatus: affirmed\n\
+                 evidence: [raw/philosophy/cited.md]\n---\n\nbody\n",
             ),
             // A trait the author said no to, for `wrote-from-rejected`.
             trait_of(

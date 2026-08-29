@@ -147,12 +147,13 @@ pub fn assert_exists(path: &Path) {
     assert!(path.exists(), "expected {} to exist", path.display());
 }
 
-/// A persona trait citing `evidence`, so the `learn` rung has nothing to say.
+/// A persona trait citing `evidence`, `affirmed`.
 ///
-/// Left `proposed` rather than `affirmed`: coverage counts any trait the author
-/// has not rejected, so `proposed` satisfies `learn` — while `affirmed` would
-/// make the trait a view nothing has written from, and hand the fixture an
-/// `extend` recommendation instead of the rung it is about.
+/// Affirmed rather than proposed, because a `proposed` trait is the archive
+/// waiting on its owner and `next` now stops there — which is right, and would
+/// otherwise answer every fixture with "go and review your traits" instead of
+/// the rung it is about. `extend` sits below `write` and `connect`, so an
+/// affirmed trait does not disturb the fixtures for those.
 ///
 /// `sync` and `ingest` register raw documents as `origin: authored` by default,
 /// which under the clone design means "the author's own writing" — and any such
@@ -166,8 +167,23 @@ pub fn trait_citing(id: &str, evidence: &[&str]) -> String {
         .collect::<String>();
     format!(
         "---\nid: {id}\nkind: style\nclaim: Writes plainly.\nconfidence: medium\n\
-         status: proposed\nevidence:\n{cited}---\n\nThe sources read plainly.\n"
+         status: affirmed\nevidence:\n{cited}---\n\nThe sources read plainly.\n"
     )
+}
+
+/// Frontmatter marking an article as the clone's own work, written from the
+/// trait `mine_corpus` leaves behind.
+///
+/// A settled archive needs this: an affirmed trait nothing has written from is
+/// real `extend` work, so a fixture that claims to be finished has to have
+/// expressed its persona as well as read its corpus.
+pub fn voiced(article: &str) -> String {
+    article
+        .replace(
+            "origin: authored",
+            "origin: extrapolated\npersona:\n  - read",
+        )
+        .replace("sources:\n  - raw/philosophy/src.md\n", "")
 }
 
 /// Satisfy the `learn` rung: one trait citing every document the manifest

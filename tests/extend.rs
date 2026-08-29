@@ -742,6 +742,25 @@ fn every_edge_points_away_from_the_author() {
     };
     let kinds = bundle["edge_kinds"].as_array().unwrap();
     assert!(kinds.len() >= 4, "the edge kinds should be published");
+
+    // Only authorship is ancestry. Walking a reference transitively reported an
+    // article as descended from a trait because something it links to was —
+    // measured on the demo archive, where one trait claimed six articles
+    // downstream and had written four.
+    let roles: std::collections::BTreeMap<&str, &str> = kinds
+        .iter()
+        .map(|k| (k["id"].as_str().unwrap(), k["role"].as_str().unwrap()))
+        .collect();
+    assert_eq!(roles["distils"], "authorship");
+    assert_eq!(roles["writes"], "authorship");
+    assert_eq!(roles["links"], "reference");
+    assert_eq!(roles["grounds"], "citation");
+    for (id, role) in &roles {
+        assert!(
+            ["authorship", "reference", "citation"].contains(role),
+            "edge kind `{id}` has an unknown role `{role}`"
+        );
+    }
     for k in kinds {
         assert!(
             k["from_layer"].as_u64().unwrap() <= k["to_layer"].as_u64().unwrap(),

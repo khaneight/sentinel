@@ -51,23 +51,21 @@ Each of these was a bug. Breaking one reintroduces it.
 characters dropped. Use `canonical_slug()`, never `slug()`, which is for display.
 Plurals and the Turkish dotted `İ` are deliberately *not* folded.
 
-**The citation chain, corpus to output.** Every link is a lint **error** to
-break; the repair is never to supply the missing part.
-A `persona/` trait must cite `evidence:`, and every entry must resolve to a raw
-document whose `origin` is `authored` or `hybrid` — research records what they
-read, not what they think. An `origin: extrapolated` article must name the
-`persona:` traits it rests on (`unattributed-extrapolation`), those must
-resolve, and they must be ones the author *affirmed*; from a rejected trait is
-an error, from an unconfirmed one a warning. `INGESTABLE_ORIGINS` is a strict
-subset of `ORIGINS`, so `raw/` can never hold extrapolated work — otherwise the
-archive could learn a person from its own output.
-[`docs/clone.md`](docs/clone.md).
+**The citation chain, corpus to output.** The repair for a broken link is never
+to supply the missing part. A trait must cite `evidence:` resolving to an
+`authored`/`hybrid` document — research records what they read, not what they
+think. An article names the `persona:` traits it was written through: absent on
+`extrapolated` work is an error, elsewhere `unvoiced-article` warns. Cited
+traits must resolve and be *affirmed* — a rejected one is an error, unconfirmed
+a warning. `INGESTABLE_ORIGINS` is a strict subset of `ORIGINS`, so `raw/` can
+never hold extrapolated work, or the archive could learn a person from its own
+output. [`docs/clone.md`](docs/clone.md).
 
 **`raw/` is published one document at a time.** `export --with-sources` copies
-only entries marked `publish: true` by `sentinel sources`, default false —
-nothing about a file says whether its owner may publish it, so no flag takes
-the directory. A published article's `sources:` is rewritten to name only what
-a reader can open; a withheld filename is often the private part.
+only what `sentinel sources` marked `publish: true`, default false — nothing
+about a file says whether its owner may publish it. A published article's
+`sources:` names only what a reader can open; a withheld filename is often the
+private part.
 
 **The owner's word.** `review:` entries are the owner's verdicts and `sentinel
 review` is their only writer — no skill invokes it, because an agent that can
@@ -95,9 +93,9 @@ producing identical bytes writes nothing (`atomic::write_if_changed`).
 sibling, `sync_all`, `rename`. Never `fs::write`.
 
 **Exclusivity.** Anything that reads shared state, changes it and writes it back
-takes `core::lock::ArchiveLock` (`meta/.lock`). Queries take no lock. Every
-subcommand must be classified in `tests/command_contract.rs`, exemptions with
-reasons; the list lives there, not here.
+takes `core::lock::ArchiveLock` (`meta/.lock`); queries take no lock. Every
+subcommand is classified in `tests/command_contract.rs`, exemptions with
+reasons.
 
 **Honesty about limits.** Any capped list publishes its true total —
 `ref_count`, `target_count`, `result_count`, `entry_count`, and the header of
@@ -142,20 +140,22 @@ an empty result, so a typo cannot read as a clean rule.
 A `broken-link` is a **warning**: the compile workflow forward-declares links
 deliberately, so an archive full of them is healthy.
 
-**`sentinel next`** — priority `fix-errors` → `compile` → `learn` → `write` →
-`connect` → `extend` → `review`, from `Action::LADDER`, which is the one ordering:
-`schema`'s published list and its numbering are derived from it. It ranks; it
-does not schedule.
-**Every action in the ladder must move a progress counter** — `fix-errors`→`errors`,
-`compile`→`uncompiled`, `learn`→`unmined`, `write`→`wiki_articles`,
-`connect`→`orphans`, `extend`→`unexpressed`, `review`→`drafts` — or a correct iteration of it reads as
-no progress and halts the loop. A new action needs a counter, and one that only
-fires for archives that opted into it, or `next` never says "nothing
-outstanding" again. Approval is deliberately *not* a rung: the agent cannot
-approve its own work, so `progress.awaiting_approval` is something for the loop
-to stop on rather than to act on. `--action <name>` reaches any
-category, `backlog` counts them all, and `progress` reports what the archive
-*contains*. Measure loop progress by `progress`, never by backlog size.
+**`sentinel next`** — priority `fix-errors` → `learn` → `compile` → `write` →
+`connect` → `extend` → `review`, from `Action::LADDER`, the one ordering:
+`schema`'s published list and numbering derive from it. It ranks; it does not
+schedule. `--action <name>` reaches any category, `backlog` counts them all, and
+`progress` reports what the archive *contains* — measure loop progress by that,
+never by backlog size.
+**Every rung must move a counter** — `errors`, `unmined`, `uncompiled`,
+`wiki_articles`, `orphans`, `unexpressed`, `drafts`, in ladder order — or a
+correct iteration reads as no progress and halts the loop. A new rung needs a
+counter, and must only fire for archives that opted into it, or `next` never
+says "nothing outstanding" again.
+**Nothing the user must answer is a rung.** The agent cannot approve its own
+work, so `awaiting_approval` and `unconfirmed_traits` are things to stop on:
+with traits proposed and none affirmed, `next` returns `none` and points at
+`sentinel review`, because everything below `learn` is the clone writing and an
+unconfirmed reading of somebody is what the verdict prevents.
 
 **`sentinel schema`** — the published frontmatter contract, domains (read from
 disk), lint rules, and the `next` ladder. Skills read this instead of restating
@@ -182,15 +182,16 @@ reasoning behind each of these is in [`docs/design-notes.md`](docs/design-notes.
   composes its own disclosure can leave it out.
   `--data`/`--ui` emit the front-end bundle. `LAYERS` (source material, persona,
   the clone's work) and each node's `layer` are published, so a page cannot
-  invent its own account of what the archive is made of. **Affirmed traits are
-  nodes**; `proposed` ones are absent, as from `persona`. Never `raw/` paths.
-  **Every edge points outward** and declares its `EDGE_KINDS` entry —
-  `distils`, `writes`, `compiles`, `links` — because the arrow is the claim, and
-  reversed the graph says the work produced the corpus; a test asserts every
-  emitted edge joins the layers its kind declares. `--ui` also writes
-  `ui/index.html` (`include_str!`d, so page and bundle cannot drift) beside its
-  own `bundle.json`, since a page without data is a site of one error message.
-  [`docs/publishing.md`](docs/publishing.md) has the workflow, and
+  invent its own account of the archive. **Affirmed traits are nodes**;
+  `proposed` ones are absent, as from `persona`. Never `raw/` paths.
+  **Every edge points outward** with an `EDGE_KINDS` `role`; a test asserts each
+  joins the layers it names. Only `authorship` (`distils`, `writes`) is ancestry
+  and walked transitively — `links` is a `reference`, one hop, and following it
+  as ancestry made a trait claim work it had not written; `grounds` (`sources:`)
+  is a `citation`, never a way in, because the clone wrote the article through
+  the persona, not the document. `--ui` also writes `ui/index.html`
+  (`include_str!`d, so page and bundle cannot drift) beside its own
+  `bundle.json`. [`docs/publishing.md`](docs/publishing.md) has the workflow;
   `meta/progress.jsonl` — one snapshot per `index` **that changed something** —
   is the growth series it carries.
 - **`index`** regenerates every `index/` page, the link graph and the manifest's

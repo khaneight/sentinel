@@ -79,15 +79,16 @@ impl Action {
     /// written the same way.
     pub const LADDER: &'static [Action] = &[
         Action::FixErrors,
-        Action::Compile,
-        // Below `compile`, above `write`. docs/clone.md originally argued for
-        // the top of the ladder — "a corpus read after the fact shaped
-        // nothing" — and that was overstated. Compiling a document *is* the
-        // close reading that makes mining it cheap, and what a thin profile
-        // actually degrades is generated work, which sits below this. What
-        // `learn` does earn is a place above `write`: the profile shapes how
-        // the next article is written.
+        // Above `compile`, which is where the design first put it and where it
+        // belongs. It was moved below on a cost argument — compiling a document
+        // *is* the close reading that makes mining it cheap — and that answers
+        // the wrong question. The order follows what the tool is for: somebody
+        // hands over a corpus, it is read for who they are, and only then does
+        // the clone write anything. Summarising the corpus into articles before
+        // anyone has read it for voice is a step inherited from the knowledge
+        // base this used to be.
         Action::Learn,
+        Action::Compile,
         Action::Write,
         Action::Connect,
         // The payoff, not the maintenance. Below `connect` because generating
@@ -194,6 +195,9 @@ pub struct Progress {
     /// rung: the agent cannot approve its own work, so this is reported for
     /// the loop to *stop* on rather than to act on.
     pub awaiting_approval: usize,
+    /// Traits the agent proposed and the author has not answered. Also not a
+    /// rung, and for the same reason.
+    pub unconfirmed_traits: usize,
     /// Documents the author wrote that no persona trait has been read from.
     /// Moves when `learn` does its work — which changes nothing else, so
     /// without this a correct `learn` iteration reads as no progress and halts
@@ -285,6 +289,16 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
     let coverage = persona::Coverage::derive(&persona_loaded.traits, &manifest);
     let unmined = coverage.unmined();
     let unexpressed = unexpressed_traits(&persona_loaded.traits, &articles);
+    let unconfirmed_traits = persona_loaded
+        .traits
+        .iter()
+        .filter(|t| t.status() == "proposed")
+        .count();
+    let affirmed_traits = persona_loaded
+        .traits
+        .iter()
+        .filter(|t| t.is_affirmed())
+        .count();
     let awaiting_approval = articles
         .iter()
         .filter(|a| a.article.frontmatter.is_extrapolated())
@@ -317,6 +331,7 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
         unmined: unmined.len(),
         unexpressed: unexpressed.len(),
         awaiting_approval,
+        unconfirmed_traits,
         link_graph_error: graph_error,
         link_graph_stale: graph_stale,
         unreadable: unreadable.clone(),
@@ -377,9 +392,34 @@ pub fn recommend(requested: Option<Action>) -> io::Result<Recommendation> {
         return Ok(rec);
     }
 
+    // The archive has read the corpus and is waiting to be told whether it read
+    // it right. Everything below `learn` is the clone writing, and writing
+    // through a voice nobody has confirmed is the thing the whole review
+    // mechanism exists to prevent — so this stops rather than proceeding.
+    //
+    // Only when there is something to answer. An archive that has never built a
+    // persona is not waiting on anybody, and blocking it would make the tool
+    // unusable for someone who has not opted into the clone at all.
+    if unconfirmed_traits > 0 && affirmed_traits == 0 && errors.is_empty() && unmined.is_empty() {
+        return Ok(Recommendation {
+            action: Action::None,
+            reason: format!(
+                "{unconfirmed_traits} trait(s) are waiting on your verdict. The archive has \
+                 read the corpus; nothing below this writes anything until you say whether \
+                 it read you right.\n  sentinel review"
+            ),
+            target_count: unconfirmed_traits,
+            targets: Vec::new(),
+            suggested_command: Some("sentinel review".to_string()),
+            backlog: backlog.clone(),
+            progress: progress.clone(),
+            requested: false,
+        });
+    }
+
     // Priority order. Errors first because every later judgement is made on
-    // data the errors call into question; compile before write because an
-    // uncompiled source is knowledge already in hand.
+    // data the errors call into question; then the corpus is read, and only
+    // then does the clone write anything.
     Ok(Action::LADDER
         .iter()
         .find_map(|action| build(*action))
@@ -729,10 +769,18 @@ fn report_human(rec: &Recommendation) {
         println!("     orphans could not be counted.\n");
     }
     if rec.action == Action::None {
-        // A tick means "done". An archive nobody has put anything in yet is at
-        // the start, not the end, and the marker is the first thing read.
+        // A tick means "done", and the marker is the first thing read. Three
+        // different things arrive here and only one of them is finished: an
+        // archive nobody has put anything in is at the start, and one waiting
+        // on a verdict is stopped rather than complete. Calling either of those
+        // done is the whole reason this branch exists.
         let empty = rec.progress.wiki_articles == 0 && rec.progress.raw_documents == 0;
-        let marker = if empty { "→".cyan() } else { "✓".green() };
+        let waiting = rec.progress.unconfirmed_traits > 0;
+        let marker = match (empty, waiting) {
+            (_, true) => "…".yellow(),
+            (true, _) => "→".cyan(),
+            _ => "✓".green(),
+        };
         println!("{marker} {}", rec.reason);
         return;
     }

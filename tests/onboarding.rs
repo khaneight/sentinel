@@ -504,3 +504,63 @@ fn the_three_path_forms_a_person_writes_all_resolve() {
         std::fs::remove_file(j.archive.path("wiki/philosophy/probe.md")).unwrap();
     }
 }
+
+#[test]
+fn a_corpus_is_read_before_it_is_compiled_and_stops_for_a_verdict() {
+    // The sequence the tool exists for, asserted as a sequence: hand over a
+    // corpus, see what the archive made of you, say whether it read you right,
+    // and only then does it write anything. Each step is only correct because
+    // of the one before it, which is what `tests/onboarding.rs` is for.
+    let mut j = Journey::new();
+    let notes = j.write_scratch("essays.md", "Start from a case you can hold.\n");
+    j.run(&[
+        "ingest",
+        &notes.display().to_string(),
+        "-d",
+        "philosophy",
+        "-o",
+        "authored",
+        "-t",
+        "Essays",
+    ]);
+
+    assert_eq!(
+        j.archive.json(&["next"])["action"],
+        "learn",
+        "a fresh corpus is read for its author before it is summarised{}",
+        j.transcript()
+    );
+
+    j.archive.write(
+        "persona/from-cases.md",
+        "---\nid: from-cases\nkind: pattern\nclaim: Starts from a case.\n\
+         confidence: high\nstatus: proposed\nevidence:\n  - raw/philosophy/essays.md\n---\n\n\
+         \"Start from a case you can hold.\"\n",
+    );
+    j.run(&["index"]);
+
+    let v = j.archive.json(&["next"]);
+    assert_eq!(
+        v["action"],
+        "none",
+        "with the reading unconfirmed the archive waits{}",
+        j.transcript()
+    );
+    assert_eq!(v["suggested_command"], "sentinel review");
+    let human = j.archive.run(&["next"]);
+    assert!(
+        !human.contains('✓'),
+        "waiting on a verdict is not completion:\n{human}"
+    );
+
+    let mut cmd = j.archive.cmd(&["review", "from-cases", "--approve"]);
+    cmd.env("SENTINEL_REVIEWER", "author");
+    assert!(cmd.output().unwrap().status.success());
+
+    assert_eq!(
+        j.archive.json(&["next"])["action"],
+        "compile",
+        "and only once it is answered does the clone start writing{}",
+        j.transcript()
+    );
+}
