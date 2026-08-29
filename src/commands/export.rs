@@ -695,15 +695,15 @@ pub const LAYERS: &[Layer] = &[
     },
     Layer {
         index: 1,
-        id: "persona",
-        name: "Persona",
-        description: "Cited traits distilled from that writing — how they argue and what they hold. Each one names the documents it was read out of.",
+        id: "distilled",
+        name: "Distilled",
+        description: "What the archive read out of that writing: traits describing how the author thinks, and articles setting down what their sources say. Every claim here traces to a document.",
     },
     Layer {
         index: 2,
-        id: "work",
-        name: "The clone's work",
-        description: "Articles the archive produced: compiled from sources, or written from the persona and signed off by the author.",
+        id: "written",
+        name: "Written",
+        description: "What the clone produced that no source contains — the author's thinking extended, from the traits above, and signed off by them.",
     },
 ];
 
@@ -717,14 +717,22 @@ pub struct Layer {
 
 /// Which layer a wiki article belongs to.
 ///
-/// All of them: an article is the archive's output whether it was compiled from
-/// a source or extrapolated from the persona. The difference between those two
-/// is carried by `origin` and `extrapolated`, which is what marks generated
-/// work — depth answers a different question, and conflating the two would put
-/// a compiled article and a machine-written one on different rings while
-/// claiming the rings mean provenance layer.
-fn layer_of(_origin: &str) -> u8 {
-    2
+/// The line is *derived or invented*, not who typed it. Every article here is
+/// prose a language model wrote; splitting them on that says nothing. What
+/// differs is whether the claims trace back to a document. A compiled article
+/// sets down what a source says, which is the same act as reading a corpus into
+/// a trait — distillation, and it belongs beside the traits. An extrapolated
+/// article asserts things no source contains.
+///
+/// That also puts the mark where it belongs. The outer ring is now exactly the
+/// machine-original work, so the layer carries the distinction and the page
+/// does not need a second visual device to say it.
+fn layer_of(origin: &str) -> u8 {
+    if origin == crate::core::frontmatter::EXTRAPOLATED {
+        2
+    } else {
+        1
+    }
 }
 
 /// A connection, always pointing **outward** — from what something came from
@@ -749,29 +757,32 @@ struct Edge {
 pub const EDGE_KINDS: &[EdgeKind] = &[
     EdgeKind {
         id: "distils",
-        from_layer: 0,
-        to_layer: 1,
-        description: "A persona trait was read out of this document.",
+        from_layer: Some(0),
+        to_layer: Some(1),
+        description: "A trait was read out of this document, or an article compiled from it.",
         role: "authorship",
     },
     EdgeKind {
         id: "writes",
-        from_layer: 1,
-        to_layer: 2,
-        description: "This article was written from that trait.",
+        from_layer: Some(1),
+        to_layer: Some(2),
+        description: "The clone wrote this from that trait.",
         role: "authorship",
     },
     EdgeKind {
         id: "grounds",
-        from_layer: 0,
-        to_layer: 2,
-        description: "This article is evidenced by that document — what it cites, not what wrote it.",
+        from_layer: Some(0),
+        to_layer: Some(2),
+        description: "Written work evidenced by a document — what it cites, not what produced it.",
         role: "citation",
     },
     EdgeKind {
+        // No fixed layers: an article in either ring may link to one in either.
+        // Declaring a pair here would be asserting something untrue to keep a
+        // test simple.
         id: "links",
-        from_layer: 2,
-        to_layer: 2,
+        from_layer: None,
+        to_layer: None,
         description: "One article's [[wikilink]] to another.",
         role: "reference",
     },
@@ -780,8 +791,11 @@ pub const EDGE_KINDS: &[EdgeKind] = &[
 #[derive(Serialize, Clone, Copy)]
 pub struct EdgeKind {
     pub id: &'static str,
-    pub from_layer: u8,
-    pub to_layer: u8,
+    /// The layers this kind joins, when it always joins the same pair. `None`
+    /// where it genuinely varies — a reference between two articles can run
+    /// either way across the two rings articles live in.
+    pub from_layer: Option<u8>,
+    pub to_layer: Option<u8>,
     pub description: &'static str,
     /// What kind of relation this is, which decides both how it is drawn and
     /// whether following it tells you where something came from.
@@ -882,13 +896,21 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             });
         }
     }
-    // Grounding edges, source → article. Not authorship: the document did not
-    // write the article, the clone did, through the persona. This records what
-    // the article rests on, which is a citation and legitimately reaches back
-    // past whatever produced the text. The same `sources:` the compile loop
-    // reads, resolved the same way.
+    // Source → article. Which relation it is depends on what the article is.
+    //
+    // A compiled article sets down what the document says: the document is
+    // where its claims come from, so that is authorship, and the pair sits
+    // inside the distilled ring's own inputs. A generated article asserts
+    // things no source contains; a `sources:` entry on one is a citation, and
+    // following it as ancestry would credit the corpus with prose it does not
+    // contain.
     for article in published {
         let to = article.canonical_slug();
+        let kind = if article.article.frontmatter.is_extrapolated() {
+            "grounds"
+        } else {
+            "distils"
+        };
         for cited in &article.article.frontmatter.sources {
             let Some(resolved) = index.resolve(cited) else {
                 continue;
@@ -902,7 +924,7 @@ fn bundle(input: BundleInput<'_>) -> io::Result<Bundle> {
             edges.push(Edge {
                 from,
                 to: to.clone(),
-                kind: "grounds",
+                kind,
             });
         }
     }

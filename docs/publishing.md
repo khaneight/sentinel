@@ -130,9 +130,12 @@ strict content policy, and in five years.
 
 It shows:
 
-- **the graph**, in three rings that are the shape of the system: the source
-  material the author wrote at the core, the persona distilled from it in the
-  middle, and the clone's work at the rim. The middle ring is the point — an
+- **the graph**, in three rings: the source material at the core, everything
+  distilled from it in the middle — traits describing the author *and* articles
+  setting down what their sources say — and at the rim only the work that says
+  something no source contains. The split is derived versus invented, not who
+  typed it; every article is model prose, and compiling one is the same act as
+  reading a corpus into a trait. The middle ring is the point — an
   affirmed trait connects down to every document it was read out of and up to
   every article written from it, so a claim in a generated essay can be
   followed back to the sentence in the corpus that supports it. Rings are drawn
@@ -161,10 +164,8 @@ Drag to pan, scroll to zoom toward the cursor, arrow keys to move, `0` to fit.
 Source documents appear only when you exported with `--with-sources`; without
 it the graph is articles alone and the core is simply the author's own writing.
 
-Because hue now carries the layer, it can no longer be what marks generated
-work — so on the outer ring a **filled** dot is something a language model
-wrote and a **hollow** one was compiled from a source. Filled is the one that
-draws the eye, which is the right way round. Those articles also open with the
+The outer ring is exactly the machine-original work, so its colour is already
+the mark and nothing else is needed to say it. Those articles also open with the
 attribution notice — the exporter's own wording, lifted
 from the foot of the document to the top, because on screen the foot is after
 you have read the thing believing it might be theirs. That is not decoration: the bundle carries

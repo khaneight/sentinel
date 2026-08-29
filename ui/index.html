@@ -340,7 +340,7 @@ const CONTRACT = {
   layer: ['index', 'id', 'name', 'description'],
   node: ['slug', 'title', 'domain', 'origin', 'status', 'kind', 'layer', 'extrapolated', 'tags', 'body', 'inbound', 'outbound'],
   edge: ['from', 'to', 'kind'],
-  edge_kind: ['id', 'from_layer', 'to_layer', 'description', 'role'],
+  edge_kind: ['id', 'description', 'role'],
   trait: ['id', 'kind', 'claim', 'confidence', 'evidence_count', 'expressed_in'],
   in_progress: ['unpublished', 'awaiting_approval', 'unconfirmed_traits', 'wanted'],
   progress: ['at', 'wiki_articles', 'links', 'wanted', 'unmined'],
@@ -441,8 +441,8 @@ function markdown(src, isLinked) {
 // blue is the model of them, purple is what the archive produced.
 const LAYER_INK = {
   source: 'var(--core)',
-  persona: 'var(--persona)',
-  work: 'var(--machine)',
+  distilled: 'var(--persona)',
+  written: 'var(--machine)',
 };
 
 // A connection takes the colour of the layer it leaves, so hue means the same
@@ -534,10 +534,6 @@ function render(b) {
               <b>${esc(l.name)}</b><br>
               <span>${esc(l.description)}</span></div>`).join('')}
         </div>
-        <div class="legend" style="margin-top:10px">
-          <span><i style="background:var(--machine)"></i>written by a language model</span>
-          <span><i class="hollow" style="border-color:var(--machine)"></i>compiled from a source</span>
-        </div>
 
         <h2>Connections</h2>
         <div class="legend">
@@ -567,9 +563,9 @@ function render(b) {
   if (generated) {
     $('#detail').insertAdjacentHTML('beforebegin', `
       <div class="machine-note"><b>${generated}</b> of these ${b.nodes.length}
-        page(s) were written by a language model from this archive, and approved
-        by its owner. They are the <b>filled</b> dots on the outer ring; hollow
-        ones were compiled from a source.</div>`);
+        page(s) say something no source in this archive says. The clone wrote
+        them from the traits, and their owner approved each one. They are the
+        outer ring, in purple.</div>`);
   }
 
   drawSpark(b.progress);
@@ -947,20 +943,10 @@ function graph(b, onOpen) {
       g.globalAlpha = visible ? (related ? 1 - p.ring * 0.08 : 0.16) : 0.08;
       g.beginPath();
       g.arc(at.x, at.y, r, 0, 6.284);
-      const hue = colorOf(p.n, style);
-      // Hue is the layer, so it can no longer be what marks generated work —
-      // and that distinction is not decoration. A filled dot is something a
-      // language model wrote; a hollow one was compiled from a source. Filled
-      // is the one that draws the eye, which is the right way round.
-      if (p.n.layer === 2 && !p.n.extrapolated) {
-        g.strokeStyle = hue;
-        g.lineWidth = 2;
-        g.stroke();
-        g.lineWidth = 1;
-      } else {
-        g.fillStyle = hue;
-        g.fill();
-      }
+      // No second device for generated work any more: the outer ring *is*
+      // exactly that, so the layer colour already says it.
+      g.fillStyle = colorOf(p.n, style);
+      g.fill();
 
       if (selected === p.n.slug || hover === p.n.slug) {
         g.globalAlpha = 1;

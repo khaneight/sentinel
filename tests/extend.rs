@@ -558,7 +558,7 @@ fn the_bundle_publishes_three_layers_in_order() {
         .iter()
         .map(|l| l["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, ["source", "persona", "work"]);
+    assert_eq!(ids, ["source", "distilled", "written"]);
     for (i, l) in bundle["layers"].as_array().unwrap().iter().enumerate() {
         assert_eq!(l["index"], i as u64, "index must match position");
         assert!(!l["name"].as_str().unwrap().is_empty());
@@ -567,12 +567,12 @@ fn the_bundle_publishes_three_layers_in_order() {
 }
 
 #[test]
-fn every_article_sits_in_the_work_layer_whatever_its_origin() {
-    // Depth answers "what kind of thing is this", not "how was it written".
-    // Origin answers the second, and `extrapolated` is what marks generated
-    // work — splitting the rings by origin would put a compiled article and a
-    // machine-written one at different depths while the legend claims depth
-    // means layer.
+fn the_rings_split_derived_work_from_invented_work() {
+    // Not "who typed it" — every article here is prose a language model wrote,
+    // and splitting on that says nothing. What differs is whether the claims
+    // trace back to a document. A compiled article sets down what a source
+    // says, which is the same act as reading a corpus into a trait. An
+    // extrapolated one asserts something no source contains.
     let a = archive();
     for (slug, origin) in [
         ("mine", "authored"),
@@ -617,9 +617,14 @@ fn every_article_sits_in_the_work_layer_whatever_its_origin() {
             .as_u64()
             .unwrap()
     };
-    for slug in ["mine", "ours", "theirs", "machine"] {
-        assert_eq!(layer(slug), 2, "{slug} belongs to the work layer");
+    for slug in ["mine", "ours", "theirs"] {
+        assert_eq!(layer(slug), 1, "{slug} is distilled from a source");
     }
+    assert_eq!(
+        layer("machine"),
+        2,
+        "only work that no source contains sits in the outer ring"
+    );
 
     // And the distinction that does matter is still carried.
     let node = |slug: &str| -> serde_json::Value {
@@ -747,6 +752,9 @@ fn every_edge_points_away_from_the_author() {
     // article as descended from a trait because something it links to was —
     // measured on the demo archive, where one trait claimed six articles
     // downstream and had written four.
+    // Where a kind declares its layers it must join exactly those; `links` runs
+    // between articles in either ring and declares none rather than asserting
+    // a pair that is not true.
     let roles: std::collections::BTreeMap<&str, &str> = kinds
         .iter()
         .map(|k| (k["id"].as_str().unwrap(), k["role"].as_str().unwrap()))
@@ -762,23 +770,19 @@ fn every_edge_points_away_from_the_author() {
         );
     }
     for k in kinds {
-        assert!(
-            k["from_layer"].as_u64().unwrap() <= k["to_layer"].as_u64().unwrap(),
-            "edge kind `{}` runs inward",
-            k["id"]
-        );
+        let (Some(from), Some(to)) = (k["from_layer"].as_u64(), k["to_layer"].as_u64()) else {
+            continue;
+        };
+        assert!(from <= to, "edge kind `{}` runs inward", k["id"]);
     }
 
     let declared: std::collections::HashMap<&str, (u64, u64)> = kinds
         .iter()
-        .map(|k| {
-            (
+        .filter_map(|k| {
+            Some((
                 k["id"].as_str().unwrap(),
-                (
-                    k["from_layer"].as_u64().unwrap(),
-                    k["to_layer"].as_u64().unwrap(),
-                ),
-            )
+                (k["from_layer"].as_u64()?, k["to_layer"].as_u64()?),
+            ))
         })
         .collect();
 
@@ -786,9 +790,13 @@ fn every_edge_points_away_from_the_author() {
     assert!(!edges.is_empty(), "the fixture should produce edges");
     for e in edges {
         let kind = e["kind"].as_str().unwrap();
-        let (from, to) = declared
-            .get(kind)
-            .unwrap_or_else(|| panic!("edge kind `{kind}` is emitted but not published"));
+        assert!(
+            roles.contains_key(kind),
+            "edge kind `{kind}` is emitted but not published"
+        );
+        let Some((from, to)) = declared.get(kind) else {
+            continue;
+        };
         assert_eq!(
             (
                 layer_of(e["from"].as_str().unwrap()),
