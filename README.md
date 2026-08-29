@@ -216,7 +216,7 @@ sentinel lint --json | jq -r '.findings[] | select(.severity=="error") | "\(.rul
 
 Three layers, following the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: **raw sources** you curate and sentinel never modifies; **the wiki** the agent owns entirely; and **the schema**, published by `sentinel schema` and generated from the code so it cannot drift from what the tool enforces.
 
-[`CLAUDE.md`](CLAUDE.md) states the invariants; [`docs/design-notes.md`](docs/design-notes.md) explains what went wrong to produce each one.
+[`CLAUDE.md`](CLAUDE.md) states the invariants; [`docs/design-notes.md`](docs/design-notes.md) explains what went wrong to produce each one; [`docs/architecture.md`](docs/architecture.md) maps the pieces and where they are going.
 
 ## License
 
